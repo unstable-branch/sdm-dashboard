@@ -51,6 +51,10 @@ services:
           memory: 512M
     environment:
       - NODE_ENV=production
+      - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
+      - SDM_INPUT_ASSET_CHELSA_ROOT=/app/chelsa
+      - SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT=/app/Worldclim_future
       - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
       - REDIS_URL=redis://redis:6379
       - PLUMBER_URL=http://plumber:8000
@@ -65,6 +69,10 @@ services:
       - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET_EXPORTS:?GARAGE_BUCKET_EXPORTS is required}
     volumes:
       - r-data:/app/outputs
+      # Read-only verification of the exact roots published by Plumber.
+      - r-climate:/app/Worldclim:ro
+      - r-chelsa:/app/chelsa:ro
+      - r-future:/app/Worldclim_future:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,6 +141,9 @@ services:
       - r-future:/app/Worldclim_future
     environment:
       - SDM_PROJECT_ROOT=/app
+      - SDM_WORLDCLIM_DIR=/app/Worldclim
+      - SDM_CHELSA_DIR=/app/chelsa
+      - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
       - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=false

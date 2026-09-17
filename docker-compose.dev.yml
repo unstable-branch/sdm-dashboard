@@ -117,8 +117,13 @@ services:
       - ./outputs:/app/outputs
       - ./covariates:/app/covariates
       - ./Worldclim:/app/Worldclim
+      - ./chelsa:/app/chelsa
+      - ./Worldclim_future:/app/Worldclim_future
     environment:
       - SDM_PROJECT_ROOT=/app
+      - SDM_WORLDCLIM_DIR=/app/Worldclim
+      - SDM_CHELSA_DIR=/app/chelsa
+      - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-dev-plumber-key}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-true}
@@ -172,6 +177,9 @@ services:
     environment:
       - NODE_ENV=development
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
+      - SDM_INPUT_ASSET_CHELSA_ROOT=/app/chelsa
+      - SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT=/app/Worldclim_future
       - PLUMBER_URL=http://plumber:8000
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-dev-plumber-key}
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:-sdm_dev_only_change_me}@postgres:5432/sdm_platform
@@ -185,6 +193,11 @@ services:
       - ./packages/shared:/app/packages/shared:ro
       - ./data/uploads:/app/data/uploads
       - ./outputs:/app/outputs
+      # The API only verifies immutable manifests and their members. Keep the
+      # exact Plumber roots, but never grant it write access to climate data.
+      - ./Worldclim:/app/Worldclim:ro
+      - ./chelsa:/app/chelsa:ro
+      - ./Worldclim_future:/app/Worldclim_future:ro
     depends_on:
       postgres:
         condition: service_healthy

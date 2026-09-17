@@ -94,6 +94,9 @@ services:
       - plumber-future:/app/Worldclim_future
     environment:
       - SDM_PROJECT_ROOT=/app
+      - SDM_WORLDCLIM_DIR=/app/Worldclim
+      - SDM_CHELSA_DIR=/app/chelsa
+      - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
@@ -133,6 +136,9 @@ services:
       - "127.0.0.1:4000:4000"
     environment:
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
+      - SDM_INPUT_ASSET_CHELSA_ROOT=/app/chelsa
+      - SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT=/app/Worldclim_future
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=${FRONTEND_API_URL:-}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
@@ -158,6 +164,12 @@ services:
     volumes:
       - upload-data:/app/data/uploads
       - plumber-outputs:/app/outputs
+      # Read-only verification of the same climate roots Plumber publishes.
+      # Reuse Plumber's volumes so this does not introduce an empty shadow
+      # volume over image-baked climate data.
+      - plumber-worldclim:/app/Worldclim:ro
+      - plumber-chelsa:/app/chelsa:ro
+      - plumber-future:/app/Worldclim_future:ro
     depends_on:
       postgres:
         condition: service_healthy
