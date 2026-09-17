@@ -345,7 +345,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; base_directory: string; message?: string }> {
+  async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; message?: string }> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
     return res.json();
