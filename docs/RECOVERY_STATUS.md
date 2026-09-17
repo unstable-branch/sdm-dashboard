@@ -1,5 +1,7 @@
 # Recovery status and direction
 
+> **Dated history.** This file records recovery checkpoints and is not the current project-status authority. See [STATUS.md](STATUS.md), [ROADMAP.md](ROADMAP.md), and [REVIEW_LEDGER.md](REVIEW_LEDGER.md) for current truth. Add future recovery events here only as dated historical entries, not as replacements for those documents.
+
 _Last updated: 2026-09-17_
 
 This branch is a staged recovery of the reviewed `main` snapshot. The architecture is being retained: the work is repairing contracts between Next.js, Hono, Plumber, PostgreSQL, queues, and the R modelling pipeline rather than replacing them.

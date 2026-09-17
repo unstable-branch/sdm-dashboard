@@ -1,579 +1,150 @@
-# AGENTS.md — SDM Dashboard Workbench
+# SDM Dashboard Workbench contributor contract
 
-## Git workflow
+## Purpose and boundaries
 
-This repo uses a two-step integration flow:
+This repository develops a species-distribution-modelling workbench. Keep the public tree reproducible, secure for sensitive occurrence data, and honest about scientific and operational capability.
 
-```
-feature branch -> dev -> main
-```
+The modern platform is the primary deployment direction: Next.js frontend, Hono API, PostgreSQL/PostGIS, Redis/BullMQ, Garage-compatible storage, and Plumber/R computation. The root R/Shiny application is a supported legacy desktop surface for single-user local work. Do not treat Shiny's local trust model as a substitute for modern authentication or project authorization.
 
-- `main` is the stable branch. Do not push directly to `main`. It should move only by PR from `dev` after CI passes.
-- `dev` is the integration branch. It should stay mostly working, but it is allowed to move faster than `main`.
-- Bigger work happens on feature branches, then PRs into `dev`.
-- Small docs/CI fixes may go straight to `dev` only when the change is low risk and the owner explicitly asked for it.
-- Never rewrite shared branch history after pushing. No force-push to `main` or `dev`.
-- Commit locally at logical checkpoints: a bug fixed, a feature working, a refactor complete, or a test added.
-- Avoid committing broken states to `dev` or `main`. WIP belongs on a feature branch.
-- Do NOT commit to local git until a substantial change is complete (multiple related fixes working together).
-- After each substantial batch of work, ask the user if they want to commit to remote before pushing.
+One contract must have one canonical owner. Shared TypeScript schemas describe API boundaries; Drizzle migrations and schema describe persisted state; Hono owns current-principal and project authorization; Plumber rechecks its boundary; R owns modelling semantics and scientific outputs. Documentation must not advertise a capability that its source and acceptance gate do not support.
 
-Branch names should use a short area or repo-local alias, then the topic. No real names needed.
-
-- `ui/obs-records-table`
-- `ci/release-audit`
-- `data/gbif-import`
-- `docs/workflow-guide`
-
-Use conventional commit prefixes:
-
-- `feat:` user-facing feature
-- `fix:` bug fix
-- `test:` tests or fixtures
-- `docs:` documentation only
-- `refactor:` internal restructure without behavior change
-- `chore:` maintenance/tooling
+## Branch and history safety
 
-PR targets:
+Use the integration flow:
 
-- Feature/fix PRs target `dev`.
-- Release/stabilization PRs target `main` from `dev`.
-- If two people need the same files, split the work first or agree who owns that file slice.
-- Keep working on the same branch across related work — open one PR per logical
-  work batch rather than splitting every sub-topic into its own branch. A PR
-  should bundle whatever changes belong to one story (e.g. a bug plus the tests
-  and docs that go with it).
+feature/fix -> dev -> main
 
-- Cut a new branch only for **massive significant changes**: rewrites of the
-  modeling pipeline in `R/core/run_sdm.R`, auth/security work, release-path CI
-  or compose, or any change that spans 4+ subsystems with no shared theme.
+- Feature and fix pull requests target dev.
+- A release or stabilization pull request targets main from a reviewed dev SHA.
+- Never push directly to main; never rewrite shared dev or main history.
+- Keep unrelated branches, worktrees, dirty files, and recovery points intact.
+- Do not reset, merge, rebase, delete, force-push, publish, deploy, or change repository settings as an incidental step.
+- A clean clone and exact target SHA are prerequisites for review, not optional ceremony.
+- Small documentation or CI fixes may go directly to dev only when explicitly authorized and independently reviewable.
+- Keep logical changes separable. Do not combine a documentation rewrite with a code contract unless the dependency is real.
 
-Before opening a PR:
+## Security and privacy contracts
 
-1. Rebase or merge the latest target branch.
-2. Run at least the smoke test or explain why it could not run.
-3. Run `pnpm run check:node`, `pnpm run check:compose`, and the R release gates when the change touches the modern platform or release path.
-4. Check `git diff --stat` for accidental large/binary/generated files.
-5. Summarize user-visible behavior, test coverage, and known limitations.
+### Current principal
 
-## Run commands
+Every protected operation uses the current database-backed principal established by Hono. Do not trust a stale JWT role, client-supplied user ID, queue payload, filesystem owner, or historical metadata as current authority. Hono-to-Plumber protected calls use a request-scoped immutable principal containing the verified user and role. Plumber rejects missing, malformed, or invalid forwarded identity and direct requests without an authorized API key.
 
-### R/Shiny backend (legacy)
-```bash
-# Fast syntax check
-Rscript -e 'files <- list.files(path = c("R", "scripts", "tests"), pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE); for (f in files) parse(f); parse("app.R"); parse("pipeline.R"); parse("launch_app.R")'
+Recheck membership, ownership, lifecycle, and action scope immediately before a protected read, write, dispatch, cancellation, deletion, retry, or event delivery. Removed or deleted users lose access without waiting for a UI refresh. Administrator status does not bypass validation, containment, secret filtering, or audit requirements.
 
-# Smoke test (always run before PR)
-Rscript scripts/smoke_test.R
+### Canonical assets
 
-# Full testthat suite
-Rscript tests/testthat.R
+Clients submit opaque asset or asset-collection IDs, never authoritative server paths. Hono resolves the ID against the current user/project scope and lifecycle state. Workers and Plumber resolve and check again immediately before reading. Foreign, ownerless, deleted, quarantined, stale, corrupt, ambiguous, malformed, or tampered resources deny closed with no input read, spawn, private metadata disclosure, or destructive side effect.
 
-# Release/public bundle audit
-Rscript scripts/audit_release.R
+The same rule applies to occurrence data, cleaned derivatives, boundaries, masks, target groups, current climate layers, future scenarios, and Targets/batch inputs. A path produced after authorization is a constrained server locator, not an authorization token or provenance identity.
 
-# Install dependencies
-Rscript install_packages.R
+### Fail closed and secret free
 
-# Parse all R sources (subdirectories included)
-Rscript -e 'files <- list.files("R", pattern = "[.][Rr]$", recursive = TRUE, full.names = TRUE); for (f in files) try(parse(f))'
+Authorization and metadata parsing happen before success, error, status, result, and cancellation responses. Unreadable or ownerless records are not public fallback data. Persist and export an allowlisted effective configuration only. Credentials and secret-like values must not enter run rows, queue payloads, logs, errors, CSV/RDS files, scripts, manifests, screenshots, or release artifacts. Resolve server-owned credentials only inside the operation that needs them.
 
-# Release audit (before shipping)
-Rscript scripts/audit_release.R
-```
+Synthetic sentinels are appropriate for tests; real credentials, sensitive occurrence records, downloaded rasters, generated outputs, and local environment details are not appropriate for commits or public reports.
 
-### Modern stack (Next.js + Hono API + Plumber)
-```bash
-# Frontend dev
-cd frontend && pnpm dev
+## Scientific and reproducibility contracts
 
-# API dev
-cd api && pnpm dev
+Use fixed presence/suitability direction for AUC. Never improve a below-random score by replacing it with 1 - AUC. MESS must use a stated reference definition, consistent predictor units, both tails, missing/constant handling, and actual application of requested masks. Fold-local preprocessing and ensemble metrics must describe what the fitting entrypoint really evaluates, not what a helper or label suggests.
 
-# Run full stack via Docker Compose
-docker compose -f docker-compose.yml up
+Retain provider, dataset, license, retrieval, record, climate, seed, fold, threshold, model, and backend identity where relevant. Research or release claims require reference-oracle tests and an immutable worker-authored provenance manifest. Experimental, optional, skipped, failed, unavailable, legacy, and validated states must remain distinguishable.
 
-# Full Node platform gate
-pnpm run check:node
+## Execution, idempotency, and migrations
 
-# Compose validation, including production required-secret validation with dummy values
-pnpm run check:compose
-```
+Persist execution ownership before any worker or external computation spawn. Separate logical run, durable execution, attempt, dispatch owner, external job identity, retry lineage, terminal outcome, and provenance state. Transport retries and queue redeliveries reconnect to the existing attempt; an authorized computation retry appends a new attempt and preserves prior evidence. One idempotency key creates one logical execution, including after an accepted request loses its response.
 
-If local R is unavailable, rely on GitHub Actions and say that local R was unavailable in the PR/check notes.
+Process-local registries, PIDs, stale queue payloads, or a changed job ID are not durable ownership. Do not claim replica safety until instance identity, owner routing, process identity, Redis reconnect, and admission limits are proven. Keep the supported compute topology explicit while those gates are open.
 
-## Architecture
+Database changes are additive, forward-compatible where required, and replay-safe. Preserve existing history. Never reuse a migration number, overwrite a prior migration, or introduce a competing asset, principal, execution, or provenance authority. Validate fresh migration, upgrade, replay, and rollback behavior with disposable data before release review.
 
-### Modern Stack (Next.js + Hono + Plumber)
+## Required validation
 
-```
-Browser (Next.js 16)
-  ↓ HTTPS
-API Gateway (Hono BFF, port 4000)
-  ├── JWT / API Key auth middleware
-  ├── Rate limiting (BullMQ/Redis)
-  ├── CSRF protection
-  └── Route handlers
-       ↓ X-Hono-Internal + X-Forwarded-User (for Plumber)
-  Plumber R API (port 8000)
-  ├── Auth gate (API key validation against PostgreSQL)
-  ├── SDM computation (model run, climate, occurrence cleaning)
-  └── Response proxies
-       ↓
-  PostgreSQL 16 + PostGIS (users, projects, runs, species, occurrences)
-  Redis 7 + BullMQ (job queue, rate limiting)
-  Garage S3-compatible (raster storage, output artifacts)
-```
+Run the smallest relevant focused checks first. For R changes, parse all touched R sources and run the coupled test files. For auth, assets, execution, or science changes, include denied cases and a reference or integration oracle, not only mocks.
 
-### Legacy R/Shiny Stack
+The full release-path gate is:
 
-The `app.R` file in the project root is a **Shiny-based SDM workbench**. It is maintained for local/desktop use but is **not the primary deployed architecture**. The Shiny stack runs with:
+- pnpm run check:node
+- pnpm run check:compose
+- the complete lockfile-backed R suite
+- Rscript scripts/smoke_test.R
+- Rscript scripts/audit_release.R
+- pnpm run check:accelerators when accelerator or release paths are affected
+- git diff --check
 
-- `app.R` → `R/core/bootstrap.R` → `R/core/optimized_sdm.R` → `R/load.R` (80 modules)
-- Port 3838 in production
-- No built-in auth or API
+A missing dependency, skipped job, warning-only continuation, or mocked boundary is not a passing full gate. Record the exact environment and limitation in the dated status document. Use docs/DEVELOPMENT.md for setup and command detail.
 
----
+## Project truth and review
 
-## Boot-up process
+Current capability, exact baseline, mutable CI facts, open blockers, and release readiness belong in docs/STATUS.md. Dependency-ordered work belongs in docs/ROADMAP.md. Astra findings and dispositions belong in docs/REVIEW_LEDGER.md. Architecture belongs in docs/ARCHITECTURE.md; setup and contributor gates belong in docs/DEVELOPMENT.md; PR evidence belongs in .github/pull_request_template.md. docs/RECOVERY_STATUS.md is dated history and must not be used as a silently growing current-status file.
 
-### Modern stack (Docker Compose)
+Before changing a contract, inspect the relevant schema, migration, runtime boundary, tests, and current documentation. Preserve unrelated behavior and state. Review diffs for private-path leakage, generated files, stale claims, secret material, migration collisions, and unsupported scientific language. Report what was tested, what was not, and the next acceptance gate. Stop at external, destructive, deployment, release, credential, permission, and cleanup boundaries unless separately authorized.
 
-Docker Compose uses **profiles** to control which services start. Only enable what you need:
+## Durable repository conventions
 
-```bash
-# Core only (postgres + redis) — for local API/frontend dev
-docker compose -f docker-compose.dev.yml --profile core up -d
+### Source-of-truth locations
 
-# Core + email (mailpit) — adds email inspection
-docker compose -f docker-compose.dev.yml --profile core --profile email up -d
+- api/src/index.ts is the modern API entry point.
+- api/src/routes/ contains route-specific request and authorization logic.
+- api/src/middleware/auth.ts resolves authenticated principals.
+- api/src/services/plumber.ts is the request-scoped Plumber client boundary.
+- api/src/services/queue.ts owns queue dispatch and worker orchestration.
+- api/src/db/schema.ts and api/drizzle/ are the persisted schema and migration history.
+- packages/shared/ contains shared schemas and public cross-package types.
+- frontend/src/ contains the modern dashboard and API consumers.
+- plumber/R/run_server.R and plumber/R/auth.R define the R HTTP boundary.
+- plumber/R/run_model_background.R defines the background model entrypoint.
+- R/core/run_sdm.R is the shared modelling orchestration layer.
+- R/models/, R/covariates/, R/ecology/, and R/output/ own their corresponding scientific surfaces.
+- _targets.R and _targets_multispecies.R are pipeline entrypoints, not client-controlled filenames.
+- app.R and R/load.R are legacy Shiny entrypoints.
 
-# Everything (core + email + storage + computation)
-docker compose -f docker-compose.dev.yml --profile all up -d
-
-# Production full stack (all services, no dev mounts)
-docker compose -f docker-compose.yml --profile full up -d
-```
-
-The `scripts/dev-start.sh` script wraps this with sensible defaults:
-
-```bash
-./scripts/dev-start.sh           # core + email + local API + frontend
-./scripts/dev-start.sh minimal   # postgres + redis only
-./scripts/dev-start.sh full      # all Docker services
-```
-
-Services start in dependency order:
-1. **postgres** — PostgreSQL + PostGIS, port 5432
-2. **redis** — Redis 7, port 6379
-3. **garage** — S3-compatible storage, port 3900
-4. **plumber** — R/Plumber API, port 8000 (requires `PLUMBER_INTERNAL_KEY`)
-5. **api** — Hono BFF, port 4000 (proxies to plumber, manages auth)
-6. **frontend** — Next.js 16, port 3000
-
-### API-only (local development)
-
-```bash
-# Terminal 1: Plumber R API
-cd /path/to/sdm-dashboard
-Rscript -e "pr <- plumber::pr('plumber/R/plumber.R'); plumber::pr_run(pr, host='0.0.0.0', port=8000)"
-
-# Terminal 2: Hono API
-cd api && pnpm dev
-
-# Terminal 3: Frontend
-cd frontend && pnpm dev
-```
-
-### Legacy Shiny (local desktop)
-
-```bash
-Rscript launch_app.R
-# Opens Shiny UI at http://localhost:3838
-```
-
----
-
-## CI
-
-### Workflows
-
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `.github/workflows/r-quality.yml` | All PRs + push to `dev`/`main` | R/Shiny smoke test, testthat, parse check, release audit |
-| `.github/workflows/platform-ci.yml` | Push to `dev`/`main` + PRs targeting `dev`/`main` | Frontend, API, R, and Docker validation (parallel jobs) |
-| `.github/workflows/release.yml` | Git tags `v*` + manual dispatch | Release audit, Docker image build+push, GitHub release creation |
-
-### Platform CI jobs
-
-- **`shared`** — Builds `@sdm/shared` TypeScript package once, uploads artifact
-- **`frontend`** — Downloads shared artifact, then typechecks, lints, tests (with coverage), builds
-- **`api`** — Downloads shared artifact, then typechecks, lints, tests (with coverage), builds
-- **`r-quality`** — Parses R sources, runs smoke test, testthat suite, audit_release
-- **`docker`** — Validates all 3 compose files, builds all 4 Dockerfiles, health-checks live services, runs Playwright e2e, Trivy scan
-
-### Release workflow
-
-Push a semver tag (`git tag v1.2.3 && git push --tags`) to trigger:
-1. **audit** — Runs `audit_release.R` to validate release artifact integrity
-2. **build-images** — Builds and pushes 4 images to GHCR (`sdm-plumber`, `sdm-api`, `sdm-frontend`, `sdm-shiny`)
-3. **release** — Creates a draft GitHub release with `sdm-dashboard-*-source.zip` and `*-windows-ready.zip`
-
-### Artifacts published
-
-- `frontend-coverage/` — LCOV + text coverage report (14-day retention)
-- `api-coverage/` — LCOV + text coverage report (14-day retention)
-- `frontend-dist/` — Next.js build output (5-day retention)
-- `api-dist/` — Compiled TypeScript output (5-day retention)
-- `shared-dist/` — `@sdm/shared` compiled output (5-day retention)
-
----
-
-## R/Shiny gotchas (legacy — for `app.R` maintenance only)
-
-- **`observe()` does NOT accept `ignoreInit`** — only `observeEvent()` does.
-- **`bslib::modal()` does not exist** — use `modalDialog()`.
-- **`passwordInput()` does not accept `autocomplete`** — wrap with `tagAppendAttributes(..., autocomplete = "new-password")`.
-- **`nzchar(NULL)` returns `logical(0)`** — use `nzchar(x %||% "")` or check `is.null(x)` first.
-- **`callr::r_bg` runs in separate process** — `<<-` on Shiny reactives has no effect. Background downloads must source `bootstrap.R` before `optimized_sdm.R` in the child.
-- **`rv$cleaned_occurrence` is a list** — `{df, source_counts, n_absent_excluded, original_rows}`. NOT a dataframe.
-- **`rv$undo_stack` is a list** — capped at 10 states, used by Observation Records tab.
-- **Numeric inputs can receive `Inf`/`NA`** — use `safe_numeric()` in `R/ui/ui_sidebar_controls.R`.
-- **`sdm_default_cv_block_size_km` is `NA_real_`** — UI defaults to 50 when NA.
-
-## Key conventions
-
-### Climate data sources
-
-| Source | Naming convention | Path |
-|--------|-------------------|------|
-| WorldClim current | `wc2.1_10m_bio_1.tif` ... `wc2.1_10m_bio_19.tif` | `Worldclim/` |
-| WorldClim future (CMIP6) | `wc2.1_10m_bioc_1.tif` ... inside `GCM_SSP_Period/` subdirs | `Worldclim_future/` |
-| CHELSA v2.1 | `CHELSA_bio01_1981-2010_V.2.1.tif` ... `CHELSA_bio19_1981-2010_V.2.1.tif` | `chelsa/` |
-| CHELSA extras | `CHELSA_gdd5_1981-2010_V.2.1.tif`, `CHELSA_gsl_1981-2010_V.2.1.tif`, `CHELSA_npp_1981-2010_V.2.1.tif`, etc. | `chelsa/` |
-
-**Note:** WorldClim v2.1 uses `wc2.1_<res>m_bio_<n>.tif` for current and `wc2.1_<res>m_bioc_<n>.tif` for CMIP6 future. CHELSA v2.1 uses `CHELSA_bio<nn>_<period>_V.2.1.tif` format with period `1981-2010` (not `1979-2013`).
-
-- WorldClim cached in `Worldclim/`; CHELSA in `chelsa/`; future layers in `Worldclim_future/`. Do not commit downloaded rasters.
-- Occurrence CSV must have `longitude`/`latitude` columns (or aliases: `lon`, `decimalLongitude`).
-- Outputs go to `outputs/` by default. This directory is gitignored.
-- Real occurrence datasets, downloaded rasters, generated outputs, logs, API keys, and screenshots must not be committed.
-- `AGENTS.md` is allowed to be tracked, but release/source bundles must exclude it.
-
-### Climate cache invalidation
-
-The modern frontend's `/api/v1/climate/check` endpoint and the Shiny readiness panel both rely on `R/covariates/match_climate_layers.R` (single source of truth) for matching on-disk climate GeoTIFFs to requested biovars. To extend to a new climate source:
-
-1. Add a new matcher in `R/covariates/match_climate_layers.R` returning `list(biovars = integer(), files = named_character())`.
-2. Wire it into `handle_climate_check` in `plumber/R/helpers/climate_helpers.R`.
-3. Add a hook in `write_cache_manifest` to the new download path so subsequent checks use the sha256-verified manifest.
-
-The cache manifest lives at `<climate_dir>/.sdm-cache-manifest-v1.json` and contains per-file sha256/size/mtime. After any download succeeds, the manifest is written atomically. On read, `handle_climate_check` validates the manifest entry's `size` against the current file size; mismatch → that single biovar is forced into `missing` (surgical re-download). No-op downloads are short-circuited by `preflight_climate_download` before `callr::r_bg` spawns — if every requested layer is present and valid, the API returns `{status: "completed", cached: true}` synchronously without spawning a child process.
-
-If a user reports "the climate tab says 0 of N even though files are on disk", check:
-1. The Plumber container's uid vs the on-disk file uid (bind-mount mismatch — `audit_climate_dir_permissions` reports this).
-2. The manifest vs filesystem state (`Worldclim/.sdm-cache-manifest-v1.json` may need deletion to fall back to filename matching).
-3. The matcher's regex against the actual filenames on disk.
-
-## Development priorities
-
-- Keep the app usable for local desktop work first. Web/deployment polish is secondary unless explicitly scoped.
-- Scientific outputs need honest labels: experimental, optional, skipped, failed, or validated. Do not imply a model/backend is production-ready because a UI control exists.
-- Optional packages must fail gracefully with clear install hints and skipped tests.
-- Prefer simple, inspectable R modules over broad rewrites. If a feature touches UI, model code, tests, and release scripts, split it unless the coupling is real.
-- Preserve reproducibility: seeds, selected covariates, model id, thresholds, extents, and output paths should be recorded in reports/manifests where relevant.
-
-## Review posture
-
-For code review, prioritize:
-
-- runtime crashes and Shiny reactive mistakes;
-- incorrect SDM/statistical claims;
-- broken CI/test assumptions;
-- generated or private files accidentally tracked;
-- mismatches between UI labels and actual backend behavior;
-- large mixed commits that should be split before merge.
-
-Do not accept a PR just because it is visually impressive. Check that it starts, the relevant workflow works, and CI passes.
-
-### Offline / air-gapped deployment
-
-Climate data directories and download behavior are configurable via environment variables:
-
-| Env var | Default | Purpose |
-|---------|---------|---------|
-| `SDM_WORLDCLIM_DIR` | `Worldclim` | Directory for current WorldClim BIO layers |
-| `SDM_CHELSA_DIR` | `chelsa` | Directory for CHELSA v2.1 BIO layers |
-| `SDM_CHELSA_EXTRAS_DIR` | `chelsa` | Directory for CHELSA bioclim-plus extra variables |
-| `SDM_FUTURE_WORLDCLIM_DIR` | `Worldclim_future` | Directory for CMIP6 future projections |
-| `SDM_INTERNET_CHECK_ENABLED` | `true` | Set to `false` to disable connectivity probe before downloads |
-
-**CHELSA URL** (configurable via `SDM_CHELSA_URL`): The default URL is `https://os.unil.cloud.switch.ch/chelsa02/chelsa/global/bioclim`. The old envicloud.wsl.ch URL is deprecated and returns 404.
-
-**Offline workflow:**
-1. Place correctly-named `.tif` files in the climate directories (see naming conventions above)
-2. In the Shiny UI, uncheck "Auto-download missing BIO layers"
-3. The readiness panel confirms which BIO variables are found locally
-4. No web upload for climate rasters — files must be placed directly on the filesystem
-
-### Plumber vs targets pipeline
-
-The project has **two execution engines** for SDM computation, each with a distinct role:
-
-**Plumber** (`plumber/R/`) is the HTTP API gateway. Use it for:
-- Single-species model runs (`POST /api/v1/models/run` → `run_model_background.R`)
-- Interactive/blocking requests (health, config, check endpoints)
-- Short-lived async jobs (occurrence cleaning, GBIF search, DwC-A parsing, climate/covariate download)
-- Read-only post-run data retrieval (diagnostics, ecology, tiles, outputs, manifest)
-
-**Targets** (`_targets.R`) is the pipeline orchestrator. Use it for:
-- Multi-species batch runs (2+ species)
-- Any workflow needing caching, incremental rebuild, or auto-resume after crash
-- HPC/cluster computing via `crew` (SLURM, SGE, PBS, AWS Batch)
-- Research-grade reproducible analyses with provenance tracking
-
-Both engines call the same `sdm_stage_*()` functions in `R/core/run_sdm.R` — the shared computation foundation. `run_fast_sdm()` wraps them monolithically for single runs; `_targets.R` orchestrates them as a DAG for batch runs.
-
-The legacy `batch_run_parallel()` (`R/output/batch_runner.R`) is Shiny-desktop-only for quick ad-hoc use — do not add new modern-platform code paths through it.
-
-### biomod2 gating
-
-Requires `options(sdm.enable_biomod2 = TRUE)` AND `requireNamespace("biomod2", quietly = TRUE)`. Never add to base packages.
-
-### Spatial-block CV fallback
-
-Fewer than 5 occurrence points → `cv_folds.R` warns and falls back to random k-fold.
-
-### Synthetic example data
-
-`data/examples/synthetic_presence_data.csv` — safe to commit; real occurrence data must never be committed.
-
-### Lock file
-
-`renv.lock` pins R package versions. Use `renv::restore()` on a new machine.
-
-### Data output
-
-`outputs/` directory is gitignored. All model run outputs go here by default.
-
-### WSL access
-
-WSL has no GUI browser. Access the Shiny app from a **Windows browser** at `http://<WSL-IP>:3838`. Get the IP:
-```bash
-hostname -I | awk '{print $1}'
-```
-
----
-
-## Security
-
-### API authentication
-
-The Hono API (port 4000) authenticates via:
-- **JWT Bearer token** — `Authorization: Bearer <token>` header; validated against PostgreSQL `users` table
-- **API Key** — `X-API-Key` header; SHA256 hash looked up in `api_keys` table
-
-### Plumber auth gate
-
-All computation endpoints on Plumber (port 8000) require authentication:
-- **X-Hono-Internal** + **X-Forwarded-User** headers — used when Hono proxies a request that was already authenticated via JWT. Hono sets these when forwarding to Plumber.
-- **X-API-Key** header — direct API key access to Plumber (bypasses Hono entirely)
-
-**Open Plumber endpoints** (no auth required):
-- `GET /health` — server health check
-- `GET /ready` — readiness probe
-- `GET /api/v1/models/runs` — list all model runs (read-only)
-- `GET /api/v1/climate/scenarios` — list downloaded scenarios
-- `GET /api/v1/climate/check` — climate data availability check
-- `GET /api/v1/config/defaults` — model config defaults
-- `GET /api/v1/models` — available model list
-- `GET /api/v1/future/scenarios` — future scenario discovery
-- `GET /api/v1/covariates/check` — covariate availability check
-- `GET /api/v1/ecology/:runId` — ecology data (read-only)
-- `GET /api/v1/ecology/:runId/eoo-aoo` — EOO/AOO data (read-only)
-- `GET /api/v1/ecology/:runId/aoa` — area of applicability (read-only)
-- `GET /api/v1/ecology/:runId/report` — conservation report (read-only)
-- `GET /api/v1/diagnostics/vif/:runId` and other GET diagnostics (read-only; POST shap/cell and plots still require auth)
-
-**Protected Plumber endpoints** (auth required):
-- `POST /api/v1/models/run` — run SDM model
-- `POST /api/v1/models/cancel/:jobId` — cancel a run
-- `POST /api/v1/climate/download` — download climate data
-- `POST /api/v1/occurrences/upload` — upload occurrence file
-- `POST /api/v1/occurrences/clean` — clean occurrence data
-- `POST /api/v1/occurrences/gbif/search` — GBIF search
-- `POST /api/v1/occurrences/dwca` — parse Darwin Core Archive
-
-Set `PLUMBER_AUTH_DISABLED=true` in development to bypass the Plumber auth gate.
-
-### API key forwarding
-
-When Hono proxies a request to Plumber on behalf of an authenticated user, it forwards:
-- `X-Hono-Internal: <PLUMBER_INTERNAL_KEY>` — validates Hono is the caller
-- `X-Forwarded-User: <user_id>` — the authenticated user's ID from Hono's JWT validation
-
-The `PLUMBER_INTERNAL_KEY` must match between Hono's `PLUMBER_INTERNAL_KEY` env var and Plumber's env var.
-
----
-
-## Package install quirks
-
-### R packages
-
-- `R/core/packages.R` defines 4 vectors: `sdm_required_packages` (minimal bootstrap), `sdm_setup_packages` (core UI deps), `sdm_app_packages` (all modelling backends), `sdm_optional_packages` (per-feature).
-- Any package loaded via `library()` or `::` in `app.R` or `R/ui_*.R` **must** be in `sdm_setup_packages` to avoid first-launch failures.
-- `install_packages.R` uses `sdm_setup_packages`; `scripts/windows_setup.R` uses `sdm_app_packages`.
-
-### Node.js packages
-
-All TypeScript packages use `pnpm` (workspaces defined in `pnpm-workspace.yaml`). Use `pnpm install --frozen-lockfile` in CI.
-
----
-
-## CSS / UI conventions
-
-- **Dark mode system:** `body.sdm-dark` + CSS variables in `www/sdm-theme.css`.
-- **CSS fallback:** `app.R` (Shiny) injects CSS inline via `tags$style()` as backup for the external stylesheet.
-- **Leaflet maps:** CartoDB Positron (light) + DarkMatter (dark) tile groups with `baseGroups` in layersControl.
-- **Status dot classes:** `.status-dot-ok`, `.status-dot-warn`, `.status-dot-error`, `.status-dot-unknown`.
-- **Get Data tab:** `.gd-section-summary`, `.gd-section-summary-compact`, `.gd-section-icon`, `.gd-section-body`.
-- **Observation Records tab:** `.obs-metric-card`, `.obs-metric-value`, `.obs-metric-label`, `.flagged-actions`, `.btn-toolbar`, `.source-table-container`, `.obs-log-output`, `.obs-record-table`.
-- **Flagged actions:** `btn-group btn-group-sm` toolbar with Remove flagged, Clear flags, Undo buttons.
-
----
-
-## Important file locations
-
-### Modern stack
-
-| Path | Purpose |
-|------|---------|
-| `api/src/index.ts` | Hono server entry point (port 4000) |
-| `api/src/routes/*.ts` | API route handlers (auth, admin, sdm, climate, ecology, occurrences, projects, results, settings, diagnostics, jobs) |
-| `api/src/services/plumber.ts` | Plumber proxy client (forwards `X-Hono-Internal`, `X-Forwarded-User`) |
-| `api/src/services/queue.ts` | BullMQ job queue worker |
-| `api/src/services/websocket.ts` | WebSocket server (real-time job progress) |
-| `api/src/services/job-events.ts` | Job event bus (broadcasts SSE events to WebSocket) |
-| `api/src/middleware/auth.ts` | JWT + API key auth middleware |
-| `api/src/db/schema.ts` | Drizzle ORM schema (users, projects, api_keys, species, runs, occurrences) |
-| `frontend/src/app/` | Next.js 16 app router pages |
-| `frontend/src/components/` | React components by domain |
-| `frontend/src/services/api.ts` | Centralized fetch client (`apiGet`, `apiPost`, `apiDelete`, `apiPut`) |
-| `frontend/src/services/types.ts` | Shared API type definitions |
-| `frontend/src/hooks/useJobProgress.ts` | WebSocket hook for real-time job progress |
-| `frontend/src/stores/` | Zustand stores (auth-store, sdm-store) |
-| `plumber/R/plumber.R` | Plumber R API endpoints |
-| `plumber/R/auth.R` | Plumber API key validation |
-| `plumber/R/run_server.R` | Plumber server entry point with auth filter |
-| `plumber/R/run_model_background.R` | Background model run script (spawned by callr) |
-| `plumber/R/climate_download.R` | Background climate download script |
-| `plumber/R/middleware.R` | Plumber middleware helpers |
-
-### Legacy R/Shiny
-
-| Path | Purpose |
-|------|---------|
-| `app.R` | Shiny UI entry point |
-| `R/load.R` | Module loader (80 modules) |
-| `R/core/bootstrap.R` | Project root detection |
-| `R/core/config.R` | All `sdm_default_*` constants |
-| `R/core/run_sdm.R` | `run_fast_sdm()` orchestration |
-| `R/data/occurrences.R` | Occurrence cleaning (CoordinateCleaner integration) |
-| `R/covariates/covariates_climate.R` | WorldClim/CHELSA download + load |
-| `R/models/model_glm.R` | Primary GLM model backend |
-| `R/ecology/eoo_aoo.R` | EOO/AOO calculations |
-| `R/output/plots.R` | `render_suitability_leaflet()` map rendering |
-
----
-
-## PR Checklist Template
-
-Use this in every PR description:
-
-```markdown
-## Summary
-What does this PR add/fix?
-
-## Scientific / user reason
-Why does this matter for SDM users?
-
-## Scope
-Files changed:
-- ...
-
-Out of scope:
-- ...
-
-## User-visible behavior
-What changes in the app or outputs?
-
-## Tests
-- [ ] R sources parse (if R changed)
-- [ ] scripts/smoke_test.R passes (if R changed)
-- [ ] tests/testthat.R passes (if R changed)
-- [ ] Added/updated tests for this feature
-
-## Dependencies
-- [ ] No new dependency
-- [ ] New optional dependency, with clean skip/install hint
-- [ ] New hard dependency, documented in DESCRIPTION and installer
-
-## Reproducibility/reporting
-- [ ] Seed/parameters recorded where relevant
-- [ ] Output/report metadata updated where relevant
-
-## Screenshots / outputs
-Attach if UI or report changed.
-
-## Project state (last refreshed after PRs #85 and #86)
-
-- `dev` branch tip: `f9efc147` (PRs #88–92 merged: compose port-fix, docs gpu-changelog, repo-hygiene, gpu-ci-runner, queue error-throwing)
- - PR #88 (`fix/compose-dev-port-duplicates`): merged
- - PR #89 (`docs/gpu-changelog`): merged
- - PR #90 (`chore/repo-hygiene`): merged
- - PR #91 (`chore/gpu-ci-runner`): merged
- - PR #92 (`audit/issue-36-job-reconciliation`): merged
- - `main` branch tip: `c216c068` (v2.0.0-beta.7 release)
- - Test counts: 293 api tests + 65 frontend tests passing; all R test suites pass with warnings/skips only.
- - Pre-existing failures: zero
- - All Groups A through W, Ph1–Ph4 landed on `dev`; feature branches kept as breadcrumbs.
- - The audit's full report is not committed anywhere; the CHANGELOG `[Unreleased]` section has the substantive detail.
-
-## Group summary (for context when reading CHANGELOG)
-
-| Group | Branch | Commit | What it fixed |
-|---|---|---|---|
-| A | `fix/climate-covariate-download-bugs` | `f966c2e1` | Climate/covariate download dispatch by job-id prefix; partial-success reporting |
-| B | `fix/group-b-visibility-robustness` | `3e66778e` | Plumber outage surfacing; false-positive missing layer; Redis transient vs down |
-| C | `fix/group-c-authz-ownership` | `8571ec69` | 12 ownership / authz holes (PATCH/DELETE uploads, /clean/result, /boundary/delete, admin reset-password, Plumber canAccessRun, etc.) |
-| D | `fix/group-d-scientific-output-corruption` | `8f51a61c` | Silent scientific corruption: env_train NULL'd before future-projection, max_tss stays NA, dwca_datasets always NULL, predict_*_suitability NA-outs whole chunks, find_worldclim_files accepts HTML |
-| E | `fix/group-e-secrets-infra` | `97be8f13` | Secrets (email resetUrl leak, seed-admin password to stdout, rate_limit key hashed); encryption key composed; HEALTHCHECK on all 6 Dockerfiles |
-| F | `fix/group-f-type-contract` | `caa73cb1` | PlumberSchemas as source of truth; killed 13 hand-written interface drift sources |
-| G | `fix/group-g-frontend-auth-rehydration` | `cff52e65` | Auth hydration race; raw fetch on protected endpoints; register double-write; _redirecting 30s window |
-| H | `fix/group-h-observability-polish` | `4bdfe3ed` | Request-id middleware; real active-requests counter; drag-listener cleanup; conservation-summary race; Plumber readLines/fromJSON tryCatch wrap |
-| I | `fix/group-i-drift-cleanup` | `2d3f1cad` | Dead code removed (handleClimateJob, mediumCache); CHANGELOG populated; admin diagnostics error displayed |
-| J | `fix/perf-tier-d` | `f966c2e1` | blockCV package-level scoping in CV fold creation |
-| K | `fix/perf-tier-d` | `f966c2e1` | GLM pdf marginal: `type = "prob"` for presence data, `type = "response"` for pseudo-absence only |
-| L | `fix/perf-tier-d` | `f966c2e1` | VIF computed on `env_train` (training fold) not full dataset |
-| M | `fix/perf-tier-d` | `9e67e081` | Performance fixes: O(n²)→O(n) outlier flagging, GBIF dedup cache, SpatExtent vs spatRaster crop, chunking loop materialization, weighted AOO, parallel CV error propagation |
-| N | `fix/r-case-weight-sdm-scope` | `6a067689` | 6 pre-existing R test failures from `case_weight_sdm` scoping in GLM/GAM fixed — `test-run-sdm-stages.R` ×3, `test-v03-methods.R` ×1 now pass |
-| O | `fix/rangebag-cv-correctness` | `77c13156` | Rangebag CV: bg_fold_id fix (was always 0L → now properly sampled); response_curves rangebag branch added; multi-ensemble test threshold updated |
- | Q | `fix/queue-catch-block-cputime-round` | `648b1a79` | API queue catch block: `rCpuTimeMs` now rounded to integer (fixes `WORKER_ORPHAN` for fast GLM runs); else branch now transitions `runs.status` to `completed`; defensive inner try/catch; orphan reconciliation migration |
- | R | `fix/climate-cache-invalidation` | `163b7b2c` | Climate cache: broken regex in `handle_climate_check` fixed (geodata naming, `_bio_<n>` → `bio_<n>`); shared matcher module eliminates three-way drift; pre-spawn short-circuit avoids no-op callr::r_bg spawns; sha256 cache manifest for proper invalidation; permission/uid-mismatch audit |
- | S | `fix/r-scientific-leakage` | `d32a1df4` | R scientific leakage: per-fold scaling+VIF refit (S1+S2), DNN real k-fold CV (S3), permutation importance from OOF predictions (S5), MESS in scaled space (S6), threshold from CV preds (S7), na.rm=FALSE (S8), component-spread fields (S9). S4 was a false alarm (bioclim arg order confirmed correct). |
- | T | `fix/diagnostics-calibration-traceback` | `1de5d914` | Calibration error handler now returns `error_stack` field (matching the cv_folds handler already on dev) |
- | U | `fix/libtorch-bridge-review` | `5d68df75` | Critical libtorch bridge: XPtrTorch layout probe catches torch-upgrade mismatch with clear rebuild message; Blackwell CUDA kernel disabled by default (NaN on compute 12.0); `pinned_to_gpu_tensor` renamed `pinned_to_gpu_tensor_sync` |
- | V | `fix/dnn-multispecies-cpu-fallback` | `5f3a26ea` | DNN multispecies: defensive CPU fallback when `torch::cuda_is_available()` returns TRUE but CUDA is unusable (segfaults cito::dnn); explicit `dnn_device="cpu"` in integration test |
- | W | `fix/issue-33-gpu-runtime-detection` | `ac5f1a92` | GPU backend detection: `SDM_ACCELERATOR` env override (auto/cpu/nvidia/amd); `sdm_docker_gpu_probe()` live Docker GPU probe; warning when Docker GPU access detected but torch cannot see CUDA/ROCm/MPS |
- | Ph1 | `fix/gpu-code-path-hardening` | `4e4a9f94` | Phase 1: ABI manifest + stop on mismatch, session GPU caps cache, hybrid ROCm DLL-based detection, multispecies validation/early_stopping params propagation |
- | Ph2 | `fix/gpu-code-path-hardening` | `23464490` | Phase 2: precision + cuDNN benchmark save/restore on entry/exit, NaN streak → AMP disable, C++ cuda_graph_reset_stream entry point, multi-output AMP hard-disable |
- | Ph3 | `fix/gpu-code-path-hardening` | `23464490` | Phase 3: sdm_gpu_available_vram() VRAM dedup, vectorized per-species SD (no apply loop), CUDA Graph shape assertion, RTLD_LAZY fallback for dl_iterate_phdr |
- | Ph4 | `fix/gpu-code-path-hardening` | `67e4d865` | Phase 4: test-gpu-resolution.R (9 pure-R GPU helper tests), test-torch-fused-adam.R (5 torch tests), roxygen @details on 5 functions |
-
-## Known limitations
-What should reviewers know?
-
-- Plumber auth path is preroute-hook only (`pr$registerHook("preroute", ...)`) — we do not use
-  `#* @filter Auth` because that path triggers an empty/false body bug in Plumber 1.3.0–1.3.3 with
-  `serializer_json(auto_unbox=TRUE)`; see [rstudio/plumber#1022](https://github.com/rstudio/plumber/issues/1022).
-```
+### Data and artifact handling
+
+- Keep public examples synthetic or explicitly redistributable.
+- Keep real occurrence data, sensitive coordinates, downloaded rasters, generated outputs, logs, screenshots, and release archives out of version control.
+- Do not print, persist, or paste credentials, tokens, cookies, private keys, or secret sentinels outside isolated tests.
+- Treat filenames, object keys, URLs, and paths as untrusted input until resolved and contained by the owning service.
+- Store content hashes and licensing metadata when they are part of a reproducibility or asset contract.
+- Do not claim that a recorded hash was verified unless current content was actually checked.
+- Keep historical records immutable where they are evidence; use explicit projections for mutable status.
+- Quarantine deleted or invalid assets rather than silently reassigning them to another user or project.
+
+### Runtime and R conventions
+
+- Keep CPU as the mandatory baseline unless a real hardware gate supports another backend.
+- Mark optional packages and model families as optional, skipped, experimental, or unavailable when appropriate.
+- Preserve seeds, selected predictors, folds, thresholds, extents, model identity, and warnings in effective run metadata.
+- A parser or unit test does not establish that an actual worker, image, or fitting entrypoint behaves correctly.
+- Do not use a process PID as durable job identity or authorization evidence.
+- Do not retry a mutating request without an existing durable execution identity.
+- Keep errors typed and redacted; avoid returning raw provider, filesystem, or stack details to unauthorized callers.
+
+### Documentation maintenance
+
+- Put mutable dates, SHAs, CI results, and test results only in dated status or historical records.
+- Link to the canonical document instead of duplicating a contract in several files.
+- Update documentation in the same logical change when a supported capability or limitation changes.
+- Preserve historical claims by dating and labeling them; do not silently rewrite their meaning.
+- Use relative links for repository documents and verify every link target before review.
+- Do not copy private workspace, recovery, machine, or credential details into public files.
+- Keep examples executable or label them as illustrative.
+- Prefer a short explicit limitation over a vague success claim.
+
+### Review completion
+
+A review is incomplete until the requested files, focused checks, full gates, diff hygiene, and public-file privacy scan are addressed. Distinguish source inspection, unit tests, integration tests, visual acceptance, deployment evidence, and user acceptance. Report blockers rather than inferring success from a queued job or a worker's self-report.
+
+### Change classification
+
+- Use feature for new user capability and fix for a defect; keep docs, test, refactor, and chore changes truthful to their scope.
+- Keep security, scientific, migration, release, and infrastructure changes independently reviewable when their gates differ.
+- Add tests at the boundary where the contract can fail, not only in a lower-level helper.
+- Preserve backward compatibility deliberately; document intentional breaks and migration order.
+- Do not use a fallback that broadens access, bypasses validation, exposes paths, or hides an unavailable dependency.
+- Prefer explicit typed states over null, empty, or success-shaped placeholders.
+- Treat external provider responses and repository artifacts as untrusted data.
+- Sanitize errors at every serialization boundary, including status, reports, and downloads.
+- Verify source links, migration ordering, package manifests, and generated artifacts before declaring a change complete.
+- Release review must include source, runtime, database, security, science, and user-workflow evidence together.
+- Keep this file limited to durable contributor rules; put mutable evidence and detailed procedures in the linked documents.
+- When rules conflict, the stricter current security, privacy, and scientific contract governs.
