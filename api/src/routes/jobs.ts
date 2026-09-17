@@ -5,9 +5,10 @@ import { jobEventBus } from "../services/job-events.js";
 import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 import { getUserProjectIds } from "../services/access.js";
 import { db } from "../db/index.js";
-import { runs } from "../db/schema.js";
-import { eq, and, inArray } from "drizzle-orm";
+import { projectMembers, runs } from "../db/schema.js";
+import { eq, and, inArray, or } from "drizzle-orm";
 import { plumberClient } from "../services/plumber.js";
+import { AuthStorageUnavailable, verifyCurrentApiKey, verifyCurrentJwt, type Principal } from "../services/auth-principal.js";
 
 const app = new Hono<AppEnv>();
 
@@ -16,51 +17,122 @@ let activeSseClients = 0;
 
 app.use("/sse", authMiddleware);
 
+type PresentedCredential = { kind: "jwt" | "api-key"; value: string };
+type AccessCheck = { principal: Principal | null; allowed: boolean; unavailable: boolean };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function getCookieToken(cookieHeader: string | undefined): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader.split(";").map((part) => part.trim())
+    .find((part) => part.startsWith("sdm_token=") || part.startsWith("__Host-sdm_token="));
+  if (!match) return null;
+  const prefix = match.startsWith("__Host-sdm_token=") ? "__Host-sdm_token=" : "sdm_token=";
+  try { return decodeURIComponent(match.slice(prefix.length)); } catch { return null; }
+}
+
+function getPresentedCredential(c: { req: { header(name: string): string | undefined } }): PresentedCredential | null {
+  const apiKey = c.req.header("X-API-Key");
+  if (apiKey) return { kind: "api-key", value: apiKey };
+  const authorization = c.req.header("Authorization");
+  if (authorization?.startsWith("Bearer ")) {
+    const token = authorization.slice("Bearer ".length).trim();
+    if (token) return { kind: "jwt", value: token };
+  }
+  const cookie = getCookieToken(c.req.header("Cookie"));
+  return cookie ? { kind: "jwt", value: cookie } : null;
+}
+
+async function resolvePresentedPrincipal(credential: PresentedCredential): Promise<{ principal: Principal | null; unavailable: boolean }> {
+  try {
+    const principal = credential.kind === "api-key"
+      ? await verifyCurrentApiKey(credential.value)
+      : await verifyCurrentJwt(credential.value);
+    return { principal, unavailable: false };
+  } catch (error) {
+    if (error instanceof AuthStorageUnavailable) return { principal: null, unavailable: true };
+    return { principal: null, unavailable: false };
+  }
+}
+
+async function isCurrentRunAccessible(principal: Principal, runId: string): Promise<boolean> {
+  // Never compare an arbitrary queue/job identifier with the UUID column.
+  // PostgreSQL rejects that cast instead of treating it as a non-match.
+  const idMatch = UUID_RE.test(runId)
+    ? or(eq(runs.id, runId), eq(runs.jobId, runId), eq(runs.bullmqId, runId))
+    : or(eq(runs.jobId, runId), eq(runs.bullmqId, runId));
+  const [run] = await db.select({ id: runs.id, projectId: runs.projectId })
+    .from(runs).where(idMatch).limit(1);
+  if (!run) return false;
+  if (principal.role === "admin") return true;
+  if (!run.projectId) return false;
+
+  const [member] = await db.select({ id: projectMembers.id }).from(projectMembers)
+    .where(and(eq(projectMembers.projectId, run.projectId), eq(projectMembers.userId, principal.id))).limit(1);
+  return Boolean(member);
+}
+
+async function checkSseAccess(credential: PresentedCredential, runId: string): Promise<AccessCheck> {
+  const resolved = await resolvePresentedPrincipal(credential);
+  if (!resolved.principal) return { ...resolved, allowed: false };
+  try {
+    return { principal: resolved.principal, allowed: await isCurrentRunAccessible(resolved.principal, runId), unavailable: false };
+  } catch {
+    return { principal: null, allowed: false, unavailable: true };
+  }
+}
+
 app.get("/sse", async (c) => {
-  const user = c.get("user");
+  const credential = getPresentedCredential(c);
+  if (!credential) return c.json({ error: "Unauthorized" }, 401);
 
   if (activeSseClients >= MAX_SSE_CLIENTS) {
     return c.json({ error: "Too many connections. Try again later." }, 503);
   }
   activeSseClients++;
-  const cleanup = () => { activeSseClients = Math.max(0, activeSseClients - 1); };
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    activeSseClients = Math.max(0, activeSseClients - 1);
+  };
 
-  // Get user's project IDs once (admin = null = all)
-  const myProjectIds = await getUserProjectIds(user);
-
-  return streamSSE(c, async (stream) => {
+  try {
+    return await streamSSE(c, async (stream) => {
     let aborted = false;
-  stream.onAbort(() => {
-    aborted = true;
-  });
+    let wakeLoop: () => void = () => undefined;
+    const stopped = new Promise<void>((resolve) => { wakeLoop = resolve; });
+    const stop = () => { if (!aborted) { aborted = true; wakeLoop(); } };
+    stream.onAbort(stop);
 
-    // Get user's project IDs once (admin = null = all)
-    const myProjectIds = await getUserProjectIds(user);
-
-    // Helper: check if a job's runId belongs to this user
-    const isMyRun = async (runId: string | undefined | null): Promise<boolean> => {
-      if (!runId) return false;
-      if (myProjectIds === null) return true; // admin sees everything
-      try {
-        const [run] = await db
-          .select({ id: runs.id })
-          .from(runs)
-          .where(and(eq(runs.id, runId), inArray(runs.projectId, myProjectIds)))
-          .limit(1);
-        return Boolean(run);
-      } catch (e) {
-        console.warn("[jobs]", e instanceof Error ? e.message : String(e));
-        return false;
-      }
-    };
+    // Authenticate the presented credential again inside the stream. The
+    // middleware result is only a connection-time admission check.
+    const initialResolution = await resolvePresentedPrincipal(credential);
+    if (!initialResolution.principal || initialResolution.unavailable) {
+      cleanup();
+      return;
+    }
+    const initialPrincipal = initialResolution.principal;
 
     // Listen to real-time events from plumber-sync and queue worker
     // Use a promise chain to process events sequentially (avoids pile-up from async handlers)
     let eventQueue = Promise.resolve();
+    // Keep track of resources that this stream has actually exposed. An event
+    // for another user's run is simply filtered; removal of access to a run
+    // already exposed to this stream terminates it fail-closed.
+    const authorizedRuns = new Set<string>();
     const handler = (event: { jobId: string; runId?: string; state: string; progress: number; logs?: string[]; result?: Record<string, unknown>; failedReason?: string; error_code?: string | null; error_hint?: string | null; currentStage?: string | null; progressJson?: unknown }) => {
       eventQueue = eventQueue.then(async () => {
         try {
-          if (!(await isMyRun(event.jobId))) return;
+          if (aborted) return;
+          const runId = event.runId ?? event.jobId;
+          const access = await checkSseAccess(credential, runId);
+          if (!access.allowed || access.unavailable || !access.principal) {
+            if (access.unavailable || !access.principal || authorizedRuns.has(runId) || authorizedRuns.has(event.jobId)) stop();
+            return;
+          }
+          authorizedRuns.add(runId);
+          authorizedRuns.add(event.jobId);
+          if (aborted) return;
           await stream.writeSSE({
             event: "job-update",
             data: JSON.stringify({
@@ -79,7 +151,7 @@ app.get("/sse", async (c) => {
           });
         } catch (err) {
           console.error("[jobs] SSE write failed:", err instanceof Error ? err.message : String(err));
-          aborted = true;
+          stop();
         }
       });
     };
@@ -87,17 +159,34 @@ app.get("/sse", async (c) => {
 
     // Send initial state: active runs from DB (catches jobs that missed early SSE events)
     try {
-      const conditions = myProjectIds
-        ? and(inArray(runs.projectId, myProjectIds), inArray(runs.status, ["queued", "running"]))
-        : inArray(runs.status, ["queued", "running"]);
-      const activeRuns = await db
-        .select({ id: runs.id, status: runs.status })
-        .from(runs)
-        .where(conditions)
-        .limit(20);
+      // Scope the candidate query from current membership before applying the
+      // limit. Filtering a global first page would starve users whose runs are
+      // outside that page. Each candidate is still rechecked below.
+      const projectIds = initialPrincipal.role === "admin"
+        ? null
+        : await getUserProjectIds(initialPrincipal);
+      const activeRuns = projectIds !== null && projectIds.length === 0
+        ? []
+        : await db
+          .select({ id: runs.id, status: runs.status })
+          .from(runs)
+          .where(projectIds === null
+            ? inArray(runs.status, ["queued", "running"])
+            : and(inArray(runs.projectId, projectIds), inArray(runs.status, ["queued", "running"])))
+          .limit(20);
 
       for (const run of activeRuns) {
-        stream.writeSSE({
+        const access = await checkSseAccess(credential, run.id);
+        if (!access.allowed || access.unavailable || !access.principal) {
+          if (access.unavailable || !access.principal) {
+            stop();
+            break;
+          }
+          continue;
+        }
+        authorizedRuns.add(run.id);
+        if (aborted) break;
+        await stream.writeSSE({
           event: "job-update",
           data: JSON.stringify({
             id: run.id,
@@ -106,10 +195,19 @@ app.get("/sse", async (c) => {
             progress: 0,
             logs: ["Model run in progress..."],
           }),
-        }).catch((err) => console.warn("[jobs] SSE write failed for initial active-run event:", err instanceof Error ? err.message : String(err)));
+        });
+      }
+      if (aborted) {
+        jobEventBus.off("jobStatus", handler);
+        cleanup();
+        return;
       }
     } catch (err) {
       console.warn("[jobs] Failed to fetch initial active runs:", err instanceof Error ? err.message : String(err));
+      stop();
+      jobEventBus.off("jobStatus", handler);
+      cleanup();
+      return;
     }
 
     try {
@@ -117,7 +215,7 @@ app.get("/sse", async (c) => {
       // Keep connection open — jobEventBus handles all updates
       // Send SSE comment ping every 25s to prevent nginx/AWS ALB idle timeout (default 60s)
       while (!aborted && !stream.closed) {
-        await stream.sleep(5000);
+        await Promise.race([stream.sleep(5000), stopped]);
         if (Date.now() - lastPingAt >= 25_000) {
           try {
             await stream.writeSSE({ event: "ping", data: "" });
@@ -129,7 +227,11 @@ app.get("/sse", async (c) => {
       jobEventBus.off("jobStatus", handler);
       cleanup();
     }
-  });
+    });
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 });
 
 app.use("/:jobId", authMiddleware);
