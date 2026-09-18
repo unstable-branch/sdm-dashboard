@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { inputAssets, projectMembers, projects, users } from "../db/schema.js";
@@ -85,7 +85,10 @@ async function reserveTargetGroupQuota(userId: string, bytes: number): Promise<v
     storageUsedBytes: sql`${users.storageUsedBytes} + ${bytes}`,
   }).where(and(
     eq(users.id, userId),
-    sql`${users.storageUsedBytes} + ${bytes} <= ${users.storageQuotaBytes}`,
+    or(
+      isNull(users.storageQuotaBytes),
+      sql`${users.storageUsedBytes} + ${bytes} <= ${users.storageQuotaBytes}`,
+    ),
   )).returning({ id: users.id });
   if (!reserved) throw new TargetGroupQuotaError("Storage quota exceeded");
 }

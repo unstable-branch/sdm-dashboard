@@ -138,11 +138,13 @@ adminRoutes.post("/users", async (c) => {
     }
 
     const passwordHash = await hash(password, BCRYPT_ROUNDS);
+    const effectiveRole = role || "viewer";
     const [user] = await db.insert(users).values({
       email,
       passwordHash,
       name: name || null,
-      role: role || "viewer",
+      role: effectiveRole,
+      storageQuotaBytes: effectiveRole === "admin" ? null : 1073741824,
     }).returning();
 
     const adminUser = c.get("user");
@@ -153,7 +155,7 @@ adminRoutes.post("/users", async (c) => {
       entity: "users",
       entityId: user.id,
       ...client,
-      details: { createdEmail: email, createdRole: role || "viewer" },
+      details: { createdEmail: email, createdRole: effectiveRole },
     });
 
     return c.json({ id: user.id, email: user.email, name: user.name, role: user.role });
