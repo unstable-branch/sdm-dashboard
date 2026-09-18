@@ -135,12 +135,7 @@ build_run_args <- function(row) {
     }
 
     if (p == "target_group_runtime_slot") {
-      slots <- tryCatch(
-        jsonlite::fromJSON(Sys.getenv("SDM_TARGET_GROUP_FILES_JSON", unset = "[]"), simplifyVector = FALSE),
-        error = function(e) list()
-      )
-      slot <- suppressWarnings(as.integer(val[1]))
-      path <- if (!is.na(slot) && slot >= 1L && slot <= length(slots)) slots[[slot]] else NULL
+      path <- resolve_target_group_runtime_path(val)
       args$target_group_occ <- sdm_read_target_group_occ(path)
       next
     }
@@ -209,6 +204,37 @@ build_config_from_row <- function(row, seed = 42L) {
   do.call(sdm_config, args)
 }
 
+resolve_target_group_runtime_path <- function(slot) {
+  slots <- tryCatch(
+    jsonlite::fromJSON(Sys.getenv("SDM_TARGET_GROUP_FILES_JSON", unset = "[]"), simplifyVector = FALSE),
+    error = function(e) list()
+  )
+  slot <- suppressWarnings(as.integer(slot[1]))
+  path <- if (!is.na(slot) && slot >= 1L && slot <= length(slots)) slots[[slot]] else NULL
+  if (is.null(path) || length(path) != 1L || is.na(path) || !nzchar(path)) {
+    stop("Target-group runtime mapping is unavailable", call. = FALSE)
+  }
+  as.character(path)
+}
+
+validate_multispecies_target_group_rows <- function(config) {
+  methods <- if ("bias_method" %in% names(config)) as.character(config$bias_method) else rep("uniform", nrow(config))
+  methods[is.na(methods) | !nzchar(methods)] <- "uniform"
+  uses_target_group <- methods == "target_group"
+  if (any(uses_target_group) && !all(uses_target_group)) {
+    stop("Multi-species execution requires one shared target-group selection", call. = FALSE)
+  }
+  if (!any(uses_target_group)) return(invisible(NULL))
+  if (!"target_group_runtime_slot" %in% names(config)) {
+    stop("Target-group runtime mapping is unavailable", call. = FALSE)
+  }
+  paths <- vapply(config$target_group_runtime_slot, resolve_target_group_runtime_path, character(1))
+  if (length(unique(paths)) != 1L) {
+    stop("Multi-species execution requires one shared target-group selection", call. = FALSE)
+  }
+  invisible(paths[[1]])
+}
+
 #' Run a multi-species batch using the targets pipeline.
 #' Reads the CSV, triggers _targets.R branching via env vars.
 #' @param config_csv path to batch config CSV.
@@ -222,6 +248,12 @@ batch_run_targets <- function(config_csv, output_dir = "batch_results/",
   }
 
   config_csv <- normalizePath(config_csv, mustWork = TRUE)
+  submitted_config <- utils::read.csv(config_csv, stringsAsFactors = FALSE, check.names = FALSE)
+  if ("target_group_runtime_slot" %in% names(submitted_config)) {
+    slots <- submitted_config$target_group_runtime_slot
+    slots <- slots[!is.na(slots) & nzchar(as.character(slots))]
+    if (length(slots) > 0L) vapply(slots, resolve_target_group_runtime_path, character(1))
+  }
   out_dir <- normalizePath(output_dir, mustWork = FALSE)
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 

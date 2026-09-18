@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import { mkdir, rename, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -10,8 +10,11 @@ import { authMiddleware, type AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, isUuid } from "../services/access.js";
 import {
   InputAssetRegistrationError,
+  makeInputAssetLocator,
   registerInputAssetFromServerPath,
+  removeInputAssetStorageFile,
   resolveInputAsset,
+  resolveInputAssetStorageForDeletion,
   updateInputAssetState,
 } from "../services/input-assets.js";
 
@@ -62,29 +65,19 @@ async function destinationProject(
   return { projectId, membershipRole: membership.role };
 }
 
-async function removeTargetGroupFile(path: string): Promise<void> {
-  const candidate = resolve(path);
-  if (candidate === TARGET_GROUP_ROOT || !candidate.startsWith(TARGET_GROUP_ROOT + sep)) {
-    throw new InputAssetRegistrationError("Target-group storage is unsafe");
-  }
-  await unlink(candidate);
+async function removeTargetGroupAssetFile(locator: string): Promise<void> {
+  const result = await removeInputAssetStorageFile(locator, { target_groups: TARGET_GROUP_ROOT });
+  if (!result) throw new InputAssetRegistrationError("Target-group storage is unsafe");
 }
 
-async function removeTargetGroupFileIfPresent(path: string): Promise<void> {
+async function cleanFailedUpload(locator: string | null, assetId: string | null, stage: string): Promise<void> {
+  if (!locator) return;
   try {
-    await removeTargetGroupFile(path);
+    await removeTargetGroupAssetFile(locator);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "unknown";
+    console.error("[target-groups] Upload cleanup remains pending", { assetId, stage, code });
   }
-}
-
-function targetGroupPathFromLocator(locator: string): string | null {
-  const prefix = "target_groups/";
-  if (typeof locator !== "string" || !locator.startsWith(prefix)) return null;
-  const relativePath = locator.slice(prefix.length);
-  if (!relativePath || relativePath.split("/").some((part) => !part || part === "." || part === "..")) return null;
-  const candidate = resolve(TARGET_GROUP_ROOT, relativePath);
-  return candidate.startsWith(TARGET_GROUP_ROOT + sep) ? candidate : null;
 }
 
 async function reserveTargetGroupQuota(userId: string, bytes: number): Promise<void> {
@@ -117,7 +110,10 @@ async function finalizeTargetGroupDeletion(assetId: string, creatorUserId: strin
 targetGroupRoutes.post("/target-groups/upload", async (c) => {
   let path: string | null = null;
   let temporaryPath: string | null = null;
+  let temporaryLocator: string | null = null;
   let assetId: string | null = null;
+  let assetLocator: string | null = null;
+  let stagedLocator: string | null = null;
   try {
     const user = c.get("user");
     const body = await c.req.parseBody();
@@ -138,7 +134,19 @@ targetGroupRoutes.post("/target-groups/upload", async (c) => {
     await mkdir(TARGET_GROUP_ROOT, { recursive: true });
     const safeName = basename(file.name, extension).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80) || "target-group";
     path = join(TARGET_GROUP_ROOT, `${randomUUID()}-${safeName}${extension}`);
+    stagedLocator = makeInputAssetLocator("target_groups", basename(path), { target_groups: TARGET_GROUP_ROOT });
+    const stagedStorage = stagedLocator
+      ? await resolveInputAssetStorageForDeletion(stagedLocator, { target_groups: TARGET_GROUP_ROOT })
+      : null;
+    if (!stagedStorage || stagedStorage.exists) throw new InputAssetRegistrationError("Target-group storage is unsafe");
+    path = stagedStorage.absolutePath;
     temporaryPath = `${path}.tmp.${process.pid}`;
+    temporaryLocator = makeInputAssetLocator("target_groups", basename(temporaryPath), { target_groups: TARGET_GROUP_ROOT });
+    const temporaryStorage = temporaryLocator
+      ? await resolveInputAssetStorageForDeletion(temporaryLocator, { target_groups: TARGET_GROUP_ROOT })
+      : null;
+    if (!temporaryStorage || temporaryStorage.exists) throw new InputAssetRegistrationError("Target-group storage is unsafe");
+    temporaryPath = temporaryStorage.absolutePath;
     await writeFile(temporaryPath, buffer, { flag: "wx" });
     await rename(temporaryPath, path);
     temporaryPath = null;
@@ -151,6 +159,7 @@ targetGroupRoutes.post("/target-groups/upload", async (c) => {
       absolutePath: path,
     });
     assetId = asset.id;
+    assetLocator = asset.storageLocator;
 
     await reserveTargetGroupQuota(user.id, Number(asset.contentSize || 0));
 
@@ -162,9 +171,24 @@ targetGroupRoutes.post("/target-groups/upload", async (c) => {
       projectId,
     });
   } catch (error) {
-    if (assetId) await updateInputAssetState(assetId, "quarantined");
-    if (temporaryPath) await unlink(temporaryPath).catch(() => undefined);
-    if (path) await removeTargetGroupFile(path).catch(() => undefined);
+    let quarantined = false;
+    if (assetId) {
+      try {
+        quarantined = await updateInputAssetState(assetId, "quarantined");
+      } catch (quarantineError) {
+        const code = quarantineError && typeof quarantineError === "object" && "code" in quarantineError
+          ? String(quarantineError.code)
+          : "unknown";
+        console.error("[target-groups] Upload quarantine remains pending", { assetId, code });
+      }
+    }
+    await cleanFailedUpload(temporaryLocator, assetId, "temporary");
+    if (assetId && assetLocator && quarantined) {
+      await cleanFailedUpload(assetLocator, assetId, "registered");
+    } else if (stagedLocator) {
+      if (!assetId) await cleanFailedUpload(stagedLocator, assetId, "staged");
+      else if (!quarantined) console.error("[target-groups] Registered upload cleanup remains pending", { assetId });
+    }
     if (error instanceof TargetGroupValidationError) return c.json({ error: error.message }, 400);
     if (error instanceof TargetGroupAuthorizationError) return c.json({ error: "Target-group project access denied" }, 403);
     if (error instanceof TargetGroupQuotaError) return c.json({ error: "Storage quota exceeded" }, 413);
@@ -231,7 +255,6 @@ targetGroupRoutes.delete("/target-groups/:assetId", async (c) => {
       (asset.creatorUserId === user.id && membershipRole === "editor");
     if (!canManage) return c.json({ error: "Target-group asset not found" }, 404);
 
-    let deletionPath: string | null;
     if (asset.state === "ready") {
       const resolved = await resolveInputAsset({
         assetId,
@@ -243,15 +266,11 @@ targetGroupRoutes.delete("/target-groups/:assetId", async (c) => {
       if (!resolved.ok) {
         return c.json({ error: resolved.reason === "unavailable" ? "Target-group asset service unavailable" : "Target-group asset not found" }, resolved.reason === "unavailable" ? 503 : 404);
       }
-      deletionPath = resolved.absolutePath;
       if (!(await updateInputAssetState(assetId, "quarantined"))) {
         return c.json({ error: "Target-group deletion could not be started" }, 503);
       }
-    } else {
-      deletionPath = targetGroupPathFromLocator(asset.storageLocator);
     }
-    if (!deletionPath) return c.json({ error: "Target-group deletion is awaiting recovery" }, 503);
-    await removeTargetGroupFileIfPresent(deletionPath);
+    await removeTargetGroupAssetFile(asset.storageLocator);
     await finalizeTargetGroupDeletion(assetId, asset.creatorUserId, Number(asset.contentSize || 0));
     return c.json({ ok: true, targetGroupAssetId: assetId, target_group_asset_id: assetId });
   } catch (error) {

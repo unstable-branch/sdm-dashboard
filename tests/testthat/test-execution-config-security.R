@@ -1,9 +1,10 @@
 # Synthetic sentinel tests for the R/Plumber execution boundary.
 # No provider credential or live network operation is used.
 
-project_root <- normalizePath(getwd(), winslash = "/")
+project_root <- normalizePath(file.path(testthat::test_path(), "..", ".."), winslash = "/", mustWork = TRUE)
 security_env <- new.env(parent = globalenv())
 sys.source(file.path(project_root, "plumber", "R", "helpers", "models_helpers.R"), envir = security_env)
+sys.source(file.path(project_root, "R", "output", "batch_runner.R"), envir = security_env)
 output_env <- new.env(parent = security_env)
 sys.source(file.path(project_root, "plumber", "R", "helpers", "output_helpers.R"), envir = output_env)
 elevation_env <- new.env(parent = globalenv())
@@ -113,6 +114,35 @@ test_that("targets normalizer serializes only the safe config projection", {
   expect_equal(normalized$occurrences_csv, "synthetic.csv")
   expect_false(any(grepl(sentinel, capture.output(str(normalized)), fixed = TRUE)))
   expect_false(any(grepl("api.key|credential|secret", names(normalized), ignore.case = TRUE)))
+})
+
+test_that("target-group batch runtime mapping fails closed outside server dispatch", {
+  old_mapping <- Sys.getenv("SDM_TARGET_GROUP_FILES_JSON", unset = NA_character_)
+  on.exit(if (is.na(old_mapping)) Sys.unsetenv("SDM_TARGET_GROUP_FILES_JSON") else
+    Sys.setenv(SDM_TARGET_GROUP_FILES_JSON = old_mapping), add = TRUE)
+  Sys.unsetenv("SDM_TARGET_GROUP_FILES_JSON")
+  expect_error(security_env$resolve_target_group_runtime_path("1"), "mapping is unavailable")
+})
+
+test_that("multi-species target-group execution requires one shared resolved input", {
+  first <- tempfile(fileext = ".csv")
+  second <- tempfile(fileext = ".csv")
+  on.exit(unlink(c(first, second)), add = TRUE)
+  write.csv(data.frame(longitude = 1, latitude = 2), first, row.names = FALSE)
+  write.csv(data.frame(longitude = 3, latitude = 4), second, row.names = FALSE)
+  old_mapping <- Sys.getenv("SDM_TARGET_GROUP_FILES_JSON", unset = NA_character_)
+  on.exit(if (is.na(old_mapping)) Sys.unsetenv("SDM_TARGET_GROUP_FILES_JSON") else
+    Sys.setenv(SDM_TARGET_GROUP_FILES_JSON = old_mapping), add = TRUE)
+
+  Sys.setenv(SDM_TARGET_GROUP_FILES_JSON = jsonlite::toJSON(list(first, first), auto_unbox = TRUE))
+  shared <- data.frame(bias_method = c("target_group", "target_group"), target_group_runtime_slot = c(1, 2))
+  expect_identical(security_env$validate_multispecies_target_group_rows(shared), first)
+
+  Sys.setenv(SDM_TARGET_GROUP_FILES_JSON = jsonlite::toJSON(list(first, second), auto_unbox = TRUE))
+  expect_error(security_env$validate_multispecies_target_group_rows(shared), "one shared target-group")
+  expect_error(security_env$validate_multispecies_target_group_rows(data.frame(
+    bias_method = c("uniform", "target_group"), target_group_runtime_slot = c(NA, 2)
+  )), "one shared target-group")
 })
 
 test_that("historical manifest and script projections deny non-null legacy credentials", {

@@ -21,6 +21,7 @@ list(
   # Build a single sdm_config from the first row (shared env settings)
   # The occurrence data will span ALL species
   tar_target(cfg, {
+    validate_multispecies_target_group_rows(batch_config)
     rows <- split(batch_config, seq_len(nrow(batch_config)))
     build_config_from_row(rows[[1]], seed = as.integer(Sys.getenv("SDM_BATCH_SEED", "42")))
   }),
