@@ -41,6 +41,17 @@ export interface AssetDeletionFileSystem {
   unlink(path: string): Promise<void>;
 }
 
+export interface AssetIdentityFileSystem {
+  realpath(path: string): Promise<string>;
+  lstat(path: string): Promise<{ dev: number | bigint; ino: number | bigint; isSymbolicLink(): boolean; isFile(): boolean }>;
+  open(path: string, flags: number): Promise<{
+    fd: number;
+    stat(): Promise<{ dev: number | bigint; ino: number | bigint; size: number; mtimeMs: number; ctimeMs: number; isFile(): boolean }>;
+    read(buffer: Buffer, offset: number, length: number, position: number | null): Promise<{ bytesRead: number }>;
+    close(): Promise<void>;
+  }>;
+}
+
 const fileSystem: AssetFileSystem = { realpath, lstat, readFile };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROOT_NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
@@ -164,6 +175,11 @@ function defaultRoots(): InputAssetRootMap {
   };
 }
 
+/** Canonical configured roots for server-owned input storage. */
+export function getInputAssetRoots(): InputAssetRootMap {
+  return defaultRoots();
+}
+
 function isContained(root: string, candidate: string): boolean {
   const rootResolved = resolve(root);
   const candidateResolved = resolve(candidate);
@@ -279,6 +295,77 @@ export async function resolveInputAssetStorageForDeletion(
     return { absolutePath: actualPath, exists: true };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Hash an asset through descriptors anchored to the opened configured root.
+ * Every component is opened with O_NOFOLLOW and retained until hashing ends,
+ * so pathname replacement cannot redirect the read after containment checks.
+ */
+export async function readInputAssetIdentityAnchored(
+  locator: string,
+  roots: InputAssetRootMap = defaultRoots(),
+  fs?: AssetIdentityFileSystem,
+): Promise<{ contentSha256: string; contentSize: number; locator: string } | null> {
+  const identityFs = fs ?? { realpath, lstat, open };
+  const parsed = parseLocator(locator);
+  if (!parsed) return null;
+  const configuredRoot = roots[parsed.root];
+  if (typeof configuredRoot !== "string" || configuredRoot.length === 0) return null;
+
+  const handles: Array<Awaited<ReturnType<AssetIdentityFileSystem["open"]>>> = [];
+  try {
+    const configuredRootPath = resolve(configuredRoot);
+    const rootStat = await identityFs.lstat(configuredRootPath);
+    if (rootStat.isSymbolicLink() || rootStat.isFile()) return null;
+    const rootPath = await identityFs.realpath(configuredRootPath);
+    let directoryHandle = await identityFs.open(rootPath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    handles.push(directoryHandle);
+    const openedRootStat = await directoryHandle.stat();
+    if (openedRootStat.dev !== rootStat.dev || openedRootStat.ino !== rootStat.ino) return null;
+
+    for (const segment of parsed.segments.slice(0, -1)) {
+      const anchoredDirectory = `/proc/self/fd/${directoryHandle.fd}/${segment}`;
+      const componentStat = await identityFs.lstat(anchoredDirectory);
+      if (componentStat.isSymbolicLink() || componentStat.isFile()) return null;
+      const nextHandle = await identityFs.open(anchoredDirectory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      handles.push(nextHandle);
+      const openedComponent = await nextHandle.stat();
+      if (openedComponent.dev !== componentStat.dev || openedComponent.ino !== componentStat.ino) return null;
+      directoryHandle = nextHandle;
+    }
+
+    const filename = parsed.segments[parsed.segments.length - 1];
+    const anchoredFile = `/proc/self/fd/${directoryHandle.fd}/${filename}`;
+    const fileStat = await identityFs.lstat(anchoredFile);
+    if (fileStat.isSymbolicLink() || !fileStat.isFile()) return null;
+    const fileHandle = await identityFs.open(anchoredFile, constants.O_RDONLY | constants.O_NOFOLLOW);
+    handles.push(fileHandle);
+    const before = await fileHandle.stat();
+    if (!before.isFile() || before.dev !== fileStat.dev || before.ino !== fileStat.ino) return null;
+
+    const hash = createHash("sha256");
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let contentSize = 0;
+    while (true) {
+      const { bytesRead } = await fileHandle.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+      contentSize += bytesRead;
+    }
+    const after = await fileHandle.stat();
+    if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size
+      || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs || contentSize !== after.size) return null;
+    return {
+      contentSha256: hash.digest("hex"),
+      contentSize,
+      locator: parsed.root + "/" + parsed.segments.join("/"),
+    };
+  } catch {
+    return null;
+  } finally {
+    await Promise.allSettled(handles.reverse().map((handle) => handle.close()));
   }
 }
 

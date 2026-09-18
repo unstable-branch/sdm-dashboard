@@ -35,10 +35,44 @@ INSERT INTO climate_collection_members (
   '{"kind":"nan"}', repeat('1', 64), '{"validator":"synthetic"}', now()
 );
 
+DO $$
+BEGIN
+  BEGIN
+    UPDATE climate_collection_members SET validation_evidence = '[]'
+    WHERE collection_id = '30000000-0000-4000-8000-000000000010' AND ordinal = 1;
+    RAISE EXCEPTION 'validated member unexpectedly accepted non-object evidence';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END;
+$$;
+
 UPDATE climate_collections SET
   validation_state = 'valid', validation_report_sha256 = repeat('e', 64),
   validator_identity = 'synthetic-validator/1', validated_at = now()
 WHERE id = '30000000-0000-4000-8000-000000000010';
+
+DO $$
+BEGIN
+  BEGIN
+    UPDATE climate_collections SET gcm = 'invalid-current-gcm'
+    WHERE id = '30000000-0000-4000-8000-000000000010';
+    RAISE EXCEPTION 'current collection unexpectedly accepted future metadata';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE climate_collections SET scenario_label = 'invalid current scenario'
+    WHERE id = '30000000-0000-4000-8000-000000000010';
+    RAISE EXCEPTION 'current collection unexpectedly accepted a scenario label';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE climate_collections SET baseline_start = '   '
+    WHERE id = '30000000-0000-4000-8000-000000000010';
+    RAISE EXCEPTION 'current collection unexpectedly accepted a blank baseline';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END;
+$$;
 
 DO $$
 BEGIN
@@ -116,6 +150,25 @@ BEGIN
 END;
 $$;
 
+UPDATE climate_collections SET validator_identity = '   '
+WHERE id = '30000000-0000-4000-8000-000000000010';
+DO $$
+BEGIN
+  BEGIN
+    UPDATE climate_collections SET
+      state = 'ready', manifest_schema_version = 1,
+      manifest = sdm_build_climate_manifest(id, 1),
+      manifest_sha256 = encode(digest(convert_to(sdm_build_climate_manifest(id, 1)::text, 'UTF8'), 'sha256'), 'hex'),
+      published_by_user_id = '10000000-0000-4000-8000-000000000010', published_at = now()
+    WHERE id = '30000000-0000-4000-8000-000000000010';
+    RAISE EXCEPTION 'publication unexpectedly accepted a blank validator identity';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END;
+$$;
+UPDATE climate_collections SET validator_identity = 'synthetic-validator/1'
+WHERE id = '30000000-0000-4000-8000-000000000010';
+
 UPDATE climate_collections SET
   state = 'ready', manifest_schema_version = 1,
   manifest = sdm_build_climate_manifest(id, 1),
@@ -146,6 +199,22 @@ $$;
 SET CONSTRAINTS runs_canonical_climate_binding_trigger DEFERRED;
 INSERT INTO runs (id, model_id, config, climate_input_mode)
 VALUES ('40000000-0000-4000-8000-000000000011', 'glm', '{}', 'canonical');
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO climate_run_bindings (
+      run_id, role, collection_id, manifest_sha256, manifest_schema_version,
+      execution_protocol_version, ordered_variable_keys, grid_fingerprint,
+      baseline_period, scenario_label
+    ) SELECT
+      '40000000-0000-4000-8000-000000000011', 'current', id, manifest_sha256, manifest_schema_version,
+      1, ARRAY['bio01', 'bio02'], grid_fingerprint, '1981/2010', 'invalid current scenario'
+    FROM climate_collections WHERE id = '30000000-0000-4000-8000-000000000010';
+    RAISE EXCEPTION 'current binding unexpectedly accepted future metadata';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END;
+$$;
 INSERT INTO climate_run_bindings (
   run_id, role, collection_id, manifest_sha256, manifest_schema_version,
   execution_protocol_version, ordered_variable_keys, grid_fingerprint, baseline_period
@@ -165,6 +234,22 @@ INSERT INTO climate_collections (
   '2041-2060', 'SSP2-4.5', 'Synthetic-GCM', 'Synthetic future',
   '30000000-0000-4000-8000-000000000010'
 );
+DO $$
+BEGIN
+  BEGIN
+    UPDATE climate_collections SET baseline_start = '1981', baseline_end = '2010'
+    WHERE id = '30000000-0000-4000-8000-000000000011';
+    RAISE EXCEPTION 'future collection unexpectedly accepted current baseline fields';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE climate_collections SET gcm = '   '
+    WHERE id = '30000000-0000-4000-8000-000000000011';
+    RAISE EXCEPTION 'future collection unexpectedly accepted a blank GCM';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END;
+$$;
 INSERT INTO climate_collection_members (
   collection_id, asset_id, ordinal, variable_key, state, media_kind, byte_size, sha256,
   units, datatype, nodata_semantics, grid_fingerprint, validation_evidence, validated_at
@@ -235,6 +320,28 @@ INSERT INTO climate_collections (
   'grid_transform', '1', '{"resampling":"none"}', 'require_all_parents',
   '{"implementation":"synthetic-validator/1"}'
 );
+DO $$
+BEGIN
+  BEGIN
+    UPDATE climate_collections SET gcm = 'invalid-derived-gcm'
+    WHERE id = '30000000-0000-4000-8000-000000000012';
+    RAISE EXCEPTION 'derived collection unexpectedly accepted a direct GCM';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE climate_collections SET derivation_algorithm_id = '   '
+    WHERE id = '30000000-0000-4000-8000-000000000012';
+    RAISE EXCEPTION 'derived collection unexpectedly accepted a blank algorithm';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE climate_collections SET derivation_parameters = '[]'
+    WHERE id = '30000000-0000-4000-8000-000000000012';
+    RAISE EXCEPTION 'derived collection unexpectedly accepted non-object parameters';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END;
+$$;
 INSERT INTO climate_collection_parents (
   child_collection_id, parent_ordinal, parent_collection_id, parent_manifest_sha256
 ) SELECT

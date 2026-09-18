@@ -37,6 +37,7 @@ import { publicRoutes } from "./routes/public.js";
 import { projectRoutes } from "./routes/projects.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { adminRoutes } from "./routes/admin.js";
+import { adminClimateRoutes } from "./routes/admin-climate.js";
 import { diagnosticsRoutes } from "./routes/diagnostics.js";
 import jobsRoutes from "./routes/jobs.js";
 
@@ -218,6 +219,7 @@ app.route("/api/v1/auth", authRoutes);
 app.route("/api/v1/projects", projectRoutes);
 app.route("/api/v1/settings", settingsRoutes);
 app.route("/api/v1/admin", adminRoutes);
+app.route("/api/v1/admin/climate", adminClimateRoutes);
 app.route("/api/v1/sdm", sdmRunRoutes);
 app.route("/api/v1/sdm", sdmBatchRoutes);
 app.route("/api/v1/sdm", sdmTargetsRoutes);

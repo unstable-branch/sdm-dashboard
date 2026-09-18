@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { lstat, mkdtemp, mkdir, open, realpath, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,6 +18,7 @@ import {
   registerSystemInputAsset,
   makeInputAssetLocator,
   InputAssetRegistrationError,
+  readInputAssetIdentityAnchored,
 } from "./input-assets.js";
 import { inputAssetLegacyMappings, inputAssets, projectMembers } from "../db/schema.js";
 
@@ -178,6 +180,62 @@ describe("canonical input asset storage containment", () => {
 
   it("fails closed for nested deletion locators", async () => {
     await expect(removeInputAssetStorageFile("uploads/nested/asset.csv", roots())).resolves.toBeNull();
+  });
+
+  it("hashes through the opened root when its configured pathname is replaced", async () => {
+    const movedRoot = root + "-opened";
+    const replacementRoot = root + "-replacement";
+    await mkdir(join(root, "nested"));
+    await writeFile(join(root, "nested", "climate.tif"), "trusted");
+    await mkdir(replacementRoot);
+    await mkdir(join(replacementRoot, "nested"));
+    await writeFile(join(replacementRoot, "nested", "climate.tif"), "attacker");
+    let openedRoot = false;
+
+    const identity = await readInputAssetIdentityAnchored("system/nested/climate.tif", roots(), {
+      realpath,
+      lstat,
+      open: async (path, flags) => {
+        const handle = await open(path, flags);
+        if (!openedRoot) {
+          openedRoot = true;
+          await rename(root, movedRoot);
+          await symlink(replacementRoot, root, "dir");
+        }
+        return handle;
+      },
+    });
+
+    expect(identity).toEqual({
+      contentSha256: createHash("sha256").update("trusted").digest("hex"),
+      contentSize: 7,
+      locator: "system/nested/climate.tif",
+    });
+    await rm(root, { force: true });
+    await rename(movedRoot, root);
+    await rm(replacementRoot, { recursive: true, force: true });
+  });
+
+  it("rejects symlink members and inode replacement between lstat and open", async () => {
+    await symlink(join(root, "asset.csv"), join(root, "climate-link.tif"));
+    await expect(readInputAssetIdentityAnchored("system/climate-link.tif", roots())).resolves.toBeNull();
+
+    const displaced = join(root, "asset-original.csv");
+    let replaced = false;
+    await expect(readInputAssetIdentityAnchored("system/asset.csv", roots(), {
+      realpath,
+      open,
+      lstat: async (path) => {
+        const stat = await lstat(path);
+        if (!replaced && path.endsWith("/asset.csv")) {
+          replaced = true;
+          await rename(path, displaced);
+          await writeFile(path, "replacement");
+        }
+        return stat;
+      },
+    })).resolves.toBeNull();
+    expect(replaced).toBe(true);
   });
 });
 
