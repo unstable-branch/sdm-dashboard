@@ -28,7 +28,7 @@ This branch is a staged recovery of the reviewed `main` snapshot. The architectu
    - Occurrence upload, generation, cleaning, frontend state, synchronous and queued model execution, targets, batch and retry paths now resolve current asset authority before use.
    - Protected Hono-to-Plumber calls carry immutable current-principal clients; direct R status, cancellation and deletion authorization denies missing, corrupt, ownerless and unauthorized metadata before side effects.
    - Custom-boundary and target-group inputs now use canonical asset IDs through submission, queue, retry, batch, Targets and final R dispatch.
-   - Mask and climate-directory inputs still require canonical-asset cutover.
+   - The canonical climate collection database foundation is established; mask inputs and climate runtime/API paths still require cutover.
 
 ## Security policy being implemented
 
@@ -43,7 +43,7 @@ This branch is a staged recovery of the reviewed `main` snapshot. The architectu
 
 **Milestone 2: security boundaries** remains active. The next coherent slices are:
 
-1. Canonicalize mask and climate-directory inputs after their collection and lifecycle contracts are approved.
+1. Cut modern climate publication, selection, binding and dispatch over to the approved canonical collection contract; canonicalize remaining mask inputs.
 2. Add durable execution ownership for standalone runs and targets so restart reconciliation never invents creator authority.
 3. Revalidate current account/project authority for open SSE and WebSocket delivery.
 4. Run the auth-enabled two-user, project-member, revoked-member, administrator, API-key, direct-Plumber and failure-path acceptance matrix.
@@ -60,12 +60,12 @@ This branch is intentionally not presented as a finished security milestone yet.
 
 ## Known limitations at this checkpoint
 
-- Mask and climate-directory inputs are not yet canonicalized. Climate work is blocked on migration-metadata reconciliation and explicit collection, lifecycle and scientific-compatibility decisions.
+- Mask inputs and modern climate runtime paths are not yet canonicalized. Climate collection, lifecycle and scientific-compatibility decisions are implemented at the database layer, but Hono, queue, batch, Targets, Plumber, R and frontend cutover remains open.
 - Standalone run and standalone Targets restart reconciliation is deliberately blocked until durable execution ownership exists.
 - Existing path-based historical records are not automatically trusted or reassigned.
 - Target-group quota reservation and canonical asset persistence are not transactionally coupled; commit-response ambiguity remains an explicit accounting residual pending the durable execution/idempotency design.
 - The lockfile-backed full R suite is not available locally because required packages such as `data.table`, ENMeval and torch are absent. Fast smoke, focused changed-path tests and release audit pass; the attempted broad system-library suite fails on missing dependencies and is not represented as green.
-- Live PostgreSQL/Plumber target-group integration and migration replay/rollback evidence remain open.
+- Live Plumber integration remains open. PostgreSQL climate migration, schema-invariant, replay and concurrency evidence is recorded below; database rollback for the additive climate migration is intentionally application-only.
 - No further remote branch, tag, workflow, protection, release or deployment change is authorized by this checkpoint.
 
 ## Review guidance
@@ -170,3 +170,20 @@ Current evidence:
 - diff hygiene, file-type inspection and private-key/token signature scans passed.
 
 No live PostgreSQL/Plumber integration or complete lockfile-backed R suite is claimed. No remote branch, tag, pull request, release or deployment was changed by this local checkpoint.
+
+## Canonical climate database foundation — 2026-09-18
+
+The local recovery line establishes the approved immutable climate collection model at `befab9b` (`feat: establish canonical climate collections`). Migration `0042` adds ordered manifest-backed current, future and derived collections, subordinate system climate-raster assets, immutable parent lineage, sealed per-run bindings and an explicit `legacy_unverified`/`canonical` run mode. Historical path-only runs remain unbound and are not adopted.
+
+Database guards enforce validated publication, canonical manifest hashes, contiguous variable and parent ordinals, current/future scientific compatibility, distinct derived outputs, multi-GCM parent diversity, dependency-ordered quarantine, referenced-byte retention and a deferred canonical-current-binding requirement. Generic asset APIs cannot register or resolve climate rasters; collection-aware publication remains the only intended authority.
+
+Current evidence:
+
+- fresh migration and production-shaped upgrade reached 43 migrations; repeat `db:migrate` was a no-op and Drizzle generation reported no schema drift;
+- the transactional PostgreSQL verifier passed publication, hash, ordering, immutability, compatibility, binding, quarantine, deletion and retention cases, then rolled its fixtures back;
+- the two-session PostgreSQL verifier passed asset/publication and parent/publication lifecycle races in a dedicated `*_climate_test` database; it refuses a mismatched database name before fixture creation;
+- full Node gate passed with 437 API tests and 209 frontend tests, plus shared/API/frontend typechecks, lint and production builds;
+- the production, development, CUDA and ROCm Compose configuration matrix passed;
+- snapshot lineage, JSON, file types, diff hygiene and secret/private-path scans passed.
+
+Safe rollback is application-only: deploy the predecessor while retaining migration `0042`, its journal row and additive database objects. `pgcrypto` is retained because it may be shared. The migration does not yet authorize publication or change runtime execution: new application runs continue to default to `legacy_unverified` until the transactional API/worker cutover lands. Auth-enabled publication and end-to-end model execution are therefore not claimed at this checkpoint.
