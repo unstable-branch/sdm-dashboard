@@ -25,7 +25,15 @@ import { db } from "../db/index.js";
 import { handleModelJob } from "./queue-model-worker.js";
 
 const assetId = "11111111-1111-1111-1111-111111111111";
-const config = { species: "Test", modelId: "glm", occurrenceAssetId: assetId };
+const boundaryAssetId = "55555555-5555-4555-8555-555555555555";
+const config = {
+  species: "Test",
+  modelId: "glm",
+  occurrenceAssetId: assetId,
+  boundaryAssetId,
+  maskType: "landmass",
+  maskBoundaryType: "custom",
+};
 const job = () => ({
   id: "bull-1",
   data: { type: "model", userId: "22222222-2222-2222-2222-222222222222", payload: {
@@ -48,6 +56,7 @@ describe("queued model canonical asset dispatch", () => {
   it("re-resolves the current principal and opaque asset before Plumber dispatch", async () => {
     mocks.resolveModelPayload.mockResolvedValue({
       species: "Test", model_id: "glm", occurrence_file: "/srv/inputs/authorized.csv",
+      mask_file: "/srv/inputs/authorized.geojson",
       output_dir: "outputs/jobs/33333333-3333-3333-3333-333333333333",
     });
     const client = { runModel: vi.fn(async () => ({})) } as any;
@@ -66,6 +75,7 @@ describe("queued model canonical asset dispatch", () => {
       runId: "33333333-3333-3333-3333-333333333333",
     }));
     expect(client.runModel.mock.calls[0][0]).not.toHaveProperty("occurrenceAssetId");
+    expect(client.runModel.mock.calls[0][0]).not.toHaveProperty("boundaryAssetId");
   });
 
   it.each(["foreign", "viewer", "revoked", "deleted", "quarantined", "unsafe", "database unavailable"])(

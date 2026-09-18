@@ -69,7 +69,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   nCores: "n_cores",
   paReplicates: "pa_replicates",
   maskType: "mask_type",
-  maskFile: "mask_file",
+  boundaryAssetId: "boundary_asset_id",
   maskBufferDeg: "mask_buffer_deg",
   maskBoundaryType: "mask_boundary_type",
   maskResolution: "mask_resolution",
@@ -216,7 +216,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
 
 /** Explicitly persisted/executed model configuration keys. */
 export const SAFE_MODEL_CONFIG_KEYS = new Set<string>([
-  "species", "speciesFilter", "modelId", "occurrenceAssetId", "biovars", "projectionExtent", "trainingExtent",
+  "species", "speciesFilter", "modelId", "occurrenceAssetId", "boundaryAssetId", "biovars", "projectionExtent", "trainingExtent",
   "threshold", "source", "seed",
   ...Object.keys(CAMEL_TO_SNAKE),
 ]);

@@ -64,6 +64,20 @@ describe("buildModelPayload", () => {
     expect(payload.output_dir).toBe("outputs/jobs/run-2");
   });
 
+  it("forwards only the resolved custom-boundary path", () => {
+    const boundaryPath = "/srv/sdm-inputs/owned/boundary.geojson";
+    const payload = buildModelPayload({
+      species: "Test species",
+      modelId: "glm",
+      boundaryAssetId: "11111111-1111-4111-8111-111111111112",
+      maskType: "landmass",
+      maskBoundaryType: "custom",
+    }, "run-boundary", RESOLVED, boundaryPath);
+    expect(payload.mask_file).toBe(boundaryPath);
+    expect(payload).not.toHaveProperty("boundaryAssetId");
+    expect(payload).not.toHaveProperty("boundary_asset_id");
+  });
+
   it("materializes targets configs without exposing canonical IDs", () => {
     const config = buildTargetsConfig({
       species: "Test species", modelId: "glm",
@@ -85,5 +99,11 @@ describe("secret-free model payloads", () => {
     expect(() => buildModelPayload({
       species: "Test", modelId: "glm", nested: { api_key: "synthetic-sentinel" },
     }, "run-nested-secret", RESOLVED)).toThrow();
+  });
+
+  it("rejects client-controlled boundary path aliases", () => {
+    for (const key of ["maskFile", "mask_file"]) {
+      expect(() => buildModelPayload({ species: "Test", modelId: "glm", [key]: "/tmp/escape.geojson" }, "run-path", RESOLVED)).toThrow();
+    }
   });
 });

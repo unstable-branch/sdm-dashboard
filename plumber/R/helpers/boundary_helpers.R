@@ -1,12 +1,20 @@
-handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL) {
+sdm_boundary_internal_only <- function(req, res) {
+  if (identical(req$auth_source %||% "", "hono_internal")) return(NULL)
+  res$status <- 403L
+  list(error = sdm_error_code_direct("ACCESS_DENIED", "Canonical boundary operations require the API gateway"))
+}
+
+handle_boundary_default <- function(req, res, app_dir, resolution = NULL, type = NULL, country = NULL, file_path = NULL) {
   dataset_type <- type %||% "admin0"
   scale <- resolution %||% "110m"
   country_val <- country %||% "all"
 
-  boundary_path <- if (dataset_type == "custom" && !is.null(country) && nzchar(country)) {
-    custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "boundaries"), winslash = "/"), error = function(e) NULL)
-    resolved_path <- tryCatch(normalizePath(country, winslash = "/", mustWork = FALSE), error = function(e) NULL)
-    if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, custom_dir)) {
+  boundary_path <- if (dataset_type == "custom" && !is.null(file_path) && nzchar(file_path)) {
+    denied <- sdm_boundary_internal_only(req, res)
+    if (!is.null(denied)) return(denied)
+    custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "uploads", "boundaries"), winslash = "/"), error = function(e) NULL)
+    resolved_path <- tryCatch(normalizePath(file_path, winslash = "/", mustWork = FALSE), error = function(e) NULL)
+    if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, paste0(custom_dir, "/"))) {
       res$status <- 403L
       return(list(error = "Invalid boundary file path"))
     }
@@ -24,6 +32,10 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
     abs_path <- file.path(app_dir, boundary_path)
     if (file.exists(abs_path)) boundary_path <- abs_path
   }
+  if (identical(dataset_type, "custom") && (is.null(boundary_path) || !file.exists(boundary_path))) {
+    res$status <- 404L
+    return(list(error = "Boundary file not found"))
+  }
   if (is.null(boundary_path) || !file.exists(boundary_path)) {
     fallback <- sdm_default_mask_file
     if (!file.exists(fallback)) fallback <- file.path(app_dir, fallback)
@@ -39,6 +51,8 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
 }
 
 handle_boundary_upload <- function(req, res, app_dir) {
+  denied <- sdm_boundary_internal_only(req, res)
+  if (!is.null(denied)) return(denied)
   file_name <- req$args$file_name
   file_content <- req$args$file_content
   if (is.null(file_name) || is.null(file_content) || !nzchar(file_content)) {
@@ -54,7 +68,7 @@ handle_boundary_upload <- function(req, res, app_dir) {
   on.exit(unlink(tmp), add = TRUE)
   writeBin(jsonlite::base64_dec(file_content), tmp)
 
-  boundary_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  boundary_dir <- file.path(app_dir, "data", "uploads", "boundaries")
   dir.create(boundary_dir, recursive = TRUE, showWarnings = FALSE)
   uuid_base <- paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_", gsub("-", "", uuid::UUIDgenerate()))
 
@@ -96,7 +110,6 @@ handle_boundary_upload <- function(req, res, app_dir) {
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
     file.copy(src, dest, overwrite = TRUE)
   }
-  sdm_write_boundary_owner(dest, req$user_id %||% "anonymous")
   list(
     file_path = normalizePath(dest, winslash = "/"),
     file_name = file_name,
@@ -105,7 +118,9 @@ handle_boundary_upload <- function(req, res, app_dir) {
 }
 
 handle_boundary_list <- function(req, res, app_dir) {
-  custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  denied <- sdm_boundary_internal_only(req, res)
+  if (!is.null(denied)) return(denied)
+  custom_dir <- file.path(app_dir, "data", "uploads", "boundaries")
   if (!dir.exists(custom_dir)) {
     return(list(boundaries = list()))
   }
@@ -126,14 +141,16 @@ handle_boundary_list <- function(req, res, app_dir) {
 }
 
 handle_boundary_delete <- function(req, res, app_dir) {
+  denied <- sdm_boundary_internal_only(req, res)
+  if (!is.null(denied)) return(denied)
   file_path <- req$args$file_path
   if (is.null(file_path) || !nzchar(file_path)) {
     res$status <- 400L
     return(list(error = "File path required"))
   }
-  custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "boundaries", "custom"), winslash = "/"), error = function(e) NULL)
+  custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "uploads", "boundaries"), winslash = "/"), error = function(e) NULL)
   resolved_path <- tryCatch(normalizePath(file_path, winslash = "/", mustWork = FALSE), error = function(e) NULL)
-  if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, custom_dir)) {
+  if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, paste0(custom_dir, "/"))) {
     res$status <- 403L
     return(list(error = "Invalid file path"))
   }
@@ -141,13 +158,7 @@ handle_boundary_delete <- function(req, res, app_dir) {
     res$status <- 404L
     return(list(error = "File not found"))
   }
-  user_id <- req$user_id %||% NULL
-  is_admin <- isTRUE(req$user_role == "admin")
-  if (!is.null(user_id) && !is_admin && !sdm_boundary_owned_by(resolved_path, user_id)) {
-    res$status <- 403L
-    return(list(error = sdm_error_code_direct("ACCESS_DENIED", "You do not have permission to delete this boundary")))
-  }
-  file.remove(resolved_path)
+  if (!isTRUE(file.remove(resolved_path))) stop("Boundary file deletion failed", call. = FALSE)
   sidecar <- paste0(resolved_path, ".owner")
   if (file.exists(sidecar)) file.remove(sidecar)
   list(ok = TRUE)
@@ -181,15 +192,24 @@ handle_boundary_countries <- function(res, app_dir) {
   list(countries = countries)
 }
 
-handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2) {
+handle_boundary_extent <- function(req, res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2) {
+  if (!is.null(file_path) || identical(type, "custom")) {
+    denied <- sdm_boundary_internal_only(req, res)
+    if (!is.null(denied)) return(denied)
+    custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "uploads", "boundaries"), winslash = "/"), error = function(e) NULL)
+    resolved_path <- tryCatch(normalizePath(file_path %||% "", winslash = "/", mustWork = FALSE), error = function(e) NULL)
+    if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, paste0(custom_dir, "/"))) {
+      res$status <- 403L
+      return(list(error = "Invalid boundary file path"))
+    }
+    file_path <- resolved_path
+  }
   if (is.null(file_path) || !file.exists(file_path)) {
     if (!is.null(type)) {
       res_type <- type %||% "admin0"
       res_scale <- resolution %||% "110m"
       if (identical(res_scale, "auto")) res_scale <- ne_boundary_infer_scale(NULL)
-      if (res_type == "custom" && !is.null(country) && nzchar(country)) {
-        file_path <- country
-      } else if (res_type %in% c("admin0", "land")) {
+      if (res_type %in% c("admin0", "land")) {
         file_path <- get_ne_boundary_path(res_scale, res_type)
         if (!file.exists(file_path)) {
           file_path <- download_ne_boundary(res_scale, res_type)
@@ -241,22 +261,9 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
       }
     }
 
-    custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
-    dir.create(custom_dir, recursive = TRUE, showWarnings = FALSE)
-    label <- if (country_val != "all") gsub("[^a-zA-Z0-9_-]", "_", tolower(country_val)) else type
-    saved_name <- sprintf("ne_%s_%s_%s.geojson", scale, type, label)
-    saved_path <- file.path(custom_dir, saved_name)
-
-    file.copy(boundary_path, saved_path, overwrite = TRUE)
-
     list(
       status = "success",
-      message = paste("Downloaded", type, "boundary at", scale, "resolution"),
-      file = list(
-        file_path = normalizePath(saved_path, winslash = "/"),
-        file_name = saved_name,
-        file_size = file.size(saved_path)
-      )
+      message = paste("Downloaded", type, "boundary at", scale, "resolution")
     )
   }, error = function(e) {
     list(status = "error", message = conditionMessage(e))

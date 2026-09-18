@@ -22,6 +22,7 @@ const FORBIDDEN_NORMALIZED_EXECUTION_KEYS = new Set(
 const FORBIDDEN_CLIENT_PATH_KEYS = new Set([
   "occurrencefile", "occurrencefilepath", "occurrence_file", "occurrence_file_path",
   "cleanedfilepath", "cleaned_file_path", "cleanedfileid", "cleaned_file_id",
+  "maskfile", "mask_file",
 ]);
 
 function isForbiddenExecutionKey(key: string): boolean {
@@ -110,7 +111,7 @@ const modelConfigObjectSchema = z.object({
   generateTiles: z.boolean().default(true),
   generateCog: z.boolean().default(true),
   maskType: z.enum(["none", "landmass", "ocean"]).optional().default("none"),
-  maskFile: z.string().optional(),
+  boundaryAssetId: z.string().uuid().optional(),
   maskBufferDeg: z.number().min(0).optional(),
   maskBoundaryType: z.enum(["admin0", "land", "custom"]).optional().default("admin0"),
   maskResolution: z.enum(["auto", "10m", "50m", "110m"]).optional().default("auto"),

@@ -64,6 +64,7 @@ services:
       - GARAGE_BUCKET_RASTERS=${GARAGE_BUCKET_RASTERS:?GARAGE_BUCKET_RASTERS is required}
       - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET_EXPORTS:?GARAGE_BUCKET_EXPORTS is required}
     volumes:
+      - upload-data:/app/data/uploads
       - r-data:/app/outputs
     depends_on:
       postgres:
@@ -127,6 +128,7 @@ services:
           cpus: "4"
           memory: 8G
     volumes:
+      - upload-data:/app/data/uploads
       - r-data:/app/outputs
       - r-climate:/app/Worldclim
       - r-chelsa:/app/chelsa
@@ -232,6 +234,7 @@ volumes:
   redis-data:
   garage-meta:
   garage-data:
+  upload-data:
   r-data:
   r-climate:
   r-chelsa:

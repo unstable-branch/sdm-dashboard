@@ -19,7 +19,7 @@ interface ClimateScenario {
 }
 
 interface BoundaryFile {
-  file_path: string;
+  asset_id: string;
   file_name: string;
   file_size: number;
 }
@@ -364,7 +364,7 @@ export function OverviewTab({
         {boundaries.length > 0 ? (
           <div className="space-y-1.5">
             {boundaries.slice(0, 5).map((b) => (
-              <div key={b.file_path} className="flex items-center gap-2 text-xs text-sdm-muted">
+              <div key={b.asset_id} className="flex items-center gap-2 text-xs text-sdm-muted">
                 <Map className="h-3 w-3 shrink-0" />
                 <span className="truncate">{b.file_name}</span>
               </div>
