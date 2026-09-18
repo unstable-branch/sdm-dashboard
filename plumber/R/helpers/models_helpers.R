@@ -388,7 +388,7 @@ sdm_read_target_group_occ <- function(path) {
       comment.char = "", stringsAsFactors = FALSE, check.names = FALSE),
     error = function(e) stop("Target-group input is unavailable", call. = FALSE)
   )
-  normalized <- tolower(gsub("[^a-z0-9]", "", names(data)))
+  normalized <- gsub("[^a-z0-9]", "", tolower(names(data)))
   lon_index <- match(TRUE, normalized %in% c("longitude", "lon", "x", "decimallongitude"), nomatch = 0L)
   lat_index <- match(TRUE, normalized %in% c("latitude", "lat", "y", "decimallatitude"), nomatch = 0L)
   if (nrow(data) < 1L || lon_index == 0L || lat_index == 0L) {

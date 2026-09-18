@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, readFile, realpath, unlink } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
@@ -27,6 +28,17 @@ export interface AssetFileSystem {
   realpath(path: string): Promise<string>;
   lstat(path: string): Promise<{ isSymbolicLink(): boolean; isFile(): boolean; size?: number }>;
   readFile(path: string): Promise<Buffer>;
+}
+
+export interface AssetDeletionFileSystem {
+  realpath(path: string): Promise<string>;
+  lstat(path: string): Promise<{ dev: number | bigint; ino: number | bigint; isSymbolicLink(): boolean; isFile(): boolean }>;
+  open(path: string, flags: number): Promise<{
+    fd: number;
+    stat(): Promise<{ dev: number | bigint; ino: number | bigint }>;
+    close(): Promise<void>;
+  }>;
+  unlink(path: string): Promise<void>;
 }
 
 const fileSystem: AssetFileSystem = { realpath, lstat, readFile };
@@ -208,6 +220,107 @@ export async function resolveInputAssetStorage(
     return { absolutePath: actualPath, locator: parsed.root + "/" + parsed.segments.join("/") };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Resolve canonical storage for physical deletion without trusting a locator
+ * lexically.  This applies the same configured-root and no-symlink checks as
+ * ordinary resolution, but permits the final file to be absent so a
+ * quarantined deletion can be finalized idempotently.
+ */
+export async function resolveInputAssetStorageForDeletion(
+  locator: string,
+  roots: InputAssetRootMap = defaultRoots(),
+  fs: AssetFileSystem = fileSystem,
+): Promise<{ absolutePath: string; exists: boolean } | null> {
+  const parsed = parseLocator(locator);
+  if (!parsed) return null;
+  const configuredRoot = roots[parsed.root];
+  if (typeof configuredRoot !== "string" || configuredRoot.length === 0) return null;
+
+  try {
+    const configuredRootPath = resolve(configuredRoot);
+    const rootStat = await fs.lstat(configuredRootPath);
+    if (rootStat.isSymbolicLink() || rootStat.isFile()) return null;
+    const rootPath = await fs.realpath(configuredRootPath);
+    const candidate = resolve(rootPath, ...parsed.segments);
+    if (!isContained(rootPath, candidate)) return null;
+
+    let current = rootPath;
+    for (const [index, segment] of parsed.segments.entries()) {
+      current = join(current, segment);
+      let component: Awaited<ReturnType<AssetFileSystem["lstat"]>>;
+      try {
+        component = await fs.lstat(current);
+      } catch (error) {
+        const isFinal = index === parsed.segments.length - 1;
+        if (isFinal && (error as NodeJS.ErrnoException).code === "ENOENT") {
+          return { absolutePath: candidate, exists: false };
+        }
+        return null;
+      }
+      if (component.isSymbolicLink()) return null;
+      const isFinal = index === parsed.segments.length - 1;
+      if (isFinal && !component.isFile()) return null;
+      if (!isFinal && component.isFile()) return null;
+    }
+
+    const actualPath = await fs.realpath(candidate);
+    if (!isContained(rootPath, actualPath)) return null;
+    const actualStat = await fs.lstat(actualPath);
+    if (actualStat.isSymbolicLink() || !actualStat.isFile()) return null;
+    return { absolutePath: actualPath, exists: true };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remove a direct child of an owned asset root through an open directory file
+ * descriptor. Linux resolves /proc/self/fd/<fd> against that opened directory,
+ * so replacing the configured root pathname after validation cannot redirect
+ * the deletion outside the directory that was actually opened.
+ */
+export async function removeInputAssetStorageFile(
+  locator: string,
+  roots: InputAssetRootMap = defaultRoots(),
+  fs?: AssetDeletionFileSystem,
+): Promise<"removed" | "absent" | null> {
+  const deletionFs = fs ?? { realpath, lstat, open, unlink };
+  const parsed = parseLocator(locator);
+  if (!parsed || parsed.segments.length !== 1) return null;
+  const configuredRoot = roots[parsed.root];
+  if (typeof configuredRoot !== "string" || configuredRoot.length === 0) return null;
+
+  let rootHandle: Awaited<ReturnType<AssetDeletionFileSystem["open"]>> | null = null;
+  try {
+    const configuredRootPath = resolve(configuredRoot);
+    const rootStat = await deletionFs.lstat(configuredRootPath);
+    if (rootStat.isSymbolicLink() || rootStat.isFile()) return null;
+    const rootPath = await deletionFs.realpath(configuredRootPath);
+    rootHandle = await deletionFs.open(rootPath, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    const openedRootStat = await rootHandle.stat();
+    if (openedRootStat.dev !== rootStat.dev || openedRootStat.ino !== rootStat.ino) return null;
+
+    const anchoredPath = `/proc/self/fd/${rootHandle.fd}/${parsed.segments[0]}`;
+    let childStat: Awaited<ReturnType<AssetDeletionFileSystem["lstat"]>>;
+    try {
+      childStat = await deletionFs.lstat(anchoredPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+      throw error;
+    }
+    if (childStat.isSymbolicLink() || !childStat.isFile()) return null;
+    try {
+      await deletionFs.unlink(anchoredPath);
+      return "removed";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+      throw error;
+    }
+  } finally {
+    await rootHandle?.close();
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, open, realpath, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type InputAssetDependencies,
@@ -7,6 +7,8 @@ import {
   type InputAssetRow,
   resolveInputAsset,
   resolveInputAssetStorage,
+  resolveInputAssetStorageForDeletion,
+  removeInputAssetStorageFile,
   resolveLegacyInputAsset,
   registerInputAsset,
   registerDerivedInputAsset,
@@ -113,6 +115,67 @@ describe("canonical input asset storage containment", () => {
     }
     expect(makeInputAssetLocator("uploads", "../asset.csv", roots())).toBeNull();
     expect(makeInputAssetLocator("uploads", "/etc/passwd", roots())).toBeNull();
+  });
+
+  it("resolves deletion only through a real configured root and permits an absent final file", async () => {
+    await expect(resolveInputAssetStorageForDeletion("uploads/asset.csv", roots()))
+      .resolves.toEqual({ absolutePath: join(root, "asset.csv"), exists: true });
+    await expect(resolveInputAssetStorageForDeletion("uploads/missing.csv", roots()))
+      .resolves.toEqual({ absolutePath: join(root, "missing.csv"), exists: false });
+
+    await symlink(join(root, "asset.csv"), join(root, "delete-link.csv"));
+    await expect(resolveInputAssetStorageForDeletion("uploads/delete-link.csv", roots())).resolves.toBeNull();
+    await expect(resolveInputAssetStorageForDeletion("uploads/../asset.csv", roots())).resolves.toBeNull();
+
+    const linkedRoot = root + "-link";
+    await symlink(root, linkedRoot);
+    await expect(resolveInputAssetStorageForDeletion("uploads/asset.csv", { uploads: linkedRoot })).resolves.toBeNull();
+    await rm(linkedRoot, { force: true });
+  });
+
+  it("anchors deletion to the opened root when its configured pathname is replaced", async () => {
+    const movedRoot = root + "-opened";
+    const replacementRoot = root + "-replacement";
+    await mkdir(replacementRoot);
+    await writeFile(join(replacementRoot, "asset.csv"), "outside");
+
+    const result = await removeInputAssetStorageFile("uploads/asset.csv", roots(), {
+      realpath,
+      lstat,
+      unlink,
+      open: async (path, flags) => {
+        const handle = await open(path, flags);
+        await rename(root, movedRoot);
+        await symlink(replacementRoot, root, "dir");
+        return handle;
+      },
+    });
+
+    expect(result).toBe("removed");
+    await expect(lstat(join(movedRoot, "asset.csv"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(replacementRoot, "asset.csv"))).resolves.toBeDefined();
+    await rm(root, { force: true });
+    await rename(movedRoot, root);
+    await rm(replacementRoot, { recursive: true, force: true });
+  });
+
+  it("treats disappearance during unlink as idempotent absence", async () => {
+    const result = await removeInputAssetStorageFile("uploads/asset.csv", roots(), {
+      realpath,
+      lstat,
+      open,
+      unlink: async (path) => {
+        await unlink(path);
+        const error = new Error("gone") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+    });
+    expect(result).toBe("absent");
+  });
+
+  it("fails closed for nested deletion locators", async () => {
+    await expect(removeInputAssetStorageFile("uploads/nested/asset.csv", roots())).resolves.toBeNull();
   });
 });
 

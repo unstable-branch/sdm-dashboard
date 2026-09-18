@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { Hono } from "hono";
 
 const ROOT = "/tmp/opencode/sdm-target-group-route-tests";
+const OUTSIDE = "/tmp/opencode/sdm-target-group-outside.csv";
 const USER = "11111111-1111-4111-8111-111111111111";
 const OTHER_USER = "11111111-1111-4111-8111-111111111112";
 const PROJECT = "22222222-2222-4222-8222-222222222222";
@@ -174,13 +175,16 @@ describe("canonical target-group routes", () => {
     mocks.reserveError = false;
     mocks.finalizationFailure = null;
     mocks.ensureDefaultProject.mockResolvedValue(PROJECT);
-    mocks.register.mockResolvedValue(canonicalAsset().asset);
+    mocks.register.mockImplementation(async (input: { absolutePath: string }) => canonicalAsset(input.absolutePath, {
+      storageLocator: `target_groups/${basename(input.absolutePath)}`,
+    }).asset);
     mocks.resolve.mockResolvedValue(canonicalAsset().resolution);
     mocks.updateState.mockResolvedValue(true);
   });
 
   afterEach(async () => {
     await rm(ROOT, { recursive: true, force: true });
+    await rm(OUTSIDE, { force: true });
   });
 
   it("uses the same default-project-only context as model execution", async () => {
@@ -251,12 +255,28 @@ describe("canonical target-group routes", () => {
     expect(mocks.reserveCalls).not.toHaveBeenCalled();
     await expect(readdir(ROOT)).resolves.toEqual([]);
 
-    mocks.register.mockResolvedValue(canonicalAsset().asset);
+    mocks.register.mockImplementation(async (input: { absolutePath: string }) => canonicalAsset(input.absolutePath, {
+      storageLocator: `target_groups/${basename(input.absolutePath)}`,
+    }).asset);
     mocks.reserveError = true;
     const accounting = await app().request("/api/v1/data/target-groups/upload", { method: "POST", body: uploadForm() });
     expect(accounting.status).toBe(503);
     expect(mocks.updateState).toHaveBeenCalledWith(ASSET, "quarantined");
     await expect(readdir(ROOT)).resolves.toEqual([]);
+  });
+
+  it("does not remove registered storage unless quarantine is confirmed", async () => {
+    mocks.reserveResults = [false];
+    mocks.updateState.mockResolvedValueOnce(false);
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const response = await app().request("/api/v1/data/target-groups/upload", { method: "POST", body: uploadForm() });
+
+    expect(response.status).toBe(413);
+    expect(mocks.updateState).toHaveBeenCalledWith(ASSET, "quarantined");
+    await expect(readdir(ROOT)).resolves.toHaveLength(1);
+    expect(log).toHaveBeenCalledWith("[target-groups] Registered upload cleanup remains pending", { assetId: ASSET });
+    log.mockRestore();
   });
 
   it("lists IDs and safe metadata without exposing a resolved path", async () => {
@@ -319,6 +339,18 @@ describe("canonical target-group routes", () => {
     expect(mocks.updateState).toHaveBeenCalledWith(ASSET, "quarantined");
     expect(mocks.transactionCalls).not.toHaveBeenCalled();
     expect(mocks.accountingCalls).not.toHaveBeenCalled();
+  });
+
+  it("rejects a quarantined locator whose final component became a symlink", async () => {
+    await mkdir(ROOT, { recursive: true });
+    await writeFile(OUTSIDE, "do-not-delete");
+    await symlink(OUTSIDE, join(ROOT, "synthetic.csv"));
+    mocks.assetRows = [canonicalAsset(undefined, { state: "quarantined" }).asset];
+
+    const response = await app().request(`/api/v1/data/target-groups/${ASSET}`, { method: "DELETE" });
+    expect(response.status).toBe(503);
+    expect(mocks.transactionCalls).not.toHaveBeenCalled();
+    await expect(readFile(OUTSIDE, "utf8")).resolves.toBe("do-not-delete");
   });
 
   it.each(["state", "accounting"] as const)("keeps deletion recoverable when %s finalization fails", async (stage) => {
