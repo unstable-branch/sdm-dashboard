@@ -1,6 +1,6 @@
 # Canonical climate collection contract
 
-_Status: approved design constraints; implementation pending migration-metadata reconciliation_
+_Status: approved contract; database and trusted publication foundation implemented, execution cutover pending_
 
 This contract replaces mutable climate-directory authority in the modern platform. It applies to current climate, future scenarios, derived multi-GCM products, synchronous and queued runs, retries, batch execution, Targets, and direct Plumber access.
 

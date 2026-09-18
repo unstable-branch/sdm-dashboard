@@ -28,7 +28,7 @@ This branch is a staged recovery of the reviewed `main` snapshot. The architectu
    - Occurrence upload, generation, cleaning, frontend state, synchronous and queued model execution, targets, batch and retry paths now resolve current asset authority before use.
    - Protected Hono-to-Plumber calls carry immutable current-principal clients; direct R status, cancellation and deletion authorization denies missing, corrupt, ownerless and unauthorized metadata before side effects.
    - Custom-boundary and target-group inputs now use canonical asset IDs through submission, queue, retry, batch, Targets and final R dispatch.
-   - The canonical climate collection database foundation is established; mask inputs and climate runtime/API paths still require cutover.
+   - The canonical climate collection database and trusted administrator publication foundation is established; ordinary-user selection, run binding, mask inputs and climate execution paths still require cutover.
 
 ## Security policy being implemented
 
@@ -60,12 +60,12 @@ This branch is intentionally not presented as a finished security milestone yet.
 
 ## Known limitations at this checkpoint
 
-- Mask inputs and modern climate runtime paths are not yet canonicalized. Climate collection, lifecycle and scientific-compatibility decisions are implemented at the database layer, but Hono, queue, batch, Targets, Plumber, R and frontend cutover remains open.
+- Mask inputs and modern climate runtime paths are not yet canonicalized. Trusted Hono staging/publication is implemented, but ordinary-user selection plus run, queue, retry, batch, Targets, Plumber, R and frontend execution cutover remains open.
 - Standalone run and standalone Targets restart reconciliation is deliberately blocked until durable execution ownership exists.
 - Existing path-based historical records are not automatically trusted or reassigned.
 - Target-group quota reservation and canonical asset persistence are not transactionally coupled; commit-response ambiguity remains an explicit accounting residual pending the durable execution/idempotency design.
 - The lockfile-backed full R suite is not available locally because required packages such as `data.table`, ENMeval and torch are absent. Fast smoke, focused changed-path tests and release audit pass; the attempted broad system-library suite fails on missing dependencies and is not represented as green.
-- Live Plumber integration remains open. PostgreSQL climate migration, schema-invariant, replay and concurrency evidence is recorded below; database rollback for the additive climate migration is intentionally application-only.
+- Live Plumber integration remains open. PostgreSQL climate migration, schema-invariant, replay and concurrency evidence is recorded below; database rollback for the additive climate migrations is intentionally application-only.
 - No further remote branch, tag, workflow, protection, release or deployment change is authorized by this checkpoint.
 
 ## Review guidance
@@ -187,3 +187,19 @@ Current evidence:
 - snapshot lineage, JSON, file types, diff hygiene and secret/private-path scans passed.
 
 Safe rollback is application-only: deploy the predecessor while retaining migration `0042`, its journal row and additive database objects. `pgcrypto` is retained because it may be shared. The migration does not yet authorize publication or change runtime execution: new application runs continue to default to `legacy_unverified` until the transactional API/worker cutover lands. Auth-enabled publication and end-to-end model execution are therefore not claimed at this checkpoint.
+
+## Trusted climate publication checkpoint — 2026-09-18
+
+The local recovery line adds trusted climate staging, safe administrator list/detail/publication routes and forward migration repair at `14cf2c0` (`feat: add trusted climate collection publication`). HTTP callers cannot supply paths, hashes, manifests, validation identity or actor authority. Staging accepts only server-produced files under the configured system root, hashes through root-anchored `O_NOFOLLOW` descriptors, and rechecks current administrator authority before any byte read. Publication rehashes every member and exposes only safe projections; generic asset APIs still reject climate rasters.
+
+Migration `0043` tightens collection-kind, evidence and run-binding constraints, reinstalls all eight canonical climate functions, and preflights existing ready manifests, members, assets, baselines, parent lineage, cycles and sealed run bindings before upgrade. Valid incomplete staging collections remain staging and do not block migration. Deliberately stale bindings and lineage cycles fail closed with actionable preflight errors.
+
+Current evidence:
+
+- Drizzle generation reports no schema drift; fresh all-migration apply, no-op replay and the transactional climate schema verifier pass;
+- populated stale-`0042` upgrade passes after repair, while an incorrect sealed baseline period and a lineage cycle are rejected;
+- 54 focused descriptor, staging and administrator route tests pass; the complete Node gate passes with 469 API and 209 frontend tests plus typechecks, lint and production builds;
+- production, development, CUDA and ROCm Compose validation passes;
+- staged-diff whitespace, file-type, secret, private-path and generated-file checks pass.
+
+Publication hashing deliberately records a verified filesystem snapshot; immutable compute safety comes from mandatory dispatch-time descriptor rehashing, which is not yet wired. Hashing currently occurs inside the publication transaction, and audit delivery uses the existing best-effort audit buffer. Ordinary-user collection selection, transactional run bindings, dispatch, retries, batch/Targets and direct-Plumber path rejection remain the next climate slice. Rollback remains application-only: retain migrations `0042` and `0043` and deploy the predecessor application.
