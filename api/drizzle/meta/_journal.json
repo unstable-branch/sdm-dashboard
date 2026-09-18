@@ -281,6 +281,20 @@
       "when": 1789518300000,
       "tag": "0039_occurrence_clean_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1789725000000,
+      "tag": "0040_reconcile_schema_baseline",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789725057645,
+      "tag": "0041_schema_metadata_baseline",
+      "breakpoints": true
     }
   ]
 }

@@ -132,6 +132,23 @@ describe("Admin Routes", () => {
       expect(res.status).toBe(400);
     });
 
+    it.each([
+      ["viewer", 1073741824],
+      ["admin", null],
+    ] as const)("creates %s users with the intended storage quota", async (role, storageQuotaBytes) => {
+      mockSelectResults = [[]];
+      const { app, db } = await setupApp();
+      const res = await app.request("/api/v1/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: `${role}@example.invalid`, password: "StrongPass1", role }),
+      });
+
+      expect(res.status).toBe(200);
+      const insertBuilder = vi.mocked(db.insert).mock.results[0].value;
+      expect(insertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({ role, storageQuotaBytes }));
+    });
+
     it("PUT /users/:id returns 400 for no valid fields", async () => {
       mockSelectResults = [[{ id: "u1" }]];
       const { app } = await setupApp();

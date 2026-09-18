@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { Hono } from "hono";
 
 const ROOT = "/tmp/opencode/sdm-target-group-route-tests";
@@ -218,6 +219,16 @@ describe("canonical target-group routes", () => {
     expect(body.targetGroupAssetId).toBe(ASSET);
     expect(JSON.stringify(body)).not.toContain(ROOT);
     expect(JSON.stringify(body)).not.toContain("storageLocator");
+  });
+
+  it("treats a null storage quota as unlimited during atomic reservation", async () => {
+    const response = await app().request("/api/v1/data/target-groups/upload", { method: "POST", body: uploadForm() });
+    expect(response.status).toBe(200);
+
+    const condition = mocks.reserveCalls.mock.calls[0][0].condition;
+    const query = new PgDialect().sqlToQuery(condition);
+    expect(query.sql).toContain('"users"."storage_quota_bytes" is null or');
+    expect(query.sql).toContain('"users"."storage_used_bytes" +');
   });
 
   it("denies viewers before registration or storage creation", async () => {
