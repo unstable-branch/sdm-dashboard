@@ -78,6 +78,19 @@ describe("buildModelPayload", () => {
     expect(payload).not.toHaveProperty("boundary_asset_id");
   });
 
+  it("forwards only the resolved target-group path", () => {
+    const targetGroupPath = "/srv/sdm-inputs/owned/target-group.csv";
+    const payload = buildModelPayload({
+      species: "Test species",
+      modelId: "glm",
+      biasMethod: "target_group",
+      targetGroupAssetId: "22222222-2222-4222-8222-222222222222",
+    }, "run-target-group", RESOLVED, undefined, targetGroupPath);
+    expect(payload.target_group_file).toBe(targetGroupPath);
+    expect(payload).not.toHaveProperty("targetGroupAssetId");
+    expect(payload).not.toHaveProperty("target_group_asset_id");
+  });
+
   it("materializes targets configs without exposing canonical IDs", () => {
     const config = buildTargetsConfig({
       species: "Test species", modelId: "glm",
@@ -102,7 +115,7 @@ describe("secret-free model payloads", () => {
   });
 
   it("rejects client-controlled boundary path aliases", () => {
-    for (const key of ["maskFile", "mask_file"]) {
+    for (const key of ["maskFile", "mask_file", "targetGroupFile", "target_group_file"]) {
       expect(() => buildModelPayload({ species: "Test", modelId: "glm", [key]: "/tmp/escape.geojson" }, "run-path", RESOLVED)).toThrow();
     }
   });

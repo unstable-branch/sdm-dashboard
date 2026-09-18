@@ -77,7 +77,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   restrictBackground: "restrict_background",
   biasMethod: "bias_method",
   thickeningDistanceKm: "thickening_distance_km",
-  targetGroupFile: "target_group_file",
+  targetGroupAssetId: "target_group_asset_id",
   minSourceRecords: "min_source_records",
   mergeSmallSources: "merge_small_sources",
   thinByCell: "thin_by_cell",
@@ -216,7 +216,7 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
 
 /** Explicitly persisted/executed model configuration keys. */
 export const SAFE_MODEL_CONFIG_KEYS = new Set<string>([
-  "species", "speciesFilter", "modelId", "occurrenceAssetId", "boundaryAssetId", "biovars", "projectionExtent", "trainingExtent",
+  "species", "speciesFilter", "modelId", "occurrenceAssetId", "boundaryAssetId", "targetGroupAssetId", "biovars", "projectionExtent", "trainingExtent",
   "threshold", "source", "seed",
   ...Object.keys(CAMEL_TO_SNAKE),
 ]);

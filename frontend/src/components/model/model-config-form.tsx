@@ -8,7 +8,7 @@ import { TooltipInfo } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { apiGet, fetchWithAuth } from "@/services/api";
+import { apiDelete, apiGet, apiUpload, fetchWithAuth } from "@/services/api";
 import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
 import { ModelConfigBiovars } from "./model-config-biovars";
@@ -154,7 +154,9 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [vegProduct, setVegProduct] = useState(DEFAULT_CONFIG.vegProducts[0]);
   const [lulcYear, setLulcYear] = useState(DEFAULT_CONFIG.lulcYear);
   const [vifThreshold, setVifThreshold] = useState(DEFAULT_CONFIG.vifThreshold);
-  const [targetGroupFile, setTargetGroupFile] = useState<File | null>(null);
+  const [targetGroups, setTargetGroups] = useState<Array<{ targetGroupAssetId: string; fileName: string }>>([]);
+  const [targetGroupAssetId, setTargetGroupAssetId] = useState("");
+  const [targetGroupUploading, setTargetGroupUploading] = useState(false);
   const [chelsaExtras, setChelsaExtras] = useState<string[]>([]);
   const [hfpYear, setHfpYear] = useState(DEFAULT_CONFIG.hfpYear);
   const [vegYear, setVegYear] = useState<number | undefined>(undefined);
@@ -164,6 +166,36 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       .then((data) => { if (data?.value) setOpentopoApiKey(data.value); })
       .catch(() => {});
   }, []);
+  const refreshTargetGroups = useCallback(() => {
+    apiGet<{ targetGroups: Array<{ targetGroupAssetId: string; fileName: string }> }>("/api/v1/data/target-groups")
+      .then((data) => setTargetGroups(data.targetGroups || []))
+      .catch(() => setTargetGroups([]));
+  }, []);
+  useEffect(() => { refreshTargetGroups(); }, [refreshTargetGroups]);
+
+  const uploadTargetGroup = useCallback(async (file: File) => {
+    setTargetGroupUploading(true);
+    try {
+      const uploaded = await apiUpload<{ targetGroupAssetId: string; fileName: string }>(
+        "/api/v1/data/target-groups/upload", file, undefined, 600000,
+      );
+      setTargetGroupAssetId(uploaded.targetGroupAssetId);
+      await refreshTargetGroups();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Target-group upload failed");
+    } finally {
+      setTargetGroupUploading(false);
+    }
+  }, [refreshTargetGroups]);
+  const deleteTargetGroup = useCallback(async (assetId: string) => {
+    try {
+      await apiDelete(`/api/v1/data/target-groups/${encodeURIComponent(assetId)}`);
+      if (targetGroupAssetId === assetId) setTargetGroupAssetId("");
+      await refreshTargetGroups();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Target-group deletion failed");
+    }
+  }, [refreshTargetGroups, targetGroupAssetId]);
   const [analysisCrs, setAnalysisCrs] = useState("auto");
   const [esmMinAuc, setEsmMinAuc] = useState(0.7);
   const [esmPower, setEsmPower] = useState(1);
@@ -384,6 +416,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     if (!extent) { setError("Invalid extent preset"); return; }
     const occurrenceAssetId = cleanedAssetId || rawAssetId;
     if (!occurrenceAssetId) { setError("Select a canonical occurrence asset before running the model."); return; }
+    if (biasMethod === "target_group" && !targetGroupAssetId) { setError("Upload or select a target-group asset before running the model."); return; }
     // For multi-species models, join species names with comma
     let speciesText = multispeciesText;
     if (!speciesText.trim()) {
@@ -457,7 +490,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       elevationDemtype: useElevation ? elevationDemtype : undefined,
       vegProducts: useVegetation ? [vegProduct] : undefined,
       lulcYear: useLulc ? lulcYear : undefined,
-      biasMethod: biasMethod === "target_group" ? "uniform" : biasMethod,
+      biasMethod,
+      targetGroupAssetId: biasMethod === "target_group" ? targetGroupAssetId : undefined,
       climateMatching,
       climateMatchingMethod: climateMatching ? climateMatchingMethod : undefined,
       thinByCell,
@@ -1039,6 +1073,12 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         onVifThresholdChange={setVifThreshold}
         biasMethod={biasMethod}
         onBiasMethodChange={setBiasMethod}
+        targetGroups={targetGroups}
+        targetGroupAssetId={targetGroupAssetId}
+        onTargetGroupAssetIdChange={setTargetGroupAssetId}
+        onTargetGroupUpload={uploadTargetGroup}
+        onTargetGroupDelete={deleteTargetGroup}
+        targetGroupUploading={targetGroupUploading}
         thickeningDistanceKm={thickeningDistanceKm}
         onThickeningDistanceKmChange={setThickeningDistanceKm}
         climateMatching={climateMatching}

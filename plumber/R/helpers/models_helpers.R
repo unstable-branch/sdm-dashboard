@@ -23,10 +23,16 @@ handle_model_run <- function(req, app_dir) {
   )
   if (is.null(body)) return(sdm_error_code(req, "INVALID_INPUT", "Request body is empty or not valid JSON"))
   direct_custom_boundary <- identical(body$mask_boundary_type %||% body$maskBoundaryType %||% "", "custom")
+  direct_target_group <- identical(body$bias_method %||% body$biasMethod %||% "", "target_group")
   if (!identical(req$auth_source %||% "", "hono_internal") &&
-      (direct_custom_boundary || any(c("mask_file", "maskFile") %in% names(body)))) {
-    return(sdm_error_code(req, "ACCESS_DENIED", "Custom boundary paths require the API gateway"))
+      (direct_custom_boundary || direct_target_group ||
+       any(c("mask_file", "maskFile", "target_group_file", "targetGroupFile") %in% names(body)))) {
+    return(sdm_error_code(req, "ACCESS_DENIED", "Canonical file inputs require the API gateway"))
   }
+
+  target_group_file <- body$target_group_file %||% body$targetGroupFile %||% NULL
+  body$target_group_file <- NULL
+  body$targetGroupFile <- NULL
 
   body <- tryCatch(sdm_project_safe_execution_config(body), error = function(e) NULL)
   if (is.null(body)) return(sdm_error_code(req, "INVALID_INPUT", "Invalid execution configuration"))
@@ -177,6 +183,9 @@ handle_model_run <- function(req, app_dir) {
     PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True,max_split_size_mb:512",
     CUBLAS_WORKSPACE_CONFIG = ":4096:8"
   )
+  if (!is.null(target_group_file) && nzchar(as.character(target_group_file)[1])) {
+    env["SDM_TARGET_GROUP_FILE"] <- as.character(target_group_file)[1]
+  }
 
   spawn_error <- NULL
   proc <- tryCatch(
@@ -242,7 +251,7 @@ sdm_camel_to_snake <- list(
   maskBoundaryType = "mask_boundary_type", maskResolution = "mask_resolution",
   maskCountry = "mask_country", restrictBackground = "restrict_background",
   biasMethod = "bias_method", thickeningDistanceKm = "thickening_distance_km",
-  targetGroupFile = "target_group_file", minSourceRecords = "min_source_records",
+  minSourceRecords = "min_source_records",
   mergeSmallSources = "merge_small_sources", thinByCell = "thin_by_cell",
   vifReduction = "vif_reduction", vifThreshold = "vif_threshold",
   climateMatching = "climate_matching",
@@ -361,9 +370,41 @@ sdm_targets_config_field_types <- list(
   comma_strings = c("soil_vars", "soil_depths", "uv_vars", "uv_months",
     "veg_products", "drought_periods", "chelsa_extras",
     "multi_ensemble_models", "biomod2_models"),
-  target_group_files = c("target_group_file"),
   enmeval_json = c("enmeval_tune_args", "enmeval_other_settings")
 )
+
+sdm_read_target_group_occ <- function(path) {
+  if (!is.character(path) || length(path) != 1L || is.na(path) || !nzchar(path) || !file.exists(path)) {
+    stop("Target-group input is unavailable", call. = FALSE)
+  }
+  header <- tryCatch(
+    readLines(path, n = 1L, warn = FALSE),
+    error = function(e) stop("Target-group input is unavailable", call. = FALSE)
+  )
+  separator <- if (length(header) == 1L && grepl("\t", header, fixed = TRUE) &&
+    !grepl(",", header, fixed = TRUE)) "\t" else ","
+  data <- tryCatch(
+    utils::read.table(path, header = TRUE, sep = separator, quote = "\"",
+      comment.char = "", stringsAsFactors = FALSE, check.names = FALSE),
+    error = function(e) stop("Target-group input is unavailable", call. = FALSE)
+  )
+  normalized <- tolower(gsub("[^a-z0-9]", "", names(data)))
+  lon_index <- match(TRUE, normalized %in% c("longitude", "lon", "x", "decimallongitude"), nomatch = 0L)
+  lat_index <- match(TRUE, normalized %in% c("latitude", "lat", "y", "decimallatitude"), nomatch = 0L)
+  if (nrow(data) < 1L || lon_index == 0L || lat_index == 0L) {
+    stop("Target-group input must contain longitude and latitude columns", call. = FALSE)
+  }
+  result <- data.frame(
+    longitude = suppressWarnings(as.numeric(data[[lon_index]])),
+    latitude = suppressWarnings(as.numeric(data[[lat_index]])),
+    stringsAsFactors = FALSE
+  )
+  result <- result[is.finite(result$longitude) & is.finite(result$latitude) &
+    result$longitude >= -180 & result$longitude <= 180 &
+    result$latitude >= -90 & result$latitude <= 90, , drop = FALSE]
+  if (nrow(result) < 1L) stop("Target-group input has no valid coordinates", call. = FALSE)
+  result
+}
 
 # Keep this boundary in R as well as in the TypeScript ingress. Plumber has a
 # direct API-key surface, and historical jobs can be retried without passing
@@ -373,7 +414,8 @@ sdm_execution_forbidden_key <- function(name) {
   key %in% c(
     "apikey", "accesskey", "token", "accesstoken", "secret", "password",
     "credential", "credentials", "opentopoapikey", "opentopographyapikey",
-    "opentopokey", "opentopographytoken", "elevationapikey", "demapikey"
+    "opentopokey", "opentopographytoken", "elevationapikey", "demapikey",
+    "targetgroupfile", "targetgrouppath", "targetgroupfilepath"
   ) || grepl("apikey$|apitoken$|token|secret|credential|password", key)
 }
 
@@ -581,6 +623,7 @@ sdm_validate_targets_config_csv <- function(path) {
       row$occurrence_file <- row$occurrences_csv
       row$occurrences_csv <- NULL
     }
+    row$target_group_runtime_slot <- NULL
     tryCatch({
       safe_row <- sdm_project_safe_execution_config(row)
       if (is.null(safe_row$occurrence_file) || !nzchar(as.character(safe_row$occurrence_file)[1])) {
@@ -605,10 +648,20 @@ handle_targets_run <- function(req, app_dir) {
   if (!identical(req$auth_source %||% "", "hono_internal") &&
       any(vapply(body$configs, function(config) {
         is.list(config) && (identical(config$mask_boundary_type %||% config$maskBoundaryType %||% "", "custom") ||
-          any(c("mask_file", "maskFile") %in% names(config)))
+          identical(config$bias_method %||% config$biasMethod %||% "", "target_group") ||
+          any(c("mask_file", "maskFile", "target_group_file", "targetGroupFile") %in% names(config)))
       }, logical(1)))) {
-    return(sdm_error_code(req, "ACCESS_DENIED", "Custom boundary paths require the API gateway"))
+    return(sdm_error_code(req, "ACCESS_DENIED", "Canonical file inputs require the API gateway"))
   }
+
+  target_group_files <- lapply(body$configs, function(config) {
+    config$target_group_file %||% config$targetGroupFile %||% NULL
+  })
+  body$configs <- lapply(body$configs, function(config) {
+    config$target_group_file <- NULL
+    config$targetGroupFile <- NULL
+    config
+  })
 
   configs <- tryCatch(
     lapply(body$configs, sdm_project_safe_execution_config),
@@ -635,7 +688,11 @@ handle_targets_run <- function(req, app_dir) {
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
   csv_rows <- lapply(seq_along(configs), function(i) {
-    as.data.frame(normalize_targets_config(configs[[i]]), stringsAsFactors = FALSE)
+    row <- normalize_targets_config(configs[[i]])
+    if (!is.null(target_group_files[[i]]) && nzchar(as.character(target_group_files[[i]])[1])) {
+      row$target_group_runtime_slot <- as.character(i)
+    }
+    as.data.frame(row, stringsAsFactors = FALSE)
   })
   all_cols <- unique(unlist(lapply(csv_rows, names)))
   config_df <- data.table::rbindlist(lapply(csv_rows, function(r) {
@@ -678,6 +735,10 @@ handle_targets_run <- function(req, app_dir) {
     R_MAX_VSIZE = sdm_detect_vsize(),
     PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True,max_split_size_mb:512",
     CUBLAS_WORKSPACE_CONFIG = ":4096:8")
+  env_vars["SDM_TARGET_GROUP_FILES_JSON"] <- jsonlite::toJSON(
+    lapply(target_group_files, function(path) if (is.null(path)) NULL else as.character(path)[1]),
+    auto_unbox = TRUE, null = "null"
+  )
   if (is_multispecies) {
     env_vars["SDM_MULTISPECIES"] <- "true"
   }

@@ -13,6 +13,7 @@ export type ModelConfigRecord = Record<string, unknown> & {
   modelId?: string;
   occurrenceAssetId?: string;
   boundaryAssetId?: string;
+  targetGroupAssetId?: string;
   biovars?: number[];
   projectionExtent?: number[];
   trainingExtent?: number[];
@@ -28,11 +29,12 @@ export function buildModelPayload(
   runId: string,
   occurrencePath: string,
   boundaryPath?: string,
+  targetGroupPath?: string,
 ): Record<string, unknown> {
   const safeConfig = projectSafeScienceConfig(config);
   const restSnake: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(safeConfig)) {
-    if (key === "occurrenceAssetId" || key === "boundaryAssetId" || key === "biovars" || key === "projectionExtent" || key === "trainingExtent") continue;
+    if (key === "occurrenceAssetId" || key === "boundaryAssetId" || key === "targetGroupAssetId" || key === "biovars" || key === "projectionExtent" || key === "trainingExtent") continue;
     const snakeKey = CAMEL_TO_SNAKE[key];
     if (snakeKey) restSnake[snakeKey] = val;
   }
@@ -47,15 +49,22 @@ export function buildModelPayload(
     output_dir: join("outputs", "jobs", runId),
   };
   if (boundaryPath) payload.mask_file = boundaryPath;
+  if (targetGroupPath) payload.target_group_file = targetGroupPath;
   return payload;
 }
 
-export function buildTargetsConfig(config: ModelConfigRecord, occurrencePath: string, boundaryPath?: string): Record<string, unknown> {
+export function buildTargetsConfig(config: ModelConfigRecord, occurrencePath: string, boundaryPath?: string, targetGroupPath?: string): Record<string, unknown> {
   const safeConfig = projectSafeScienceConfig(config);
   const scienceConfig = { ...safeConfig };
   delete scienceConfig.occurrenceAssetId;
   delete scienceConfig.boundaryAssetId;
-  return { ...scienceConfig, occurrenceFile: occurrencePath, ...(boundaryPath ? { maskFile: boundaryPath } : {}) };
+  delete scienceConfig.targetGroupAssetId;
+  return {
+    ...scienceConfig,
+    occurrenceFile: occurrencePath,
+    ...(boundaryPath ? { maskFile: boundaryPath } : {}),
+    ...(targetGroupPath ? { targetGroupFile: targetGroupPath } : {}),
+  };
 }
 
 
@@ -71,7 +80,7 @@ export async function resolveModelInputAsset(
   principal: InputAssetPrincipal,
   projectId: string | null,
   dependencies: InputAssetDependencies = {},
-): Promise<{ absolutePath: string; kind: "raw_occurrence" | "cleaned_occurrence"; boundaryPath?: string }> {
+): Promise<{ absolutePath: string; kind: "raw_occurrence" | "cleaned_occurrence"; boundaryPath?: string; targetGroupPath?: string }> {
   const assetId = config.occurrenceAssetId;
   if (typeof assetId !== "string") throw new ModelInputAssetError("invalid_request");
   const resolution = await resolveInputAsset({
@@ -99,10 +108,28 @@ export async function resolveModelInputAsset(
     if (!boundary.ok) throw new ModelInputAssetError(boundary.reason);
     boundaryPath = boundary.absolutePath;
   }
+  const targetGroupAssetId = config.targetGroupAssetId;
+  const usesTargetGroup = config.biasMethod === "target_group";
+  if (!usesTargetGroup && targetGroupAssetId !== undefined) throw new ModelInputAssetError("invalid_request");
+  if (usesTargetGroup && typeof targetGroupAssetId !== "string") throw new ModelInputAssetError("invalid_request");
+
+  let targetGroupPath: string | undefined;
+  if (usesTargetGroup) {
+    const targetGroup = await resolveInputAsset({
+      assetId: targetGroupAssetId as string,
+      principal,
+      action: "use",
+      expectedKind: "target_group",
+      destinationProjectId: projectId,
+    }, dependencies);
+    if (!targetGroup.ok) throw new ModelInputAssetError(targetGroup.reason);
+    targetGroupPath = targetGroup.absolutePath;
+  }
   return {
     absolutePath: resolution.absolutePath,
     kind: resolution.asset.kind as "raw_occurrence" | "cleaned_occurrence",
     boundaryPath,
+    targetGroupPath,
   };
 }
 
@@ -114,7 +141,7 @@ export async function resolveModelPayload(
   dependencies: InputAssetDependencies = {},
 ): Promise<Record<string, unknown>> {
   const asset = await resolveModelInputAsset(config, principal, projectId, dependencies);
-  return buildModelPayload(config, runId, asset.absolutePath, asset.boundaryPath);
+  return buildModelPayload(config, runId, asset.absolutePath, asset.boundaryPath, asset.targetGroupPath);
 }
 
 export async function resolveTargetsConfigs(
@@ -125,6 +152,6 @@ export async function resolveTargetsConfigs(
 ): Promise<Record<string, unknown>[]> {
   return Promise.all(configs.map(async (config) => {
     const asset = await resolveModelInputAsset(config, principal, projectId, dependencies);
-    return buildTargetsConfig(config, asset.absolutePath, asset.boundaryPath);
+    return buildTargetsConfig(config, asset.absolutePath, asset.boundaryPath, asset.targetGroupPath);
   }));
 }

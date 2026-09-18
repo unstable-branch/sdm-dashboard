@@ -64,7 +64,7 @@ const validFull = {
   minSourceRecords: 10,
   biasMethod: "target_group",
   thickeningDistanceKm: 50,
-  targetGroupFile: "/data/target.csv",
+  targetGroupAssetId: "22222222-2222-4222-8222-222222222222",
   paReplicates: 3,
   maxnetFeatures: "lqpht",
   maxnetRegmult: 2.5,
@@ -802,10 +802,27 @@ describe("modelConfigSchema", () => {
     });
 
     it("rejects client-controlled input path aliases", () => {
-      for (const key of ["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file", "maskFile", "mask_file"]) {
+      for (const key of ["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file", "maskFile", "mask_file", "targetGroupFile", "target_group_file", "targetGroupPath", "target_group_path", "targetGroupFilePath"]) {
         const result = modelConfigSchema.safeParse({ ...validMinimal, [key]: "/client/path.csv" });
         expect(result.success).toBe(false);
       }
+    });
+
+    it("accepts an opaque target-group asset ID", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        biasMethod: "target_group",
+        targetGroupAssetId: "22222222-2222-4222-8222-222222222222",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects target-group path aliases recursively", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        nested: { members: [{ target_group_file: "/client/target-group.csv" }] },
+      });
+      expect(result.success).toBe(false);
     });
 
     it("rejects null for required fields", () => {

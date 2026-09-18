@@ -23,6 +23,8 @@ const FORBIDDEN_CLIENT_PATH_KEYS = new Set([
   "occurrencefile", "occurrencefilepath", "occurrence_file", "occurrence_file_path",
   "cleanedfilepath", "cleaned_file_path", "cleanedfileid", "cleaned_file_id",
   "maskfile", "mask_file",
+  "targetgroupfile", "target_group_file", "targetgrouppath", "target_group_path",
+  "targetgroupfilepath", "target_group_file_path",
 ]);
 
 function isForbiddenExecutionKey(key: string): boolean {
@@ -151,7 +153,7 @@ const modelConfigObjectSchema = z.object({
   minSourceRecords: z.number().int().min(1).max(100).default(15),
   biasMethod: z.enum(["uniform", "target_group", "thickened"]).default("uniform"),
   thickeningDistanceKm: z.number().min(1).max(100).default(10),
-  targetGroupFile: z.string().optional(),
+  targetGroupAssetId: z.string().uuid().optional(),
   paReplicates: z.number().int().min(1).max(10).default(1),
   maxnetFeatures: z.enum(["l", "lq", "lqp", "lqh", "lqpht"]).default("lqp"),
   maxnetRegmult: z.number().min(0.1).max(10).default(1.0),

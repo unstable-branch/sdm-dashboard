@@ -140,6 +140,7 @@ function defaultRoots(): InputAssetRootMap {
   const projectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
   return {
     boundaries: process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT || join(projectRoot, "data", "uploads", "boundaries"),
+    target_groups: process.env.SDM_INPUT_ASSET_TARGET_GROUP_ROOT || join(projectRoot, "data", "uploads", "target-groups"),
     uploads: process.env.SDM_INPUT_ASSET_UPLOAD_ROOT || join(projectRoot, "data", "uploads"),
     system: process.env.SDM_INPUT_ASSET_SYSTEM_ROOT || join(projectRoot, "data", "system"),
   };
@@ -541,7 +542,7 @@ async function authorizeAsset(
   destinationProjectId: string | null,
   database: Database,
 ): Promise<{ allowed: boolean; adminAccess: boolean }> {
-  if (!isUuid(principal.id) || !PRINCIPAL_ROLES.has(principal.role) || !ASSET_SCOPES.has(asset.scope) || !ASSET_KINDS.has(asset.kind) || !ASSET_STATES.has(asset.state)) {
+  if (!isUuid(principal.id) || !PRINCIPAL_ROLES.has(principal.role) || !isUuid(asset.creatorUserId) || !ASSET_SCOPES.has(asset.scope) || !ASSET_KINDS.has(asset.kind) || !ASSET_STATES.has(asset.state)) {
     return { allowed: false, adminAccess: false };
   }
   if (!ASSET_ACTIONS.has(action) || asset.state !== "ready") return { allowed: false, adminAccess: false };
