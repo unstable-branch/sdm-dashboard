@@ -50,4 +50,23 @@ describe("execution config boundary", () => {
       enmeval_tune_args: { api_key: "synthetic-sentinel" },
     })).toThrow();
   });
+
+  it("keeps canonical boundary identity on retry and rejects historical boundary paths", () => {
+    expect(revalidateHistoricalConfig({
+      species: "Test species",
+      model_id: "glm",
+      biovars: [1, 4, 6],
+      occurrence_asset_id: "00000000-0000-0000-0000-000000000101",
+      boundary_asset_id: "00000000-0000-0000-0000-000000000102",
+      mask_type: "landmass",
+      mask_boundary_type: "custom",
+    })).toMatchObject({ boundaryAssetId: "00000000-0000-0000-0000-000000000102" });
+    expect(() => revalidateHistoricalConfig({
+      species: "Test species",
+      model_id: "glm",
+      biovars: [1, 4, 6],
+      occurrence_asset_id: "00000000-0000-0000-0000-000000000101",
+      mask_file: "/tmp/legacy-boundary.geojson",
+    })).toThrow();
+  });
 });

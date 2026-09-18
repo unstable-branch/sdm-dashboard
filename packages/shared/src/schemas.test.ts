@@ -24,7 +24,7 @@ const validFull = {
   generateTiles: true,
   generateCog: false,
   maskType: "landmass",
-  maskFile: "/data/mask.tif",
+  boundaryAssetId: "11111111-1111-4111-8111-111111111112",
   maskBufferDeg: 0.5,
   maskBoundaryType: "admin0",
   maskResolution: "10m",
@@ -801,8 +801,8 @@ describe("modelConfigSchema", () => {
       expect(result.success).toBe(false);
     });
 
-    it("rejects client occurrence path aliases", () => {
-      for (const key of ["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file"]) {
+    it("rejects client-controlled input path aliases", () => {
+      for (const key of ["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file", "maskFile", "mask_file"]) {
         const result = modelConfigSchema.safeParse({ ...validMinimal, [key]: "/client/path.csv" });
         expect(result.success).toBe(false);
       }

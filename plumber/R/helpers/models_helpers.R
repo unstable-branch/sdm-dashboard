@@ -22,6 +22,11 @@ handle_model_run <- function(req, app_dir) {
     }
   )
   if (is.null(body)) return(sdm_error_code(req, "INVALID_INPUT", "Request body is empty or not valid JSON"))
+  direct_custom_boundary <- identical(body$mask_boundary_type %||% body$maskBoundaryType %||% "", "custom")
+  if (!identical(req$auth_source %||% "", "hono_internal") &&
+      (direct_custom_boundary || any(c("mask_file", "maskFile") %in% names(body)))) {
+    return(sdm_error_code(req, "ACCESS_DENIED", "Custom boundary paths require the API gateway"))
+  }
 
   body <- tryCatch(sdm_project_safe_execution_config(body), error = function(e) NULL)
   if (is.null(body)) return(sdm_error_code(req, "INVALID_INPUT", "Invalid execution configuration"))
@@ -596,6 +601,13 @@ handle_targets_run <- function(req, app_dir) {
   )
   if (is.null(body) || is.null(body$configs) || length(body$configs) == 0) {
     return(sdm_error_code(req, "INVALID_INPUT", "Request body must contain a non-empty 'configs' array"))
+  }
+  if (!identical(req$auth_source %||% "", "hono_internal") &&
+      any(vapply(body$configs, function(config) {
+        is.list(config) && (identical(config$mask_boundary_type %||% config$maskBoundaryType %||% "", "custom") ||
+          any(c("mask_file", "maskFile") %in% names(config)))
+      }, logical(1)))) {
+    return(sdm_error_code(req, "ACCESS_DENIED", "Custom boundary paths require the API gateway"))
   }
 
   configs <- tryCatch(

@@ -339,8 +339,8 @@ function(req, res, run_id, lat, lng, band = NULL)
 #* @param type Boundary type (admin0, admin1)
 #* @param country Country name or code
 #* @post /api/v1/data/boundary/default
-function(res, resolution = NULL, type = NULL, country = NULL)
-  handle_boundary_default(res, app_dir, resolution, type, country)
+function(req, res, resolution = NULL, type = NULL, country = NULL, file_path = NULL)
+  handle_boundary_default(req, res, app_dir, resolution, type, country, file_path)
 
 #* Upload a custom boundary file
 #* @param file_name Name for the boundary file
@@ -368,8 +368,8 @@ function(res) handle_boundary_countries(res, app_dir)
 #* @param country Country name
 #* @param buffer_deg Buffer in degrees
 #* @post /api/v1/data/boundary/extent
-function(res, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2)
-  handle_boundary_extent(res, app_dir, file_path, type, resolution, country, buffer_deg)
+function(req, res, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2)
+  handle_boundary_extent(req, res, app_dir, file_path, type, resolution, country, buffer_deg)
 
 #* Download Natural Earth boundary
 #* @param type Boundary type (admin0, admin1)

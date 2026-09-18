@@ -179,7 +179,9 @@ sdmRunRoutes.post("/run", async (c) => {
       const latestInput = await resolveModelInputAsset(
         safeConfig, { id: user.id, role: user.role }, projectId,
       );
-      const result = await plumberClient.withUser(user.id).withRole(user.role).runModel(buildModelPayload(safeConfig, run.id, latestInput.absolutePath));
+      const result = await plumberClient.withUser(user.id).withRole(user.role).runModel(
+        buildModelPayload(safeConfig, run.id, latestInput.absolutePath, latestInput.boundaryPath),
+      );
       plumberJobId = (result as { job_id?: string }).job_id;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Model run failed";

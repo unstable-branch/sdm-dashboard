@@ -302,10 +302,10 @@ export default function ResultsPage() {
         const cfg = run?.config as Record<string, unknown> | undefined;
         const bt = cfg?.maskBoundaryType as string | undefined;
         if (bt === "custom") {
-          const customFile = cfg?.maskFile as string | undefined;
+          const boundaryAssetId = cfg?.boundaryAssetId as string | undefined;
           const params = new URLSearchParams();
           params.set("type", "custom");
-          if (customFile) params.set("country", customFile);
+          if (boundaryAssetId) params.set("asset_id", boundaryAssetId);
           return fetchGeoJSON(`/api/v1/data/boundary/default?${params.toString()}`);
         }
         if (!bt) return fetchGeoJSON("/api/v1/data/boundary/default");

@@ -74,7 +74,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [maskCountry, setMaskCountry] = useState("all");
   const [countries, setCountries] = useState<string[]>([]);
   const [countriesLoading, setCountriesLoading] = useState(false);
-  const [customBoundaries, setCustomBoundaries] = useState<Array<{ file_path: string; file_name: string }>>([]);
+  const [customBoundaries, setCustomBoundaries] = useState<Array<{ asset_id: string; file_name: string }>>([]);
   const [autoExtentFromBoundary, setAutoExtentFromBoundary] = useState(false);
   const extentBeforeAutoRef = useRef<{ preset: string; custom: [number, number, number, number] } | null>(null);
   useEffect(() => {
@@ -281,7 +281,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   useEffect(() => { useSettingsStore.getState().fetchSettings(); }, []);
   useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => {}); }, []);
   useEffect(() => {
-    apiGet<{ boundaries: Array<{ file_path: string; file_name: string }> }>("/api/v1/data/boundary/list")
+    apiGet<{ boundaries: Array<{ asset_id: string; file_name: string }> }>("/api/v1/data/boundary/list")
       .then((data) => setCustomBoundaries(data.boundaries || [])).catch(() => {});
   }, []);
 
@@ -305,7 +305,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       try {
         const params = new URLSearchParams();
         if (boundary === "custom") {
-          params.set("file_path", maskCountry);
+          params.set("type", "custom");
+          params.set("asset_id", maskCountry);
         } else {
           params.set("type", boundary);
           params.set("resolution", maskResolution);
@@ -418,7 +419,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         : undefined,
       maskType: (boundary === "none" ? "none" : invertMask ? "ocean" : "landmass") as "none" | "landmass" | "ocean",
       maskBufferDeg,
-      maskFile: boundary === "custom" ? maskCountry : undefined,
+      boundaryAssetId: boundary === "custom" ? maskCountry : undefined,
       maskBoundaryType: boundary === "none" ? "admin0" : boundary,
       maskResolution,
       maskCountry,

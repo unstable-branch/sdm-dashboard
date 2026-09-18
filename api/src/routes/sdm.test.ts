@@ -743,7 +743,7 @@ describe("canonical asset execution boundary", () => {
     );
   });
 
-  it.each(["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file"])(
+  it.each(["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file", "maskFile", "mask_file"])(
     "rejects legacy client path alias %s across sync, async, and targets ingress",
     async (key) => {
       const { db } = await import("../db");

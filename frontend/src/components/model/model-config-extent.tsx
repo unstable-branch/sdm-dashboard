@@ -27,7 +27,7 @@ interface ModelConfigExtentProps {
   onMaskCountryChange: (val: string) => void;
   countryOptions: string[];
   countriesLoading: boolean;
-  customBoundaries: Array<{ file_path: string; file_name: string }>;
+  customBoundaries: Array<{ asset_id: string; file_name: string }>;
   autoExtentFromBoundary: boolean;
   onAutoExtentFromBoundaryChange: (val: boolean) => void;
   restrictBackground: boolean;
@@ -241,7 +241,7 @@ export function ModelConfigExtent({
                   >
                     <option value="">Select a boundary...</option>
                     {customBoundaries.map((b) => (
-                      <option key={b.file_path} value={b.file_path}>{b.file_name}</option>
+                      <option key={b.asset_id} value={b.asset_id}>{b.file_name}</option>
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-sdm-muted">

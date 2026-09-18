@@ -78,15 +78,14 @@ download_ne_boundary <- function(scale = "110m", type = "admin0", force = FALSE)
 #' Resolve mask file path from boundary parameters
 #' @param boundary_type "admin0", "land", or "custom"
 #' @param resolution "auto", "10m", "50m", or "110m"
-#' @param country Country name, "all", or custom file path
+#' @param country Country name or "all"
 #' @param raster_res Raster resolution for auto-inference
 #' @param default_file Fallback path
 #' @return Resolved file path
 resolve_mask_file <- function(boundary_type = "admin0", resolution = "auto",
                                country = "all", raster_res = NULL,
                                default_file = sdm_default_mask_file) {
-  if (boundary_type == "custom" && !is.null(country) && nzchar(country))
-    return(country)
+  if (boundary_type == "custom") return(default_file)
   scale <- if (identical(resolution, "auto")) ne_boundary_infer_scale(raster_res) else resolution
   path <- get_ne_boundary_path(scale, boundary_type)
   if (!file.exists(path))

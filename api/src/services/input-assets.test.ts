@@ -177,10 +177,18 @@ describe("canonical input asset authorization", () => {
       });
       expect(result.ok).toBe(false);
     }
-    const creatorUseInProject = await resolveInputAsset({ assetId: RAW, principal: principal(A), action: "use", destinationProjectId: P }, {
+    const revokedCreatorUseInProject = await resolveInputAsset({ assetId: RAW, principal: principal(A), action: "use", destinationProjectId: P }, {
       roots: roots(), database: fakeDatabase({ assets: [asset(RAW)] }),
     });
-    expect(creatorUseInProject.ok).toBe(true);
+    expect(revokedCreatorUseInProject.ok).toBe(false);
+    const editorCreatorUseInProject = await resolveInputAsset({ assetId: RAW, principal: principal(A), action: "use", destinationProjectId: P }, {
+      roots: roots(), database: fakeDatabase({ assets: [asset(RAW)], membershipRole: "editor" }),
+    });
+    expect(editorCreatorUseInProject.ok).toBe(true);
+    const revokedAdminCreatorUseInProject = await resolveInputAsset({ assetId: RAW, principal: principal(A, "admin"), action: "use", destinationProjectId: P }, {
+      roots: roots(), database: fakeDatabase({ assets: [asset(RAW)] }),
+    });
+    expect(revokedAdminCreatorUseInProject.ok).toBe(false);
   });
 
   it("requires an exact, ready parent for cleaned assets", async () => {

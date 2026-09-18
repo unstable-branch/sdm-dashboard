@@ -139,8 +139,8 @@ function isOneOf<T extends string>(value: unknown, values: readonly T[]): value 
 function defaultRoots(): InputAssetRootMap {
   const projectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
   return {
+    boundaries: process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT || join(projectRoot, "data", "uploads", "boundaries"),
     uploads: process.env.SDM_INPUT_ASSET_UPLOAD_ROOT || join(projectRoot, "data", "uploads"),
-    boundaries: process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT || join(projectRoot, "data", "uploads"),
     system: process.env.SDM_INPUT_ASSET_SYSTEM_ROOT || join(projectRoot, "data", "system"),
   };
 }
@@ -454,12 +454,13 @@ export async function updateInputAssetState(
   const database = dependencies.database || db;
   try {
     const now = new Date();
+    const expectedState: InputAssetState = state === "quarantined" ? "ready" : "quarantined";
     const [updated] = await database.update(inputAssets).set({
       state,
       deletedAt: state === "deleted" ? now : null,
       quarantinedAt: state === "quarantined" ? now : null,
       updatedAt: now,
-    }).where(eq(inputAssets.id, assetId)).returning({ id: inputAssets.id });
+    }).where(and(eq(inputAssets.id, assetId), eq(inputAssets.state, expectedState))).returning({ id: inputAssets.id });
     return Boolean(updated);
   } catch {
     return false;
@@ -551,7 +552,17 @@ async function authorizeAsset(
 
   // Private assets are never implicitly shared, including with admins: only
   // the immutable creator identity may read or use them.
-  if (asset.scope === "private") return { allowed: asset.creatorUserId === principal.id, adminAccess: false };
+  if (asset.scope === "private") {
+    if (asset.creatorUserId !== principal.id) return { allowed: false, adminAccess: false };
+    if (destinationProjectId === null) return { allowed: true, adminAccess: false };
+    const [membership] = await database.select({ role: projectMembers.role })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, destinationProjectId), eq(projectMembers.userId, principal.id)))
+      .limit(1);
+    if (!membership || !PRINCIPAL_ROLES.has(membership.role)) return { allowed: false, adminAccess: false };
+    if (action === "use" && membership.role === "viewer") return { allowed: false, adminAccess: false };
+    return { allowed: true, adminAccess: false };
+  }
 
   const adminAccess = principal.role === "admin";
   if (adminAccess) return { allowed: true, adminAccess: true };

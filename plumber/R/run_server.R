@@ -179,6 +179,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     }
     req$user_role <- fwd_role
     req$user_id <- fwd_user
+    req$auth_source <- "hono_internal"
     return(NULL)
   }
 
@@ -202,6 +203,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
       }
       req$user_role <- fwd_role
       req$user_id <- fwd_user
+      req$auth_source <- "hono_internal"
       return(NULL)
     }
   }
@@ -220,6 +222,7 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   req$user_id <- user_info$user_id
   req$user_email <- user_info$email
   req$user_role <- user_info$role
+  req$auth_source <- "api_key"
 
   raw_rate_id <- api_key %||% user_info$user_id %||% fwd_user
   if (!is.null(raw_rate_id) && nzchar(raw_rate_id)) {
