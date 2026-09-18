@@ -171,6 +171,12 @@ interface ModelConfigAdvancedProps {
 
   biasMethod: "uniform" | "target_group" | "thickened";
   onBiasMethodChange: (val: "uniform" | "target_group" | "thickened") => void;
+  targetGroups: Array<{ targetGroupAssetId: string; fileName: string }>;
+  targetGroupAssetId: string;
+  onTargetGroupAssetIdChange: (value: string) => void;
+  onTargetGroupUpload: (file: File) => Promise<void>;
+  onTargetGroupDelete: (assetId: string) => Promise<void>;
+  targetGroupUploading: boolean;
   thickeningDistanceKm: number;
   onThickeningDistanceKmChange: (val: number) => void;
 
@@ -208,7 +214,7 @@ export function ModelConfigAdvanced({
   useBioclimSeason, onUseBioclimSeasonChange,
   useDrought, onUseDroughtChange, droughtPeriods, onDroughtPeriodsChange,
   vifReduction, onVifReductionChange, vifThreshold, onVifThresholdChange,
-  biasMethod, onBiasMethodChange, thickeningDistanceKm, onThickeningDistanceKmChange,
+  biasMethod, onBiasMethodChange, targetGroups, targetGroupAssetId, onTargetGroupAssetIdChange, onTargetGroupUpload, onTargetGroupDelete, targetGroupUploading, thickeningDistanceKm, onThickeningDistanceKmChange,
   climateMatching, onClimateMatchingChange, climateMatchingMethod, onClimateMatchingMethodChange,
   generateTiles, onGenerateTilesChange, generateCog, onGenerateCogChange,
 }: ModelConfigAdvancedProps) {
@@ -867,11 +873,45 @@ export function ModelConfigAdvanced({
             </label>
             <select value={biasMethod} onChange={(e) => onBiasMethodChange(e.target.value as typeof biasMethod)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
               <option value="uniform">Uniform random</option>
-              <option value="target_group" disabled>Target-group (requires file upload)</option>
+              <option value="target_group">Target-group</option>
               <option value="thickened">Thickened</option>
             </select>
             {biasMethod === "target_group" && (
-              <p className="mt-1 text-xs text-amber-500">Target-group bias requires uploading a background occurrence file. Not yet available — falling back to uniform.</p>
+              <div className="mt-2 space-y-2">
+                <select
+                  value={targetGroupAssetId}
+                  onChange={(event) => onTargetGroupAssetIdChange(event.target.value)}
+                  className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text"
+                >
+                  <option value="">Select a target-group dataset...</option>
+                  {targetGroups.map((asset) => (
+                    <option key={asset.targetGroupAssetId} value={asset.targetGroupAssetId}>{asset.fileName}</option>
+                  ))}
+                </select>
+                <label className="block text-xs text-sdm-muted">
+                  {targetGroupUploading ? "Uploading target-group CSV..." : "Upload CSV, TSV, or TXT"}
+                  <input
+                    type="file"
+                    accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+                    disabled={targetGroupUploading}
+                    className="mt-1 block w-full text-xs"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void onTargetGroupUpload(file);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+                {targetGroupAssetId && (
+                  <button
+                    type="button"
+                    className="text-xs text-red-400 hover:text-red-300"
+                    onClick={() => void onTargetGroupDelete(targetGroupAssetId)}
+                  >
+                    Delete selected target-group dataset
+                  </button>
+                )}
+              </div>
             )}
           </div>
 

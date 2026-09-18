@@ -180,7 +180,7 @@ sdmRunRoutes.post("/run", async (c) => {
         safeConfig, { id: user.id, role: user.role }, projectId,
       );
       const result = await plumberClient.withUser(user.id).withRole(user.role).runModel(
-        buildModelPayload(safeConfig, run.id, latestInput.absolutePath, latestInput.boundaryPath),
+        buildModelPayload(safeConfig, run.id, latestInput.absolutePath, latestInput.boundaryPath, latestInput.targetGroupPath),
       );
       plumberJobId = (result as { job_id?: string }).job_id;
     } catch (err) {

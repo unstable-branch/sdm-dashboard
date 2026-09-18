@@ -22,6 +22,7 @@ const G = "00000000-0000-0000-0000-000000000003";
 const P = "00000000-0000-0000-0000-000000000010";
 const RAW = "00000000-0000-0000-0000-000000000101";
 const CHILD = "00000000-0000-0000-0000-000000000102";
+const TARGET_GROUP = "00000000-0000-0000-0000-000000000103";
 const LEGACY = "00000000-0000-0000-0000-000000000201";
 
 type RowOverrides = Partial<InputAssetRow>;
@@ -116,6 +117,49 @@ describe("canonical input asset storage containment", () => {
 });
 
 describe("canonical input asset authorization", () => {
+  it("applies the full project authority and integrity matrix to target-group assets", async () => {
+    const target = asset(TARGET_GROUP, { scope: "project", projectId: P, kind: "target_group" });
+    for (const [label, actor, membershipRole, expected] of [
+      ["creator", principal(A), "editor", true],
+      ["project editor", principal(B), "editor", true],
+      ["viewer", principal(B), "viewer", false],
+      ["removed member", principal(B), undefined, false],
+      ["administrator", principal(G, "admin"), undefined, true],
+    ] as const) {
+      const result = await resolveInputAsset({
+        assetId: TARGET_GROUP,
+        principal: actor,
+        action: "use",
+        expectedKind: "target_group",
+        destinationProjectId: P,
+      }, { roots: roots(), database: fakeDatabase({ assets: [target], membershipRole }) });
+      expect(result.ok, label).toBe(expected);
+    }
+
+    const foreign = await resolveInputAsset({ assetId: TARGET_GROUP, principal: principal(B), action: "use", expectedKind: "target_group", destinationProjectId: "00000000-0000-0000-0000-000000000011" }, {
+      roots: roots(), database: fakeDatabase({ assets: [target], membershipRole: "editor" }),
+    });
+    expect(foreign.ok).toBe(false);
+
+    for (const invalid of [
+      asset(TARGET_GROUP, { scope: "project", projectId: P, kind: "custom_boundary" }),
+      asset(TARGET_GROUP, { scope: "project", projectId: P, kind: "target_group", state: "deleted" }),
+      asset(TARGET_GROUP, { scope: "project", projectId: P, kind: "target_group", state: "quarantined" }),
+      asset(TARGET_GROUP, { scope: "project", projectId: P, kind: "target_group", creatorUserId: null as never }),
+      asset(TARGET_GROUP, { scope: "project", projectId: P, kind: "target_group", storageLocator: "/tmp/unsafe.csv" }),
+      asset(TARGET_GROUP, { scope: "project", projectId: P, kind: "target_group", contentSha256: "a".repeat(64) }),
+    ]) {
+      const result = await resolveInputAsset({ assetId: TARGET_GROUP, principal: principal(B), action: "use", expectedKind: "target_group", destinationProjectId: P }, {
+        roots: roots(), database: fakeDatabase({ assets: [invalid], membershipRole: "editor" }),
+      });
+      expect(result.ok).toBe(false);
+    }
+    const unavailable = await resolveInputAsset({ assetId: TARGET_GROUP, principal: principal(B), action: "use", expectedKind: "target_group", destinationProjectId: P }, {
+      roots: roots(), database: fakeDatabase({ unavailable: true }),
+    });
+    expect(unavailable).toMatchObject({ ok: false, reason: "unavailable" });
+  });
+
   it("allows only the private creator and audits a validated admin access", async () => {
     const privateAsset = asset(RAW);
     const dependencies = { roots: roots(), database: fakeDatabase({ assets: [privateAsset] }) };

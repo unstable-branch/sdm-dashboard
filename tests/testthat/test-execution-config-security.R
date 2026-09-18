@@ -67,6 +67,44 @@ test_that("R execution projection rejects conflicting camel and snake aliases", 
   )), "Invalid execution configuration")
 })
 
+test_that("direct Plumber target-group path submissions fail closed", {
+  old_error_code <- security_env$sdm_error_code
+  on.exit(security_env$sdm_error_code <- old_error_code, add = TRUE)
+  security_env$sdm_error_code <- function(req, code, message) list(code = code, message = message)
+
+  request <- new.env(parent = emptyenv())
+  request$auth_source <- "api_key"
+  request$postBody <- jsonlite::toJSON(c(secret_free_config, list(
+    biasMethod = "target_group",
+    targetGroupFile = "/tmp/client-controlled.csv"
+  )), auto_unbox = TRUE)
+  denied <- security_env$handle_model_run(request, project_root)
+  expect_identical(denied$code, "ACCESS_DENIED")
+
+  request$postBody <- jsonlite::toJSON(list(configs = list(c(secret_free_config, list(
+    biasMethod = "target_group",
+    targetGroupFile = "/tmp/client-controlled.csv"
+  )))), auto_unbox = TRUE)
+  denied_targets <- security_env$handle_targets_run(request, project_root)
+  expect_identical(denied_targets$code, "ACCESS_DENIED")
+})
+
+test_that("target-group runtime reader validates and normalizes coordinate CSVs", {
+  csv_path <- tempfile(fileext = ".csv")
+  on.exit(unlink(csv_path), add = TRUE)
+  write.csv(data.frame(decimalLongitude = c(1, 2), decimalLatitude = c(3, 4)), csv_path, row.names = FALSE)
+  result <- security_env$sdm_read_target_group_occ(csv_path)
+  expect_named(result, c("longitude", "latitude"))
+  expect_equal(nrow(result), 2L)
+
+  writeLines(c("lon\tlat", "5\t6"), csv_path)
+  result <- security_env$sdm_read_target_group_occ(csv_path)
+  expect_equal(result, data.frame(longitude = 5, latitude = 6))
+
+  write.csv(data.frame(species = "Synthetic"), csv_path, row.names = FALSE)
+  expect_error(security_env$sdm_read_target_group_occ(csv_path), "longitude and latitude")
+})
+
 test_that("targets normalizer serializes only the safe config projection", {
   normalized <- security_env$normalize_targets_config(c(secret_free_config,
     occurrenceFile = "synthetic.csv", unknownOption = sentinel))
@@ -98,6 +136,13 @@ test_that("durable targets CSV is revalidated before worker execution", {
   write.csv(data.frame(
     species = "Synthetic species", occurrences_csv = "synthetic.csv", model_id = "glm",
     opentopo_api_key = sentinel
+  ), csv_path, row.names = FALSE)
+  expect_error(security_env$sdm_validate_targets_config_csv(csv_path),
+    "Stored targets configuration is unavailable")
+
+  write.csv(data.frame(
+    species = "Synthetic species", occurrences_csv = "synthetic.csv", model_id = "glm",
+    target_group_file = "/tmp/leaked-target-group.csv"
   ), csv_path, row.names = FALSE)
   expect_error(security_env$sdm_validate_targets_config_csv(csv_path),
     "Stored targets configuration is unavailable")

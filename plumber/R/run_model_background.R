@@ -181,6 +181,13 @@ tryCatch({
   config <- meta$config %||% list()
   config <- sdm_project_safe_execution_config(config)
   config <- sdm_normalize_model_payload(config)
+  target_group_file <- Sys.getenv("SDM_TARGET_GROUP_FILE", unset = "")
+  target_group_occ <- if (identical(config$bias_method %||% "uniform", "target_group")) {
+    sdm_read_target_group_occ(target_group_file)
+  } else {
+    NULL
+  }
+  Sys.unsetenv("SDM_TARGET_GROUP_FILE")
 
   # Parse biovars and projection_extent from config (stored as strings by the handler)
   biovars <- as.integer(unlist(strsplit(as.character(config$biovars %||% "1,4,6,12,15,18"), ",")))
@@ -219,6 +226,7 @@ tryCatch({
     species = config$species,
     species_filter = config$species_filter %||% NULL,
     occurrence_file = config$occurrence_file,
+    target_group_occ = target_group_occ,
     cleaned_occurrence = cleaned_occurrence,
     worldclim_dir = sdm_resolve_project_path(config$worldclim_dir %||% sdm_default_worldclim_dir, app_dir),
     selected_biovars = biovars,

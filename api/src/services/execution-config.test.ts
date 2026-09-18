@@ -69,4 +69,22 @@ describe("execution config boundary", () => {
       mask_file: "/tmp/legacy-boundary.geojson",
     })).toThrow();
   });
+
+  it("keeps canonical target-group identity and rejects historical target-group paths", () => {
+    expect(revalidateHistoricalConfig({
+      species: "Test species",
+      model_id: "glm",
+      biovars: [1, 4, 6],
+      occurrence_asset_id: "00000000-0000-0000-0000-000000000101",
+      bias_method: "target_group",
+      target_group_asset_id: "00000000-0000-0000-0000-000000000103",
+    })).toMatchObject({ targetGroupAssetId: "00000000-0000-0000-0000-000000000103" });
+    expect(() => revalidateHistoricalConfig({
+      species: "Test species",
+      model_id: "glm",
+      biovars: [1, 4, 6],
+      occurrence_asset_id: "00000000-0000-0000-0000-000000000101",
+      target_group_file: "/tmp/legacy-target-group.csv",
+    })).toThrow();
+  });
 });

@@ -644,14 +644,17 @@ describe("SDM routes", () => {
   });
 
   describe("historical retry config validation", () => {
-    it("denies a stored credential before cancellation, update, or enqueue", async () => {
+    it.each([
+      ["credential", { opentopo_api_key: "synthetic-opentopo-sentinel" }],
+      ["target-group path", { bias_method: "target_group", target_group_file: "/tmp/historical-target-group.csv" }],
+    ])("denies a stored %s before cancellation, update, or enqueue", async (_label, unsafeFields) => {
       const { db } = await import("../db");
       const { plumberClient } = await import("../services/plumber");
       const { enqueueSdmJob } = await import("../services/queue");
       (db.select as any)
         .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([{ id: "batch-secret", projectId: "proj-1", jobId: "targets-old" }])) })) })
         .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([{
-          id: "run-secret", status: "failed", config: { species: "Stored", modelId: "glm", biovars: [1, 4, 6], opentopo_api_key: "synthetic-opentopo-sentinel" },
+          id: "run-secret", status: "failed", config: { species: "Stored", modelId: "glm", biovars: [1, 4, 6], ...unsafeFields },
         }])) })) });
       (db.update as any).mockClear();
       (plumberClient.cancelModel as any).mockClear();
@@ -743,7 +746,7 @@ describe("canonical asset execution boundary", () => {
     );
   });
 
-  it.each(["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file", "maskFile", "mask_file"])(
+  it.each(["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file", "maskFile", "mask_file", "targetGroupFile", "target_group_file"])(
     "rejects legacy client path alias %s across sync, async, and targets ingress",
     async (key) => {
       const { db } = await import("../db");
@@ -754,6 +757,7 @@ describe("canonical asset execution boundary", () => {
         { path: "/run", body: { ...buildRunPayloadConfig, [key]: "/client/escape.csv" } },
         { path: "/run", body: { ...buildRunPayloadConfig, async: true, [key]: "/client/escape.csv" } },
         { path: "/targets/run", body: { configs: [{ ...buildRunPayloadConfig, [key]: "/client/escape.csv" }] } },
+        { path: "/batch", body: { configs: [{ ...buildRunPayloadConfig, [key]: "/client/escape.csv" }] } },
       ]) {
         vi.clearAllMocks();
         const res = await boundaryApp.request(request.path, {
@@ -780,7 +784,11 @@ describe("canonical asset execution boundary", () => {
     ["deleted", "not_found"],
     ["quarantined", "not_authorized"],
     ["unsafe", "unsafe_storage"],
-  ] as const)("denies %s assets before sync, async, or targets dispatch", async (_label, reason) => {
+    ["wrong kind", "invalid_asset"],
+    ["ownerless", "invalid_asset"],
+    ["tampered", "unsafe_storage"],
+    ["database unavailable", "unavailable"],
+  ] as const)("denies %s assets before sync, async, batch, or targets dispatch", async (_label, reason) => {
     const { db } = await import("../db");
     const { plumberClient } = await import("../services/plumber");
     const { enqueueSdmJob } = await import("../services/queue");
@@ -790,6 +798,7 @@ describe("canonical asset execution boundary", () => {
       { path: "/run", body: buildRunPayloadConfig, targets: false },
       { path: "/run", body: { ...buildRunPayloadConfig, async: true }, targets: false },
       { path: "/targets/run", body: { configs: [buildRunPayloadConfig] }, targets: true },
+      { path: "/batch", body: { configs: [buildRunPayloadConfig] }, targets: true },
     ]) {
       vi.clearAllMocks();
       const error = new modelPayload.ModelInputAssetError(reason);
@@ -801,8 +810,9 @@ describe("canonical asset execution boundary", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request.body),
       });
-      expect(res.status).toBe(404);
-      expect(await res.text()).not.toContain(reason);
+      expect(res.status).toBe(reason === "unavailable" ? 503 : 404);
+      const responseText = await res.text();
+      if (reason !== "unavailable") expect(responseText).not.toContain(reason);
       expect(db.insert).not.toHaveBeenCalled();
       expect(plumberClient.runModel).not.toHaveBeenCalled();
       expect(plumberClient.targetsRun).not.toHaveBeenCalled();

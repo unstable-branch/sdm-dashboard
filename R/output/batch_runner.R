@@ -126,10 +126,22 @@ build_run_args <- function(row) {
   for (p in row_names) {
     val <- row[[p]]
     if (is.null(val) || length(val) == 0 || (!is.character(val) && !is.numeric(val))) next
+    if (length(val) == 1L && is.na(val)) next
     if (is.character(val) && !nzchar(val)) next
 
     if (p %in% names(scalar_param_map)) {
       args[[scalar_param_map[[p]]]] <- val
+      next
+    }
+
+    if (p == "target_group_runtime_slot") {
+      slots <- tryCatch(
+        jsonlite::fromJSON(Sys.getenv("SDM_TARGET_GROUP_FILES_JSON", unset = "[]"), simplifyVector = FALSE),
+        error = function(e) list()
+      )
+      slot <- suppressWarnings(as.integer(val[1]))
+      path <- if (!is.na(slot) && slot >= 1L && slot <= length(slots)) slots[[slot]] else NULL
+      args$target_group_occ <- sdm_read_target_group_occ(path)
       next
     }
 
