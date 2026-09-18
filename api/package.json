@@ -19,6 +19,8 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx --env-file=.env scripts/seed-admin.ts",
     "db:status": "drizzle-kit status",
+    "db:verify:climate": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f scripts/verify-climate-schema.sql",
+    "db:verify:climate-concurrency": "tsx scripts/verify-climate-concurrency.ts",
     "generate:types": "tsx scripts/generate-plumber-types.ts"
   },
   "dependencies": {
