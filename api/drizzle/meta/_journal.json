@@ -302,6 +302,13 @@
       "when": 1789726947240,
       "tag": "0042_canonical_climate_collections",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1789732134948,
+      "tag": "0043_tighten_climate_collection_contract",
+      "breakpoints": true
     }
   ]
 }

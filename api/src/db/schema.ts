@@ -392,12 +392,12 @@ export const climateCollections = pgTable("climate_collections", {
   check("climate_collections_manifest_hash_ck", sql`"manifest_sha256" IS NULL OR "manifest_sha256" ~ '^[0-9a-f]{64}$'`),
   check("climate_collections_manifest_version_ck", sql`"manifest_schema_version" IS NULL OR "manifest_schema_version" > 0`),
   check("climate_collections_manifest_json_ck", sql`"manifest" IS NULL OR jsonb_typeof("manifest") = 'object'`),
-  check("climate_collections_ready_ck", sql`"state" <> 'ready' OR ("validation_state" = 'valid' AND "validation_report_sha256" IS NOT NULL AND "validator_identity" IS NOT NULL AND "validated_at" IS NOT NULL AND "manifest_schema_version" IS NOT NULL AND "manifest_sha256" IS NOT NULL AND "manifest" IS NOT NULL AND "published_by_user_id" IS NOT NULL AND "published_at" IS NOT NULL)`),
+  check("climate_collections_ready_ck", sql`"state" <> 'ready' OR ("validation_state" = 'valid' AND "validation_report_sha256" IS NOT NULL AND "validator_identity" IS NOT NULL AND length(btrim("validator_identity")) > 0 AND "validated_at" IS NOT NULL AND "manifest_schema_version" IS NOT NULL AND "manifest_sha256" IS NOT NULL AND "manifest" IS NOT NULL AND "published_by_user_id" IS NOT NULL AND "published_at" IS NOT NULL)`),
   check("climate_collections_quarantine_ck", sql`"state" <> 'quarantined' OR ("quarantined_at" IS NOT NULL AND length(btrim("quarantine_reason")) > 0)`),
   check("climate_collections_deleted_ck", sql`"state" <> 'deleted' OR ("deleted_at" IS NOT NULL AND "deletion_receipt" IS NOT NULL)`),
-  check("climate_collections_kind_ck", sql`("kind" = 'current_baseline' AND "baseline_start" IS NOT NULL AND "baseline_end" IS NOT NULL AND "future_period" IS NULL AND "ssp" IS NULL AND "baseline_collection_id" IS NULL) OR ("kind" IN ('future_scenario', 'derived_future') AND "future_period" IS NOT NULL AND "ssp" IS NOT NULL AND "scenario_label" IS NOT NULL AND "baseline_collection_id" IS NOT NULL)`),
-  check("climate_collections_gcm_ck", sql`("kind" = 'future_scenario' AND "gcm" IS NOT NULL) OR "kind" <> 'future_scenario'`),
-  check("climate_collections_derivation_ck", sql`("kind" = 'derived_future' AND "derivation_algorithm_id" IS NOT NULL AND "derivation_algorithm_version" IS NOT NULL AND "derivation_parameters" IS NOT NULL AND "missing_cell_policy" IS NOT NULL AND "derivation_software_identity" IS NOT NULL) OR ("kind" <> 'derived_future' AND "derivation_algorithm_id" IS NULL AND "derivation_algorithm_version" IS NULL AND "derivation_parameters" IS NULL AND "missing_cell_policy" IS NULL AND "derivation_software_identity" IS NULL)`),
+  check("climate_collections_kind_ck", sql`("kind" = 'current_baseline' AND "baseline_start" IS NOT NULL AND length(btrim("baseline_start")) > 0 AND "baseline_end" IS NOT NULL AND length(btrim("baseline_end")) > 0 AND "future_period" IS NULL AND "ssp" IS NULL AND "gcm" IS NULL AND "scenario_label" IS NULL AND "baseline_collection_id" IS NULL) OR ("kind" IN ('future_scenario', 'derived_future') AND "baseline_start" IS NULL AND "baseline_end" IS NULL AND "future_period" IS NOT NULL AND length(btrim("future_period")) > 0 AND "ssp" IS NOT NULL AND length(btrim("ssp")) > 0 AND "scenario_label" IS NOT NULL AND length(btrim("scenario_label")) > 0 AND "baseline_collection_id" IS NOT NULL)`),
+  check("climate_collections_gcm_ck", sql`("kind" = 'future_scenario' AND "gcm" IS NOT NULL AND length(btrim("gcm")) > 0) OR ("kind" <> 'future_scenario' AND "gcm" IS NULL)`),
+  check("climate_collections_derivation_ck", sql`("kind" = 'derived_future' AND "derivation_algorithm_id" IS NOT NULL AND length(btrim("derivation_algorithm_id")) > 0 AND "derivation_algorithm_version" IS NOT NULL AND length(btrim("derivation_algorithm_version")) > 0 AND "derivation_parameters" IS NOT NULL AND jsonb_typeof("derivation_parameters") = 'object' AND "missing_cell_policy" IS NOT NULL AND length(btrim("missing_cell_policy")) > 0 AND "derivation_software_identity" IS NOT NULL AND jsonb_typeof("derivation_software_identity") = 'object') OR ("kind" <> 'derived_future' AND "derivation_algorithm_id" IS NULL AND "derivation_algorithm_version" IS NULL AND "derivation_parameters" IS NULL AND "missing_cell_policy" IS NULL AND "derivation_software_identity" IS NULL)`),
 ]);
 
 /** Ordered collection members point to immutable system-scoped climate raster assets. */
@@ -433,7 +433,7 @@ export const climateCollectionMembers = pgTable("climate_collection_members", {
   check("climate_collection_members_media_ck", sql`"media_kind" = 'image/tiff'`),
   check("climate_collection_members_text_ck", sql`length(btrim("units")) > 0 AND length(btrim("datatype")) > 0`),
   check("climate_collection_members_nodata_ck", sql`jsonb_typeof("nodata_semantics") = 'object'`),
-  check("climate_collection_members_validated_ck", sql`"state" <> 'validated' OR ("validation_evidence" IS NOT NULL AND "validated_at" IS NOT NULL)`),
+  check("climate_collection_members_validated_ck", sql`"state" <> 'validated' OR ("validation_evidence" IS NOT NULL AND jsonb_typeof("validation_evidence") = 'object' AND "validated_at" IS NOT NULL)`),
   check("climate_collection_members_quarantine_ck", sql`"state" <> 'quarantined' OR "quarantined_at" IS NOT NULL`),
   check("climate_collection_members_deleted_ck", sql`"state" <> 'deleted' OR "deleted_at" IS NOT NULL`),
 ]);
@@ -483,7 +483,7 @@ export const climateRunBindings = pgTable("climate_run_bindings", {
   check("climate_run_bindings_grid_hash_ck", sql`"grid_fingerprint" ~ '^[0-9a-f]{64}$'`),
   check("climate_run_bindings_versions_ck", sql`"manifest_schema_version" > 0 AND "execution_protocol_version" > 0`),
   check("climate_run_bindings_variables_ck", sql`cardinality("ordered_variable_keys") > 0`),
-  check("climate_run_bindings_role_ck", sql`("role" = 'current' AND "baseline_collection_id" IS NULL AND "baseline_manifest_sha256" IS NULL AND "future_period" IS NULL AND "ssp" IS NULL) OR ("role" IN ('future_primary', 'future_secondary') AND "baseline_collection_id" IS NOT NULL AND "baseline_manifest_sha256" IS NOT NULL AND "future_period" IS NOT NULL AND "ssp" IS NOT NULL AND "scenario_label" IS NOT NULL)`),
+  check("climate_run_bindings_role_ck", sql`length(btrim("baseline_period")) > 0 AND (("role" = 'current' AND "baseline_collection_id" IS NULL AND "baseline_manifest_sha256" IS NULL AND "future_period" IS NULL AND "ssp" IS NULL AND "gcm" IS NULL AND "scenario_label" IS NULL) OR ("role" IN ('future_primary', 'future_secondary') AND "baseline_collection_id" IS NOT NULL AND "baseline_manifest_sha256" IS NOT NULL AND "future_period" IS NOT NULL AND length(btrim("future_period")) > 0 AND "ssp" IS NOT NULL AND length(btrim("ssp")) > 0 AND "scenario_label" IS NOT NULL AND length(btrim("scenario_label")) > 0))`),
 ]);
 
 export const usersRelations = relations(users, ({ many }) => ({
