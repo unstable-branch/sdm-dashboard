@@ -8,7 +8,7 @@ import { db } from "../db/index.js";
 import { auditLogs, inputAssetLegacyMappings, inputAssets, projectMembers, uploadedFiles, uploads } from "../db/schema.js";
 
 export const INPUT_ASSET_SCOPES = ["private", "project", "system"] as const;
-export const INPUT_ASSET_KINDS = ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group"] as const;
+export const INPUT_ASSET_KINDS = ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group", "climate_raster"] as const;
 export const INPUT_ASSET_STATES = ["ready", "deleted", "quarantined"] as const;
 export type InputAssetScope = (typeof INPUT_ASSET_SCOPES)[number];
 export type InputAssetKind = (typeof INPUT_ASSET_KINDS)[number];
@@ -95,7 +95,7 @@ export class InputAssetRegistrationError extends Error {
 export interface RegisterInputAssetInput {
   creatorUserId: string;
   scope: Exclude<InputAssetScope, "system">;
-  kind: InputAssetKind;
+  kind: Exclude<InputAssetKind, "climate_raster">;
   projectId?: string | null;
   root: string;
   relativePath: string;
@@ -104,7 +104,7 @@ export interface RegisterInputAssetInput {
 
 export interface RegisterSystemInputAssetInput {
   creatorUserId: string;
-  kind: InputAssetKind;
+  kind: Exclude<InputAssetKind, "climate_raster">;
   root: string;
   relativePath: string;
   contentSha256?: string;
@@ -119,7 +119,7 @@ export interface RegisterDerivedInputAssetInput extends RegisterInputAssetInput 
 export interface RegisterServerPathInput {
   creatorUserId: string;
   scope: Exclude<InputAssetScope, "system">;
-  kind: InputAssetKind;
+  kind: Exclude<InputAssetKind, "climate_raster">;
   projectId?: string | null;
   absolutePath: string;
   contentSha256?: string;
@@ -146,6 +146,12 @@ function isUuid(value: unknown): value is string {
 
 function isOneOf<T extends string>(value: unknown, values: readonly T[]): value is T {
   return typeof value === "string" && values.includes(value as T);
+}
+
+function rejectDirectClimateRasterRegistration(input: { kind?: unknown }): void {
+  if (input.kind === "climate_raster") {
+    throw new InputAssetRegistrationError("Climate raster registration requires collection authority");
+  }
 }
 
 function defaultRoots(): InputAssetRootMap {
@@ -325,6 +331,7 @@ export async function removeInputAssetStorageFile(
 }
 
 function validateRegistrationInput(input: RegisterInputAssetInput | RegisterSystemInputAssetInput, allowSystem: boolean): void {
+  rejectDirectClimateRasterRegistration(input);
   if (!isUuid(input.creatorUserId) || !isOneOf(input.kind, INPUT_ASSET_KINDS)) {
     throw new InputAssetRegistrationError("Invalid input asset identity");
   }
@@ -486,6 +493,7 @@ export async function registerInputAssetFromServerPath(
   input: RegisterServerPathInput,
   dependencies: InputAssetDependencies = {},
 ): Promise<InputAssetRow> {
+  rejectDirectClimateRasterRegistration(input);
   if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
     throw new InputAssetRegistrationError("Server producer returned an invalid storage path");
   }
@@ -524,6 +532,7 @@ export async function registerDerivedInputAssetFromServerPath(
   input: RegisterDerivedServerPathInput,
   dependencies: InputAssetDependencies = {},
 ): Promise<InputAssetRow> {
+  rejectDirectClimateRasterRegistration(input);
   if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
     throw new InputAssetRegistrationError("Cleaner returned an invalid storage path");
   }
@@ -555,6 +564,7 @@ export async function registerDerivedInputAssetFromServerPath(
 
 /** System scope is intentionally exposed as a separate server-only function. */
 export async function registerSystemInputAsset(input: RegisterSystemInputAssetInput, dependencies: InputAssetDependencies = {}): Promise<InputAssetRow> {
+  rejectDirectClimateRasterRegistration(input);
   return register(input, dependencies, true, null);
 }
 
@@ -714,6 +724,9 @@ async function resolveInternal(
   try {
     const [asset] = await database.select().from(inputAssets).where(eq(inputAssets.id, options.assetId)).limit(1);
     if (!asset) return { ok: false, reason: "not_found" };
+    // Climate bytes are subordinate to sealed collection and run bindings.
+    // They must never become directly usable through the generic asset path.
+    if (asset.kind === "climate_raster") return { ok: false, reason: "invalid_asset" };
     if (options.expectedKind && asset.kind !== options.expectedKind) return { ok: false, reason: "invalid_asset" };
     if (options.allowedKinds && !options.allowedKinds.includes(asset.kind)) return { ok: false, reason: "invalid_asset" };
     if (options.expectedParentAssetId !== undefined && (asset.parentAssetId || null) !== (options.expectedParentAssetId || null)) {

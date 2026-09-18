@@ -295,6 +295,13 @@
       "when": 1789725057645,
       "tag": "0041_schema_metadata_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1789726947240,
+      "tag": "0042_canonical_climate_collections",
+      "breakpoints": true
     }
   ]
 }

@@ -5,8 +5,14 @@ import { relations } from "drizzle-orm";
 const statusEnum = pgEnum("run_status", ["queued", "running", "completed", "failed", "cancelled"]);
 const roleEnum = pgEnum("user_role", ["admin", "editor", "viewer"]);
 export const inputAssetScopeEnum = pgEnum("input_asset_scope", ["private", "project", "system"]);
-export const inputAssetKindEnum = pgEnum("input_asset_kind", ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group"]);
+export const inputAssetKindEnum = pgEnum("input_asset_kind", ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group", "climate_raster"]);
 export const inputAssetStateEnum = pgEnum("input_asset_state", ["ready", "deleted", "quarantined"]);
+export const climateCollectionKindEnum = pgEnum("climate_collection_kind", ["current_baseline", "future_scenario", "derived_future"]);
+export const climateCollectionStateEnum = pgEnum("climate_collection_state", ["staging", "ready", "quarantined", "deleted"]);
+export const climateValidationStateEnum = pgEnum("climate_validation_state", ["pending", "valid", "invalid"]);
+export const climateMemberStateEnum = pgEnum("climate_member_state", ["staging", "validated", "quarantined", "deleted"]);
+export const climateBindingRoleEnum = pgEnum("climate_binding_role", ["current", "future_primary", "future_secondary"]);
+export const climateInputModeEnum = pgEnum("climate_input_mode", ["legacy_unverified", "canonical"]);
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -123,6 +129,7 @@ export const runs = pgTable("runs", {
   lastStage: text("last_stage"),
   errorCode: text("error_code"),
   errorHint: text("error_hint"),
+  climateInputMode: climateInputModeEnum("climate_input_mode").notNull().default("legacy_unverified"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_runs_project").on(t.projectId),
@@ -314,6 +321,169 @@ export const inputAssetLegacyMappings = pgTable("input_asset_legacy_mappings", {
   check("input_asset_legacy_locator_ck", sql`length(btrim("legacy_locator")) > 0`),
   check("input_asset_legacy_state_ck", sql`"mapping_state" IN ('verified', 'quarantined')`),
   check("input_asset_legacy_verified_ck", sql`"mapping_state" <> 'verified' OR "input_asset_id" IS NOT NULL`),
+]);
+
+/** Stable semantic keys independent of provider filenames. */
+export const climateVariableCatalog = pgTable("climate_variable_catalog", {
+  variableKey: varchar("variable_key", { length: 64 }).primaryKey(),
+  family: varchar("family", { length: 32 }).notNull(),
+  displayName: text("display_name").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  check("climate_variable_catalog_key_ck", sql`"variable_key" ~ '^[a-z][a-z0-9_]{1,63}$'`),
+  check("climate_variable_catalog_family_ck", sql`length(btrim("family")) > 0`),
+  check("climate_variable_catalog_name_ck", sql`length(btrim("display_name")) > 0`),
+]);
+
+/** Immutable ordered climate collections; only lifecycle fields may change after publication. */
+export const climateCollections = pgTable("climate_collections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  kind: climateCollectionKindEnum("kind").notNull(),
+  state: climateCollectionStateEnum("state").notNull().default("staging"),
+  validationState: climateValidationStateEnum("validation_state").notNull().default("pending"),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+  publishedByUserId: uuid("published_by_user_id").references(() => users.id, { onDelete: "restrict" }),
+  provider: text("provider").notNull(),
+  dataset: text("dataset").notNull(),
+  datasetVersion: text("dataset_version").notNull(),
+  licence: text("licence").notNull(),
+  attribution: text("attribution").notNull(),
+  sourceEvidence: jsonb("source_evidence").notNull(),
+  expectedVariableKeys: text("expected_variable_keys").array().notNull(),
+  gridFingerprint: varchar("grid_fingerprint", { length: 64 }).notNull(),
+  gridDefinition: jsonb("grid_definition").notNull(),
+  baselineStart: varchar("baseline_start", { length: 32 }),
+  baselineEnd: varchar("baseline_end", { length: 32 }),
+  futurePeriod: varchar("future_period", { length: 64 }),
+  ssp: varchar("ssp", { length: 64 }),
+  gcm: varchar("gcm", { length: 128 }),
+  scenarioLabel: text("scenario_label"),
+  baselineCollectionId: uuid("baseline_collection_id").references((): AnyPgColumn => climateCollections.id, { onDelete: "restrict" }),
+  derivationAlgorithmId: text("derivation_algorithm_id"),
+  derivationAlgorithmVersion: text("derivation_algorithm_version"),
+  derivationParameters: jsonb("derivation_parameters"),
+  missingCellPolicy: text("missing_cell_policy"),
+  derivationSoftwareIdentity: jsonb("derivation_software_identity"),
+  validationReportSha256: varchar("validation_report_sha256", { length: 64 }),
+  validatorIdentity: text("validator_identity"),
+  validatedAt: timestamp("validated_at", { withTimezone: true }),
+  manifestSchemaVersion: integer("manifest_schema_version"),
+  manifestSha256: varchar("manifest_sha256", { length: 64 }),
+  manifest: jsonb("manifest"),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  quarantinedAt: timestamp("quarantined_at", { withTimezone: true }),
+  quarantineReason: text("quarantine_reason"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  deletionReceipt: jsonb("deletion_receipt"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("climate_collections_manifest_unique").on(t.id, t.manifestSha256),
+  index("climate_collections_state_idx").on(t.state),
+  index("climate_collections_kind_state_idx").on(t.kind, t.state),
+  index("climate_collections_baseline_idx").on(t.baselineCollectionId),
+  check("climate_collections_text_ck", sql`length(btrim("provider")) > 0 AND length(btrim("dataset")) > 0 AND length(btrim("dataset_version")) > 0 AND length(btrim("licence")) > 0 AND length(btrim("attribution")) > 0`),
+  check("climate_collections_source_ck", sql`jsonb_typeof("source_evidence") = 'object'`),
+  check("climate_collections_variables_ck", sql`cardinality("expected_variable_keys") > 0`),
+  check("climate_collections_grid_hash_ck", sql`"grid_fingerprint" ~ '^[0-9a-f]{64}$'`),
+  check("climate_collections_grid_ck", sql`jsonb_typeof("grid_definition") = 'object'`),
+  check("climate_collections_validation_hash_ck", sql`"validation_report_sha256" IS NULL OR "validation_report_sha256" ~ '^[0-9a-f]{64}$'`),
+  check("climate_collections_manifest_hash_ck", sql`"manifest_sha256" IS NULL OR "manifest_sha256" ~ '^[0-9a-f]{64}$'`),
+  check("climate_collections_manifest_version_ck", sql`"manifest_schema_version" IS NULL OR "manifest_schema_version" > 0`),
+  check("climate_collections_manifest_json_ck", sql`"manifest" IS NULL OR jsonb_typeof("manifest") = 'object'`),
+  check("climate_collections_ready_ck", sql`"state" <> 'ready' OR ("validation_state" = 'valid' AND "validation_report_sha256" IS NOT NULL AND "validator_identity" IS NOT NULL AND "validated_at" IS NOT NULL AND "manifest_schema_version" IS NOT NULL AND "manifest_sha256" IS NOT NULL AND "manifest" IS NOT NULL AND "published_by_user_id" IS NOT NULL AND "published_at" IS NOT NULL)`),
+  check("climate_collections_quarantine_ck", sql`"state" <> 'quarantined' OR ("quarantined_at" IS NOT NULL AND length(btrim("quarantine_reason")) > 0)`),
+  check("climate_collections_deleted_ck", sql`"state" <> 'deleted' OR ("deleted_at" IS NOT NULL AND "deletion_receipt" IS NOT NULL)`),
+  check("climate_collections_kind_ck", sql`("kind" = 'current_baseline' AND "baseline_start" IS NOT NULL AND "baseline_end" IS NOT NULL AND "future_period" IS NULL AND "ssp" IS NULL AND "baseline_collection_id" IS NULL) OR ("kind" IN ('future_scenario', 'derived_future') AND "future_period" IS NOT NULL AND "ssp" IS NOT NULL AND "scenario_label" IS NOT NULL AND "baseline_collection_id" IS NOT NULL)`),
+  check("climate_collections_gcm_ck", sql`("kind" = 'future_scenario' AND "gcm" IS NOT NULL) OR "kind" <> 'future_scenario'`),
+  check("climate_collections_derivation_ck", sql`("kind" = 'derived_future' AND "derivation_algorithm_id" IS NOT NULL AND "derivation_algorithm_version" IS NOT NULL AND "derivation_parameters" IS NOT NULL AND "missing_cell_policy" IS NOT NULL AND "derivation_software_identity" IS NOT NULL) OR ("kind" <> 'derived_future' AND "derivation_algorithm_id" IS NULL AND "derivation_algorithm_version" IS NULL AND "derivation_parameters" IS NULL AND "missing_cell_policy" IS NULL AND "derivation_software_identity" IS NULL)`),
+]);
+
+/** Ordered collection members point to immutable system-scoped climate raster assets. */
+export const climateCollectionMembers = pgTable("climate_collection_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  collectionId: uuid("collection_id").references(() => climateCollections.id, { onDelete: "restrict" }).notNull(),
+  assetId: uuid("asset_id").references(() => inputAssets.id, { onDelete: "restrict" }).notNull(),
+  ordinal: integer("ordinal").notNull(),
+  variableKey: varchar("variable_key", { length: 64 }).references(() => climateVariableCatalog.variableKey, { onDelete: "restrict" }).notNull(),
+  state: climateMemberStateEnum("state").notNull().default("staging"),
+  mediaKind: varchar("media_kind", { length: 32 }).notNull(),
+  byteSize: bigint("byte_size", { mode: "number" }).notNull(),
+  sha256: varchar("sha256", { length: 64 }).notNull(),
+  units: text("units").notNull(),
+  datatype: text("datatype").notNull(),
+  scaleFactor: doublePrecision("scale_factor").notNull().default(1),
+  addOffset: doublePrecision("add_offset").notNull().default(0),
+  nodataSemantics: jsonb("nodata_semantics").notNull(),
+  gridFingerprint: varchar("grid_fingerprint", { length: 64 }).notNull(),
+  validationEvidence: jsonb("validation_evidence"),
+  validatedAt: timestamp("validated_at", { withTimezone: true }),
+  quarantinedAt: timestamp("quarantined_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("climate_collection_members_ordinal_unique").on(t.collectionId, t.ordinal),
+  uniqueIndex("climate_collection_members_variable_unique").on(t.collectionId, t.variableKey),
+  index("climate_collection_members_asset_idx").on(t.assetId),
+  check("climate_collection_members_ordinal_ck", sql`"ordinal" > 0`),
+  check("climate_collection_members_size_ck", sql`"byte_size" >= 0`),
+  check("climate_collection_members_hash_ck", sql`"sha256" ~ '^[0-9a-f]{64}$'`),
+  check("climate_collection_members_grid_hash_ck", sql`"grid_fingerprint" ~ '^[0-9a-f]{64}$'`),
+  check("climate_collection_members_media_ck", sql`"media_kind" = 'image/tiff'`),
+  check("climate_collection_members_text_ck", sql`length(btrim("units")) > 0 AND length(btrim("datatype")) > 0`),
+  check("climate_collection_members_nodata_ck", sql`jsonb_typeof("nodata_semantics") = 'object'`),
+  check("climate_collection_members_validated_ck", sql`"state" <> 'validated' OR ("validation_evidence" IS NOT NULL AND "validated_at" IS NOT NULL)`),
+  check("climate_collection_members_quarantine_ck", sql`"state" <> 'quarantined' OR "quarantined_at" IS NOT NULL`),
+  check("climate_collection_members_deleted_ck", sql`"state" <> 'deleted' OR "deleted_at" IS NOT NULL`),
+]);
+
+/** Ordered immutable lineage for derived collections. */
+export const climateCollectionParents = pgTable("climate_collection_parents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  childCollectionId: uuid("child_collection_id").references(() => climateCollections.id, { onDelete: "restrict" }).notNull(),
+  parentOrdinal: integer("parent_ordinal").notNull(),
+  parentCollectionId: uuid("parent_collection_id").references(() => climateCollections.id, { onDelete: "restrict" }).notNull(),
+  parentManifestSha256: varchar("parent_manifest_sha256", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("climate_collection_parents_ordinal_unique").on(t.childCollectionId, t.parentOrdinal),
+  uniqueIndex("climate_collection_parents_parent_unique").on(t.childCollectionId, t.parentCollectionId),
+  index("climate_collection_parents_parent_idx").on(t.parentCollectionId),
+  check("climate_collection_parents_ordinal_ck", sql`"parent_ordinal" > 0`),
+  check("climate_collection_parents_distinct_ck", sql`"child_collection_id" <> "parent_collection_id"`),
+  check("climate_collection_parents_hash_ck", sql`"parent_manifest_sha256" ~ '^[0-9a-f]{64}$'`),
+]);
+
+/** Sealed collection identity selected by a run; paths never belong here. */
+export const climateRunBindings = pgTable("climate_run_bindings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id").references(() => runs.id, { onDelete: "restrict" }).notNull(),
+  role: climateBindingRoleEnum("role").notNull(),
+  collectionId: uuid("collection_id").references(() => climateCollections.id, { onDelete: "restrict" }).notNull(),
+  manifestSha256: varchar("manifest_sha256", { length: 64 }).notNull(),
+  manifestSchemaVersion: integer("manifest_schema_version").notNull(),
+  executionProtocolVersion: integer("execution_protocol_version").notNull(),
+  orderedVariableKeys: text("ordered_variable_keys").array().notNull(),
+  gridFingerprint: varchar("grid_fingerprint", { length: 64 }).notNull(),
+  baselineCollectionId: uuid("baseline_collection_id").references(() => climateCollections.id, { onDelete: "restrict" }),
+  baselineManifestSha256: varchar("baseline_manifest_sha256", { length: 64 }),
+  baselinePeriod: varchar("baseline_period", { length: 64 }).notNull(),
+  futurePeriod: varchar("future_period", { length: 64 }),
+  ssp: varchar("ssp", { length: 64 }),
+  gcm: varchar("gcm", { length: 128 }),
+  scenarioLabel: text("scenario_label"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("climate_run_bindings_role_unique").on(t.runId, t.role),
+  index("climate_run_bindings_collection_idx").on(t.collectionId),
+  index("climate_run_bindings_baseline_idx").on(t.baselineCollectionId),
+  check("climate_run_bindings_manifest_hash_ck", sql`"manifest_sha256" ~ '^[0-9a-f]{64}$'`),
+  check("climate_run_bindings_baseline_hash_ck", sql`"baseline_manifest_sha256" IS NULL OR "baseline_manifest_sha256" ~ '^[0-9a-f]{64}$'`),
+  check("climate_run_bindings_grid_hash_ck", sql`"grid_fingerprint" ~ '^[0-9a-f]{64}$'`),
+  check("climate_run_bindings_versions_ck", sql`"manifest_schema_version" > 0 AND "execution_protocol_version" > 0`),
+  check("climate_run_bindings_variables_ck", sql`cardinality("ordered_variable_keys") > 0`),
+  check("climate_run_bindings_role_ck", sql`("role" = 'current' AND "baseline_collection_id" IS NULL AND "baseline_manifest_sha256" IS NULL AND "future_period" IS NULL AND "ssp" IS NULL) OR ("role" IN ('future_primary', 'future_secondary') AND "baseline_collection_id" IS NOT NULL AND "baseline_manifest_sha256" IS NOT NULL AND "future_period" IS NOT NULL AND "ssp" IS NOT NULL AND "scenario_label" IS NOT NULL)`),
 ]);
 
 export const usersRelations = relations(users, ({ many }) => ({

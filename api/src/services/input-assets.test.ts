@@ -12,6 +12,8 @@ import {
   resolveLegacyInputAsset,
   registerInputAsset,
   registerDerivedInputAsset,
+  registerInputAssetFromServerPath,
+  registerDerivedInputAssetFromServerPath,
   registerSystemInputAsset,
   makeInputAssetLocator,
   InputAssetRegistrationError,
@@ -180,6 +182,22 @@ describe("canonical input asset storage containment", () => {
 });
 
 describe("canonical input asset authorization", () => {
+  it("rejects direct climate-raster resolution outside collection authority", async () => {
+    const climate = asset(RAW, {
+      scope: "system",
+      kind: "climate_raster",
+      storageLocator: "system/asset.csv",
+      contentSha256: "a".repeat(64),
+    });
+    const result = await resolveInputAsset({
+      assetId: RAW,
+      principal: principal(G, "admin"),
+      action: "use",
+      expectedKind: "climate_raster",
+    }, { roots: roots(), database: fakeDatabase({ assets: [climate] }) });
+    expect(result).toEqual({ ok: false, reason: "invalid_asset" });
+  });
+
   it("applies the full project authority and integrity matrix to target-group assets", async () => {
     const target = asset(TARGET_GROUP, { scope: "project", projectId: P, kind: "target_group" });
     for (const [label, actor, membershipRole, expected] of [
@@ -378,6 +396,33 @@ describe("server-only registration", () => {
     await expect(registerSystemInputAsset({
       creatorUserId: A, kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv",
     }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("configured system root");
+  });
+
+  it("rejects climate raster registration outside collection authority", async () => {
+    const dependencies = { roots: roots(), database: fakeDatabase() };
+    const directRegistrations = [
+      () => registerInputAsset({
+        creatorUserId: A, scope: "private", kind: "climate_raster", root: "uploads", relativePath: "bio01.tif",
+      } as never, dependencies),
+      () => registerInputAsset({
+        creatorUserId: A, scope: "project", projectId: P, kind: "climate_raster", root: "uploads", relativePath: "bio01.tif",
+      } as never, dependencies),
+      () => registerDerivedInputAsset({
+        creatorUserId: A, scope: "private", kind: "climate_raster", root: "uploads", relativePath: "bio01.tif", parentAssetId: RAW,
+      } as never, dependencies),
+      () => registerSystemInputAsset({
+        creatorUserId: A, kind: "climate_raster", root: "system", relativePath: "bio01.tif",
+      } as never, dependencies),
+      () => registerInputAssetFromServerPath({
+        creatorUserId: A, scope: "private", kind: "climate_raster", absolutePath: "/untrusted/bio01.tif",
+      } as never, dependencies),
+      () => registerDerivedInputAssetFromServerPath({
+        creatorUserId: A, scope: "private", kind: "climate_raster", absolutePath: "/untrusted/bio01.tif", parentAssetId: RAW,
+      } as never, dependencies),
+    ];
+    for (const registerDirectly of directRegistrations) {
+      await expect(registerDirectly()).rejects.toThrow("requires collection authority");
+    }
   });
 
   it("returns an exact existing registration after a safe locator race", async () => {
