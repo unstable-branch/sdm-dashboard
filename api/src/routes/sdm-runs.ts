@@ -13,6 +13,7 @@ import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
 import { buildModelPayload, cleanupDecryptedFiles } from "../services/model-payload.js";
+import { completedRunFields } from "../services/completed-run.js";
 
 async function plumberJobId(runId: string): Promise<string> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
@@ -321,47 +322,137 @@ sdmRunRoutes.post("/cancel/:jobId", async (c) => {
       .where(projectIds ? and(eq(runs.id, jobId), inArray(runs.projectId, projectIds)) : eq(runs.id, jobId))
       .limit(1);
 
-    if (!run) {
-      return c.json({ error: "Run not found" }, 404);
-    }
+    if (!run) return c.json({ error: "Run not found" }, 404);
 
+    // Cancellation is idempotent. Returning the persisted terminal state also
+    // prevents retries from turning a completed run into cancelled.
     if (run.status !== "queued" && run.status !== "running") {
-      return c.json({ error: `Run is already ${run.status} — cannot cancel` }, 409);
+      return c.json({
+        ok: true,
+        status: run.status,
+        message: `Run is already ${run.status}`,
+      });
     }
 
     const queue = getJobQueue();
-    if (queue && run.bullmqId) {
-      const bullJob = await queue.getJob(run.bullmqId);
-      if (bullJob) {
-        const state = await bullJob.getState();
-        if (state === "active") {
-          await bullJob.discard();
-        } else if (state === "waiting" || state === "delayed") {
-          await bullJob.remove();
+    let backendResult: { ok: boolean; message: string; status?: string } | null = null;
+    let backendStatus: Record<string, unknown> | null = null;
+    if (run.jobId) {
+      try {
+        backendResult = await plumberClient.cancelModel(run.jobId);
+      } catch (cancelErr) {
+        // A completion can race the cancel request. Probe before surfacing an
+        // error so authoritative completion is not lost.
+        try {
+          backendStatus = await plumberClient.getModelStatus(run.jobId);
+        } catch {
+          throw cancelErr;
         }
+      }
+
+      if (!backendStatus) {
+        try {
+          backendStatus = await plumberClient.getModelStatus(run.jobId);
+        } catch {
+          // The R endpoint returns its reconciled terminal status even when a
+          // follow-up status probe is temporarily unavailable.
+          backendStatus = backendResult?.status ? { status: backendResult.status } : null;
+        }
+      }
+
+      if (backendStatus?.status === "completed") {
+        const completed = await completedRunFields(plumberClient, run.jobId, backendStatus);
+        await db.update(runs).set({
+          status: "completed",
+          completedAt: new Date(),
+          error: null,
+          errorCode: null,
+          errorHint: null,
+          metrics: completed.metrics,
+          outputFiles: completed.outputFiles,
+          provenance: completed.provenance,
+        }).where(and(eq(runs.id, jobId), inArray(runs.status, ["queued", "running", "failed", "cancelled"])));
+        jobEventBus.emitJobStatus({
+          jobId: run.id,
+          state: "completed",
+          progress: 100,
+          logs: Array.isArray(backendStatus.progress_log) ? backendStatus.progress_log as string[] : ["Model run completed before cancellation."],
+          result: backendStatus,
+        });
+        return c.json({ ok: true, status: "completed", message: "Run completed before cancellation" });
+      }
+
+      if (backendStatus?.status === "failed") {
+        const error = typeof backendStatus.error === "string" ? backendStatus.error : "Model run failed before cancellation";
+        const failedRows = await db.update(runs).set({
+          status: "failed",
+          completedAt: new Date(),
+          error,
+          errorCode: typeof backendStatus.error_code === "string" ? backendStatus.error_code : null,
+          errorHint: typeof backendStatus.error_hint === "string" ? backendStatus.error_hint : null,
+        }).where(and(eq(runs.id, jobId), inArray(runs.status, ["queued", "running"])))
+          .returning({ id: runs.id });
+        if (failedRows.length > 0) {
+          return c.json({ ok: true, status: "failed", message: error });
+        }
+
+        const [reconciled] = await db
+          .select({ status: runs.status })
+          .from(runs)
+          .where(eq(runs.id, jobId))
+          .limit(1);
+        return c.json({
+          ok: true,
+          status: reconciled?.status ?? "failed",
+          message: reconciled ? `Run is already ${reconciled.status}` : error,
+        });
       }
     }
 
-    if (run.jobId) {
-      const result = await plumberClient.cancelModel(run.jobId);
-      await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(and(eq(runs.id, jobId), inArray(runs.status, ["queued", "running"])));
+    // Do not discard queue ownership until the backend cancel/reconciliation
+    // succeeds. If Plumber is unreachable, returning an error while leaving the
+    // run recoverable is safer than stranding a DB row with no queue owner.
+    if (queue && run.bullmqId) {
+      try {
+        const bullJob = await queue.getJob(run.bullmqId);
+        if (bullJob) {
+          const state = await bullJob.getState();
+          if (state === "active") await bullJob.discard();
+          else if (state === "waiting" || state === "delayed" || state === "prioritized") await bullJob.remove();
+        }
+      } catch (err) {
+        // The DB/Plumber state remains authoritative if BullMQ changes between
+        // inspection and removal.
+        console.warn(`[sdm-cancel] BullMQ cleanup raced for run ${run.id}:`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    const cancelledRows = await db
+      .update(runs)
+      .set({ status: "cancelled", completedAt: new Date() })
+      .where(and(eq(runs.id, jobId), inArray(runs.status, ["queued", "running"])))
+      .returning({ id: runs.id });
+
+    if (cancelledRows.length > 0) {
       jobEventBus.emitJobStatus({
         jobId: run.id,
         state: "cancelled",
         progress: 0,
         logs: ["Model run cancelled by user."],
       });
-      return c.json(result);
+      return c.json({ ...(backendResult ?? { ok: true, message: "Run cancelled" }), status: "cancelled" });
     }
 
-    await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(and(eq(runs.id, jobId), inArray(runs.status, ["queued", "running"])));
-    jobEventBus.emitJobStatus({
-      jobId: run.id,
-      state: "cancelled",
-      progress: 0,
-      logs: ["Model run cancelled by user."],
+    const [reconciled] = await db
+      .select({ status: runs.status })
+      .from(runs)
+      .where(eq(runs.id, jobId))
+      .limit(1);
+    return c.json({
+      ok: true,
+      status: reconciled?.status ?? "cancelled",
+      message: reconciled ? `Run is already ${reconciled.status}` : "Run cancellation reconciled",
     });
-    return c.json({ ok: true, message: "Run cancelled" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to cancel";
     return c.json({ error: message }, 502);
