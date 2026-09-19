@@ -127,6 +127,8 @@ vi.mock("../services/plumber", () => ({
   plumberClient: {
     getModelStatus: vi.fn(),
     runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
+    cancelModel: vi.fn(async () => ({ ok: true, status: "cancelled", message: "cancelled" })),
+    getOutputManifest: vi.fn(async () => ({ manifest: {} })),
     targetsRun: vi.fn(async () => ({ job_id: "targets-job-1" })),
   },
 }));
@@ -171,9 +173,7 @@ vi.mock("../services/access", () => ({
 vi.mock("../services/queue", () => ({
   enqueueSdmJob: vi.fn(async () => "job-1"),
   getSharedRedis: vi.fn(() => null),
-  getJobQueue: vi.fn(() => ({
-    remove: vi.fn(async () => {}),
-  })),
+  getJobQueue: vi.fn(() => null),
 }));
 
 vi.mock("hono/jwt", () => ({
@@ -284,6 +284,61 @@ describe("SDM routes", () => {
 
       const res = await app.request("/api/v1/sdm/status/nonexistent");
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("POST /cancel/:jobId", () => {
+    it("is idempotent for an already-cancelled run", async () => {
+      const { db } = await import("../db");
+      (db.select as unknown as { mockReturnValueOnce(value: unknown): void }).mockReturnValueOnce(mockLimitChain([{
+        id: "run-1",
+        status: "cancelled",
+        jobId: "plumber-1",
+        bullmqId: "bull-1",
+      }]));
+      const { plumberClient } = await import("../services/plumber");
+
+      const res = await app.request("/api/v1/sdm/cancel/run-1", { method: "POST" });
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(data).toMatchObject({ ok: true, status: "cancelled" });
+      expect(plumberClient.cancelModel).not.toHaveBeenCalled();
+    });
+
+    it("returns completed without cancelling artifacts when completion wins the race", async () => {
+      const { db } = await import("../db");
+      (db.select as unknown as { mockReturnValueOnce(value: unknown): void }).mockReturnValueOnce(mockLimitChain([{
+        id: "run-1",
+        status: "running",
+        jobId: "plumber-1",
+        bullmqId: "bull-1",
+      }]));
+      const updateSet = vi.fn(() => ({ where: vi.fn(async () => [{ id: "run-1" }]) }));
+      (db.update as unknown as { mockReturnValueOnce(value: unknown): void }).mockReturnValueOnce({ set: updateSet });
+
+      const { plumberClient } = await import("../services/plumber");
+      (plumberClient.cancelModel as unknown as { mockResolvedValueOnce(value: unknown): void }).mockResolvedValueOnce({
+        ok: true,
+        status: "completed",
+        message: "Run is already completed",
+      });
+      (plumberClient.getModelStatus as unknown as { mockResolvedValueOnce(value: unknown): void }).mockResolvedValueOnce({
+        status: "completed",
+        metrics: { auc: 0.91 },
+        output_files: { tif: "outputs/jobs/plumber-1/result.tif" },
+      });
+
+      const res = await app.request("/api/v1/sdm/cancel/run-1", { method: "POST" });
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(data).toMatchObject({ ok: true, status: "completed" });
+      expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+        status: "completed",
+        outputFiles: { tif: "outputs/jobs/plumber-1/result.tif" },
+      }));
+      expect(updateSet).not.toHaveBeenCalledWith(expect.objectContaining({ status: "cancelled" }));
     });
   });
 

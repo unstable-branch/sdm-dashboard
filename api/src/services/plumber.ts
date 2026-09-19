@@ -249,7 +249,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async cancelModel(jobId: string): Promise<{ ok: boolean; message: string }> {
+  async cancelModel(jobId: string): Promise<{ ok: boolean; message: string; status?: string }> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/cancel/${jobId}`, {
       method: "POST",
       headers: this.headers(),
