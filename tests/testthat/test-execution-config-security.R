@@ -1,8 +1,40 @@
 # Synthetic sentinel tests for the R/Plumber execution boundary.
 # No provider credential or live network operation is used.
 
-project_root <- normalizePath(getwd(), winslash = "/")
+project_root <- if (exists("find_sdm_root", mode = "function")) {
+  find_sdm_root()
+} else {
+  # Direct Rscript execution does not source testthat helpers. Keep the same
+  # upward search available for that mode and for CI working-directory changes.
+  starts <- c(getwd())
+  script_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
+  if (length(script_arg) > 0L) starts <- c(starts, sub("^--file=", "", script_arg[1]))
+  source_files <- vapply(sys.frames(), function(frame) {
+    if (!is.null(frame$ofile)) frame$ofile else NA_character_
+  }, character(1))
+  source_files <- source_files[!is.na(source_files)]
+  starts <- c(starts, source_files)
+  resolved <- NULL
+  for (start in unique(starts)) {
+    candidate <- normalizePath(start, winslash = "/", mustWork = FALSE)
+    if (!dir.exists(candidate)) candidate <- dirname(candidate)
+    repeat {
+      if (file.exists(file.path(candidate, "app.R")) &&
+          file.exists(file.path(candidate, "R", "core", "bootstrap.R"))) {
+        resolved <- candidate
+        break
+      }
+      parent <- dirname(candidate)
+      if (identical(parent, candidate)) break
+      candidate <- parent
+    }
+    if (!is.null(resolved)) break
+  }
+  if (is.null(resolved)) stop("Could not find SDM project root", call. = FALSE)
+  resolved
+}
 security_env <- new.env(parent = globalenv())
+sys.source(file.path(project_root, "R", "core", "model_payload_normalizer.R"), envir = security_env)
 sys.source(file.path(project_root, "plumber", "R", "helpers", "models_helpers.R"), envir = security_env)
 output_env <- new.env(parent = security_env)
 sys.source(file.path(project_root, "plumber", "R", "helpers", "output_helpers.R"), envir = output_env)
