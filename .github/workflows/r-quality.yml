@@ -72,6 +72,19 @@ jobs:
           extra-packages: 'any::testthat, any::matrixStats, any::gam, any::ranger, any::xgboost, any::randomForest'
           cache-version: 3
 
+      - name: Install and verify CPU LibTorch runtime
+        env:
+          CUDA: cpu
+        run: |
+          Rscript --no-init-file -e '
+            options(timeout = 1800)
+            torch::install_torch()
+            stopifnot(isTRUE(torch::torch_is_installed()))
+            probe <- torch::torch_tensor(c(1, 2, 3), device = "cpu")$sum()$item()
+            stopifnot(identical(as.numeric(probe), 6))
+            message("CPU LibTorch/LibLantern runtime verified.")
+          '
+
       - name: Run module smoke check
         run: Rscript scripts/smoke_test.R --tags=fast
 
