@@ -3,7 +3,7 @@ import IORedis from "ioredis";
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { eq, and, inArray, isNull } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { handleModelJob } from "./queue-model-worker.js";
 import { handleCleanJob } from "./queue-clean-worker.js";
@@ -208,29 +208,54 @@ export function ensureWorker(): Worker<SdmJobData, SdmJobResult> | null {
         return result;
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
-        const errorDetails = err instanceof Error && 'response' in err ? String((err as { response: unknown }).response) : null;
+        const errorDetails = err instanceof Error && "response" in err ? String((err as { response: unknown }).response) : null;
         const finalError = errorDetails || errorMsg;
+        const attempts = job.opts?.attempts ?? 1;
+        const finalAttempt = (job.attemptsMade ?? 0) + 1 >= attempts;
 
         if (type === "model") {
           const runId = payload.runId as string;
-          if (runId) {
+          let markedFailed = false;
+          if (runId && finalAttempt) {
             const cpuDelta = cpuStart ? process.cpuUsage(cpuStart) : undefined;
-            await db
+            const failedRows = await db
               .update(runs)
               .set({
                 status: "failed",
                 error: finalError,
+                errorCode: "MODEL_WORKER_FAILED",
+                errorHint: "The queue worker exhausted its retries before a Plumber job was persisted. The retained worker logs may contain more detail.",
                 completedAt: new Date(),
-                rCpuTimeMs: cpuDelta ? (cpuDelta.user + cpuDelta.system) / 1000 : null,
+                rCpuTimeMs: cpuDelta ? Math.round((cpuDelta.user + cpuDelta.system) / 1000) : null,
                 peakMemoryMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
               })
-              .where(eq(runs.id, runId));
+              .where(and(
+                eq(runs.id, runId),
+                inArray(runs.status, ["queued", "running"]),
+                isNull(runs.jobId),
+              ))
+              .returning({ id: runs.id });
+            markedFailed = failedRows.length > 0;
           }
+
+          if (markedFailed) {
+            jobEventBus.emitJobStatus({
+              jobId: runId || job.id!,
+              state: "failed",
+              progress: 0,
+              failedReason: finalError,
+              error_code: "MODEL_WORKER_FAILED",
+            });
+          }
+
+          // Let BullMQ retry model-worker failures. The model handler resumes an
+          // existing Plumber job (or uses Plumber's idempotent run key), so a
+          // retry cannot submit a second backend process.
+          throw err;
         }
 
-        const jobIdForEvent = type === "model" ? (payload.runId as string || job.id!) : job.id!;
         jobEventBus.emitJobStatus({
-          jobId: jobIdForEvent,
+          jobId: job.id!,
           state: "failed",
           progress: 0,
           failedReason: finalError,

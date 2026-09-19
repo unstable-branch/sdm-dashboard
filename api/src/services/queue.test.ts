@@ -28,8 +28,15 @@ const td = vi.hoisted(() => {
     mockHandleClimateJob: vi.fn(),
     mockHandleCovariateJob: vi.fn(),
     mockJobEventBusEmit: vi.fn(),
-    mockDbUpdate: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
+    mockDbUpdate: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({ returning: vi.fn(async (): Promise<Array<{ id: string }>> => []) })),
+      })),
+    })),
     mockEq: vi.fn(),
+    mockAnd: vi.fn(),
+    mockInArray: vi.fn(),
+    mockIsNull: vi.fn(),
   };
 });
 
@@ -73,11 +80,14 @@ vi.mock("../db/index.js", () => ({
 }));
 
 vi.mock("../db/schema.js", () => ({
-  runs: {},
+  runs: { id: "id", status: "status", jobId: "jobId" },
 }));
 
 vi.mock("drizzle-orm", () => ({
   eq: td.mockEq,
+  and: td.mockAnd,
+  inArray: td.mockInArray,
+  isNull: td.mockIsNull,
 }));
 
 vi.mock("./job-events.js", () => ({
@@ -108,6 +118,8 @@ const mockJob = (overrides: Record<string, unknown> = {}) => ({
   progress: 0,
   returnvalue: null,
   failedReason: null,
+  opts: { attempts: 2 },
+  attemptsMade: 0,
   updateProgress: vi.fn(),
   getState: vi.fn().mockResolvedValue("completed"),
   ...overrides,
@@ -315,18 +327,61 @@ describe("ensureWorker", () => {
     expect(result).toMatchObject({ status: "error", error: "Unknown job type: unknown_type" });
   });
 
-  it("handles errors in job processor for model type", async () => {
+  it("leaves model runs active while BullMQ still has a retry", async () => {
     queue.ensureWorker();
 
-    const job = mockJob({ data: { type: "model", payload: { runId: "run-1" }, userId: "u-1" } });
+    const job = mockJob({
+      data: { type: "model", payload: { runId: "run-1" }, userId: "u-1" },
+      opts: { attempts: 2 },
+      attemptsMade: 0,
+    });
     td.mockHandleModelJob.mockRejectedValue(new Error("Model failed"));
 
-    const result = await td.processorRef.current!(job);
+    await expect(td.processorRef.current!(job)).rejects.toThrow("Model failed");
+    expect(td.mockDbUpdate).not.toHaveBeenCalled();
+    expect(td.mockJobEventBusEmit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ state: "failed", failedReason: "Model failed" })
+    );
+  });
 
+  it("marks an active model run failed only after the final BullMQ attempt", async () => {
+    queue.ensureWorker();
+
+    const where = vi.fn(() => ({ returning: vi.fn(async () => [{ id: "run-1" }]) }));
+    td.mockDbUpdate.mockReturnValueOnce({ set: vi.fn(() => ({ where })) });
+    const job = mockJob({
+      data: { type: "model", payload: { runId: "run-1" }, userId: "u-1" },
+      opts: { attempts: 2 },
+      attemptsMade: 1,
+    });
+    td.mockHandleModelJob.mockRejectedValue(new Error("Model failed"));
+
+    await expect(td.processorRef.current!(job)).rejects.toThrow("Model failed");
+    expect(where).toHaveBeenCalled();
     expect(td.mockJobEventBusEmit).toHaveBeenCalledWith(
       expect.objectContaining({ state: "failed", failedReason: "Model failed" })
     );
-    expect(result).toMatchObject({ status: "error", error: "Model failed" });
+  });
+
+  it("does not publish a worker failure when a persisted Plumber job owns recovery", async () => {
+    queue.ensureWorker();
+
+    const returning = vi.fn(async () => []);
+    td.mockDbUpdate.mockReturnValueOnce({
+      set: vi.fn(() => ({ where: vi.fn(() => ({ returning })) })),
+    });
+    const job = mockJob({
+      data: { type: "model", payload: { runId: "run-1" }, userId: "u-1" },
+      opts: { attempts: 2 },
+      attemptsMade: 1,
+    });
+    td.mockHandleModelJob.mockRejectedValue(new Error("worker connection lost"));
+
+    await expect(td.processorRef.current!(job)).rejects.toThrow("worker connection lost");
+    expect(returning).toHaveBeenCalled();
+    expect(td.mockJobEventBusEmit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ state: "failed", failedReason: "worker connection lost" })
+    );
   });
 
   it("re-throws timeout-related errors", async () => {
