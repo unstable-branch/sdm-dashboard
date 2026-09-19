@@ -79,6 +79,8 @@ jobs:
           Rscript -e '
             options(timeout = 1800)
             torch::install_torch()
+          '
+          Rscript -e '
             stopifnot(isTRUE(torch::torch_is_installed()))
             probe <- torch::torch_tensor(c(1, 2, 3), device = "cpu")$sum()$item()
             stopifnot(identical(as.numeric(probe), 6))
