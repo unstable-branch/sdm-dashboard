@@ -8,6 +8,7 @@ import { plumberClient } from "./services/plumber.js";
 import { ensureBuckets } from "./services/storage.js";
 import { getRedisStatus, ensureWorker, getJobStatus, shutdownQueue } from "./services/queue.js";
 import { startPlumberSync, stopPlumberSync } from "./services/plumber-sync.js";
+import { startRunRecovery, stopRunRecovery } from "./services/startup-recovery.js";
 import { setupWebSocket, cleanupWebSocket } from "./services/websocket.js";
 import { mediumCache, longCache, closeCache } from "./middleware/cache.js";
 import { closeRateLimitRedis } from "./middleware/rate-limit.js";
@@ -253,9 +254,12 @@ async function startWorkerWithRetry(attempt = 0) {
 }
 setTimeout(() => startWorkerWithRetry(), 1000);
 
-// Start Plumber status sync — polls Plumber for running jobs and updates DB + SSE
+// Restart recovery first reattaches persisted Plumber jobs, then checks BullMQ
+// ownership for runs that never acquired a backend job. Periodic reconciliation
+// keeps later worker failures from leaving DB rows active indefinitely.
 setTimeout(() => {
   startPlumberSync(5000);
+  startRunRecovery();
 }, 2000);
 
 // Start memory usage monitor — logs warnings if heap exceeds thresholds
@@ -280,6 +284,7 @@ setTimeout(async () => {
 async function shutdown() {
   console.log("[Shutdown] Closing connections...");
   stopPlumberSync();
+  stopRunRecovery();
   stopMemoryMonitor();
   cleanupWebSocket();
   closeCache();
