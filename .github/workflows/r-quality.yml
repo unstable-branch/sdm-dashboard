@@ -76,7 +76,7 @@ jobs:
         env:
           CUDA: cpu
         run: |
-          Rscript --no-init-file -e '
+          Rscript -e '
             options(timeout = 1800)
             torch::install_torch()
             stopifnot(isTRUE(torch::torch_is_installed()))
