@@ -1,7 +1,7 @@
 import { PlumberClient } from "./plumber.js";
 import { db } from "../db/index.js";
 import { runs, projects, users, batches } from "../db/schema.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray, or, gte } from "drizzle-orm";
 import { jobEventBus } from "./job-events.js";
 import { extractProgressPercent } from "@sdm/shared";
 import { readFile, readdir, writeFile, rm } from "fs/promises";
@@ -24,6 +24,8 @@ const GRACE_PERIOD_MS = parseInt(process.env.SDM_STARTUP_GRACE_PERIOD_MS || "600
 const CONSECUTIVE_404_THRESHOLD = parseInt(process.env.SDM_CONSECUTIVE_404_THRESHOLD || "3", 10);
 const CONSECUTIVE_404_WINDOW_MS = 30_000; // require 404s within this window
 const MAX_404_ENTRIES = 200; // cap map size to prevent memory leak
+const TERMINAL_RECONCILIATION_MS = parseInt(process.env.SDM_TERMINAL_RECONCILIATION_MS || String(24 * 60 * 60 * 1000), 10);
+const RECOVERABLE_FAILURE_CODES = ["PLUMBER_TIMEOUT", "PROCESS_CRASH"] as const;
 
 interface Consecutive404 {
   count: number;
@@ -77,51 +79,40 @@ function cleanupOld404Entries() {
   }
 }
 
-async function syncRunningJobs() {
+export async function syncRunningJobs() {
   if (_running) return;
   _running = true;
 
   try {
     cleanupOld404Entries();
 
-    // Detect runs stuck in "queued" status — if a job hasn't been picked up by the worker
-    // within 5 minutes of creation, mark it as failed (worker may be offline or crashed)
-    const queuedCutoff = new Date(Date.now() - 5 * 60 * 1000);
-    const stuckQueuedRuns = await db
-      .select({ id: runs.id })
-      .from(runs)
-      .where(and(eq(runs.status, "queued"), sql`${runs.createdAt} < ${queuedCutoff}`));
-    for (const qr of stuckQueuedRuns) {
-      await db
-        .update(runs)
-        .set({
-          status: "failed",
-          error: "Model run was queued but never started — worker may be offline or all retries exhausted",
-          errorCode: "WORKER_ORPHAN",
-          completedAt: new Date(),
-        })
-        .where(eq(runs.id, qr.id));
-      jobEventBus.emitJobStatus({
-        jobId: qr.id,
-        state: "failed",
-        progress: 0,
-        failedReason: "Model run was queued but never started — worker may be offline",
-        error_code: "WORKER_ORPHAN",
-      });
-    }
-
+    const recoveryCutoff = new Date(Date.now() - TERMINAL_RECONCILIATION_MS);
     const activeRuns = await db
-      .select({ id: runs.id, jobId: runs.jobId, status: runs.status, startedAt: runs.startedAt, projectId: runs.projectId })
+      .select({
+        id: runs.id,
+        jobId: runs.jobId,
+        status: runs.status,
+        startedAt: runs.startedAt,
+        projectId: runs.projectId,
+        errorCode: runs.errorCode,
+      })
       .from(runs)
-      .where(and(eq(runs.status, "running")));
+      .where(or(
+        eq(runs.status, "running"),
+        and(
+          eq(runs.status, "failed"),
+          inArray(runs.errorCode, [...RECOVERABLE_FAILURE_CODES]),
+          gte(runs.completedAt, recoveryCutoff),
+        ),
+      ));
 
     for (const run of activeRuns) {
       if (!run.jobId) continue;
 
-      if (run.startedAt) {
+      if (run.status === "running" && run.startedAt) {
         const ageMs = Date.now() - new Date(run.startedAt).getTime();
         if (ageMs > STALLED_RUN_TIMEOUT_MS) {
-          await db
+          const timedOutRows = await db
             .update(runs)
             .set({
               status: "failed",
@@ -130,14 +121,17 @@ async function syncRunningJobs() {
               errorHint: "The R computation exceeded the timeout. Simplify the model or increase the timeout limit.",
               completedAt: new Date(),
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+            .returning({ id: runs.id });
 
-          jobEventBus.emitJobStatus({
-            jobId: run.id,
-            state: "failed",
-            progress: 0,
-            failedReason: `Run timed out after ${Math.round(ageMs / 3600000)} hours with no completion`,
-          });
+          if (timedOutRows.length > 0) {
+            jobEventBus.emitJobStatus({
+              jobId: run.id,
+              state: "failed",
+              progress: 0,
+              failedReason: `Run timed out after ${Math.round(ageMs / 3600000)} hours with no completion`,
+            });
+          }
           consecutive404s.delete(run.id);
           continue;
         }
@@ -152,11 +146,14 @@ async function syncRunningJobs() {
 
         // Guard: re-check DB status in case cancel route changed it since the query above
         const [currentRun] = await db
-          .select({ status: runs.status })
+          .select({ status: runs.status, errorCode: runs.errorCode })
           .from(runs)
           .where(eq(runs.id, run.id))
           .limit(1);
-        if (currentRun && currentRun.status !== "running") continue;
+        const isRecoveringFailure = currentRun?.status === "failed"
+          && RECOVERABLE_FAILURE_CODES.includes(currentRun.errorCode as typeof RECOVERABLE_FAILURE_CODES[number]);
+        if (currentRun && currentRun.status !== "running" && !isRecoveringFailure) continue;
+        if (isRecoveringFailure && plumberStatus !== "completed") continue;
         const logs = Array.isArray(status.progress_log) ? status.progress_log as string[] : [];
         const progressJson = status.progress_json;
         const error = status.error;
@@ -206,13 +203,8 @@ async function syncRunningJobs() {
             progressJson,
           });
         } else if (plumberStatus === "completed" && !isTargetsJob) {
-          // Guard: skip if queue worker already completed this run
-          const [currentRun] = await db
-            .select({ status: runs.status })
-            .from(runs)
-            .where(eq(runs.id, run.id))
-            .limit(1);
-          if (currentRun && currentRun.status !== "running") continue;
+          // Reconcile recoverable diagnostic failures, but never overwrite a
+          // user cancellation that committed before this guarded update.
 
           // Fetch provenance manifest from Plumber
           let provenance = null;
@@ -240,18 +232,24 @@ async function syncRunningJobs() {
             runSize = getDirSize(jobDir);
           }
 
-          await db
+          const completedRows = await db
             .update(runs)
             .set({
               status: "completed",
               metrics: status.metrics ?? null,
               outputFiles: status.output_files ?? null,
+              error: null,
+              errorCode: null,
+              errorHint: null,
               completedAt: new Date(),
               progressLog: logs.length > 0 ? logs : undefined,
               provenance,
               runStorageBytes: runSize,
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), inArray(runs.status, ["running", "queued", "failed"])))
+            .returning({ id: runs.id });
+
+          if (completedRows.length === 0) continue;
 
           // Add run output size to user's total storage
           if (runSize > 0 && run.projectId) {
@@ -354,7 +352,7 @@ async function syncRunningJobs() {
         } else if (plumberStatus === "failed" && !isTargetsJob) {
           const errorCode = status.error_code;
           const errorHint = status.error_hint;
-          await db
+          const failedRows = await db
             .update(runs)
             .set({
               status: "failed",
@@ -365,35 +363,41 @@ async function syncRunningJobs() {
               progressLog: logs.length > 0 ? logs : undefined,
               provenance: errorCode ? { error_code: errorCode, error_hint: errorHint } : undefined,
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+            .returning({ id: runs.id });
 
-          jobEventBus.emitJobStatus({
-            jobId: run.id,
-            state: "failed",
-            progress: 0,
-            logs,
-            failedReason: error ?? "Model run failed",
-            error_code: status.error_code as string | undefined,
-            error_hint: (status as any).error_hint as string | undefined,
-            progressJson,
-          });
+          if (failedRows.length > 0) {
+            jobEventBus.emitJobStatus({
+              jobId: run.id,
+              state: "failed",
+              progress: 0,
+              logs,
+              failedReason: error ?? "Model run failed",
+              error_code: status.error_code as string | undefined,
+              error_hint: status.error_hint as string | undefined,
+              progressJson,
+            });
+          }
         } else if (plumberStatus === "cancelled") {
-          await db
+          const cancelledRows = await db
             .update(runs)
             .set({
               status: "cancelled",
               completedAt: new Date(),
               progressLog: logs.length > 0 ? logs : undefined,
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+            .returning({ id: runs.id });
 
-          jobEventBus.emitJobStatus({
-            jobId: run.id,
-            state: "cancelled",
-            progress: 0,
-            logs,
-            progressJson,
-          });
+          if (cancelledRows.length > 0) {
+            jobEventBus.emitJobStatus({
+              jobId: run.id,
+              state: "cancelled",
+              progress: 0,
+              logs,
+              progressJson,
+            });
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -461,7 +465,7 @@ async function syncRunningJobs() {
                 const ps = probeJson.status as string;
                 if (["completed", "failed", "cancelled"].includes(ps)) {
                   finalPlumberStatus = ps;
-                  await db.update(runs).set({
+                  const recoveredRows = await db.update(runs).set({
                     status: ps as "completed" | "failed" | "cancelled",
                     error: ps === "failed" ? ((probeJson.error as string) || "Model run failed") : null,
                     errorCode: ps === "failed" ? (probeJson.error_code as string ?? null) : null,
@@ -469,16 +473,23 @@ async function syncRunningJobs() {
                     metrics: ps === "completed" ? (probeJson.metrics ?? null) : null,
                     outputFiles: ps === "completed" ? (probeJson.output_files ?? null) : null,
                     completedAt: new Date(),
-                  }).where(eq(runs.id, run.id));
-                  jobEventBus.emitJobStatus({
-                    jobId: run.id,
-                    state: ps,
-                    progress: ps === "completed" ? 100 : 0,
-                    logs: Array.isArray(probeJson.progress_log) ? probeJson.progress_log : [],
-                    result: ps === "completed" ? probeJson : undefined,
-                    failedReason: ps === "failed" ? (probeJson.error as string | undefined) || undefined : undefined,
-                    progressJson: probeJson.progress_json ?? null,
-                  });
+                  }).where(and(
+                    eq(runs.id, run.id),
+                    ps === "completed"
+                      ? inArray(runs.status, ["running", "queued", "failed"])
+                      : eq(runs.status, "running"),
+                  )).returning({ id: runs.id });
+                  if (recoveredRows.length > 0) {
+                    jobEventBus.emitJobStatus({
+                      jobId: run.id,
+                      state: ps,
+                      progress: ps === "completed" ? 100 : 0,
+                      logs: Array.isArray(probeJson.progress_log) ? probeJson.progress_log : [],
+                      result: ps === "completed" ? probeJson : undefined,
+                      failedReason: ps === "failed" ? (probeJson.error as string | undefined) || undefined : undefined,
+                      progressJson: probeJson.progress_json ?? null,
+                    });
+                  }
                   consecutive404s.delete(run.id);
                   console.warn(`[plumber-sync] Probe found terminal status "${ps}" for run ${run.id} — recovering from 404 streak.`);
                   plumberErrorDetail = ""; // clear so we don't fail below
@@ -508,7 +519,7 @@ async function syncRunningJobs() {
 
           const failedReason = `Process crashed or was killed before status could be recorded. ${plumberErrorDetail}`;
 
-          await db
+          const crashedRows = await db
             .update(runs)
             .set({
               status: "failed",
@@ -517,15 +528,18 @@ async function syncRunningJobs() {
               errorHint: "The R computation process was killed (OOM, segfault, or signal). Check memory, reduce resolution, or use fewer covariates.",
               completedAt: new Date(),
             })
-            .where(eq(runs.id, run.id));
+            .where(and(eq(runs.id, run.id), eq(runs.status, "running")))
+            .returning({ id: runs.id });
 
-          jobEventBus.emitJobStatus({
-            jobId: run.id,
-            state: "failed",
-            progress: 0,
-            failedReason,
-            progressJson: null,
-          });
+          if (crashedRows.length > 0) {
+            jobEventBus.emitJobStatus({
+              jobId: run.id,
+              state: "failed",
+              progress: 0,
+              failedReason,
+              progressJson: null,
+            });
+          }
 
           consecutive404s.delete(run.id);
         } else {
