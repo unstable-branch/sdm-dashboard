@@ -186,12 +186,14 @@ source(file.path(app_dir, "plumber", "R", "plumber.R"), local = FALSE)
 # Start server with project root as working directory
 setwd(app_dir)
 
-# Preserve crash diagnostics for status polling, then prune failed/cancelled
-# scratch jobs after a configurable retention window.
+# Reconcile jobs left by a previous Plumber process. Dead nonterminal jobs are
+# failed immediately and their directories/logs are retained for diagnostics.
+# Failed/cancelled scratch deletion is opt-in; completed artifacts are never
+# removed by startup cleanup.
 orphan_cleanup <- function() {
   jobs_base <- file.path(app_dir, "outputs", "jobs")
   if (!dir.exists(jobs_base)) return(NULL)
-  stale_running_cutoff <- Sys.time() - 86400
+  prune_enabled <- identical(tolower(Sys.getenv("SDM_PRUNE_FAILED_JOBS_ON_STARTUP", "false")), "true")
   retention_days <- suppressWarnings(as.numeric(Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7")))
   if (!is.finite(retention_days) || retention_days < 1) retention_days <- 7
   prune_cutoff <- Sys.time() - retention_days * 86400
@@ -203,23 +205,31 @@ orphan_cleanup <- function() {
     if (is.null(meta)) next
     mtime <- file.info(meta_file)$mtime
 
-    if (identical(meta$status, "running") && !is.na(mtime) && mtime < stale_running_cutoff) {
-      meta$status <- "failed"
-      meta$error <- "Job was orphaned by a previous Plumber process"
-      meta$error_code <- "WORKER_ORPHAN"
-      meta$error_hint <- "Restart the job. If this recurs, inspect the retained stdout and stderr logs."
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
-    } else if (meta$status %in% c("failed", "cancelled") && !is.na(mtime) && mtime < prune_cutoff) {
+    if (meta$status %in% c("queued", "pending", "loading", "running")) {
+      job_id <- as.character(meta$id %||% basename(job_dir))
+      process_alive <- tryCatch(sdm_check_process_alive(job_id, meta), error = function(e) FALSE)
+      if (!isTRUE(process_alive)) {
+        previous_status <- as.character(meta$status)
+        meta$status <- "failed"
+        meta$error <- paste0(
+          "Process crashed or was killed during Plumber restart recovery (previous status: ",
+          previous_status, ")"
+        )
+        meta$error_code <- "PROCESS_CRASH"
+        meta$error_hint <- "The retained stdout and stderr logs may identify an OOM, signal, or startup failure. Retry after correcting the cause."
+        meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+        sdm_write_json(meta, meta_file)
+      }
+    } else if (prune_enabled && meta$status %in% c("failed", "cancelled") && !is.na(mtime) && mtime < prune_cutoff) {
       unlink(job_dir, recursive = TRUE, force = TRUE)
     }
   }
 }
 tryCatch({
-  cat("Running orphan cleanup (failed-job retention: ",
-      Sys.getenv("SDM_FAILED_JOB_RETENTION_DAYS", "7"), " days)...\n", sep = "")
+  cat("Running restart reconciliation (failed-job pruning: ",
+      Sys.getenv("SDM_PRUNE_FAILED_JOBS_ON_STARTUP", "false"), ")...\n", sep = "")
   orphan_cleanup()
-}, error = function(e) message("Orphan cleanup skipped: ", conditionMessage(e)))
+}, error = function(e) message("Restart reconciliation skipped: ", conditionMessage(e)))
 
 # Exit handler: kill all background processes on shutdown to prevent orphans
 plumber::pr_hook(pr, "exit", function() {
@@ -233,8 +243,8 @@ plumber::pr_hook(pr, "exit", function() {
   reg <- tryCatch(get("sdm_process_registry", envir = .GlobalEnv), error = function(e) NULL)
   if (!is.null(reg) && is.environment(reg)) {
     for (job_id in ls(reg)) {
-      proc <- reg[[job_id]]
-      if (inherits(proc, "process") && proc$is_alive()) {
+      proc <- sdm_registry_proc(reg[[job_id]])
+      if (!is.null(proc) && inherits(proc, "process") && tryCatch(proc$is_alive(), error = function(e) FALSE)) {
         cat("Killing background job:", job_id, "\n")
         tryCatch(proc$kill(), error = function(e) NULL)
       }
@@ -250,8 +260,9 @@ plumber::pr_hook(pr, "exit", function() {
       meta_file <- file.path(jd, "meta.json")
       if (file.exists(meta_file)) {
         meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
-        if (!is.null(meta) && identical(meta$status, "running") && !is.null(meta$process_pid)) {
-          tryCatch(tools::pskill(meta$process_pid, signal = 9), error = function(e) NULL)
+        if (!is.null(meta) && meta$status %in% c("pending", "loading", "running") && !is.null(meta$process_pid)) {
+          pid <- sdm_normalize_pid(meta$process_pid)
+          if (!is.na(pid)) tryCatch(tools::pskill(pid, signal = 9), error = function(e) NULL)
         }
       }
     }

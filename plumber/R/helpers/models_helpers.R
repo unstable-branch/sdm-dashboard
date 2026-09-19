@@ -1,5 +1,38 @@
 sdm_process_registry <- new.env(parent = emptyenv())
 
+sdm_model_request_job_id <- function(body) {
+  request_id <- as.character(body$runId %||% body$run_id %||% "")[1]
+  if (nzchar(request_id) && grepl("^[A-Za-z0-9-]{8,80}$", request_id)) {
+    return(paste0("run-", request_id))
+  }
+  paste0("run-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
+}
+
+sdm_existing_model_submission <- function(job_dir, user_id, wait_attempts = 0L) {
+  meta_file <- file.path(job_dir, "meta.json")
+  for (attempt in 0:as.integer(wait_attempts)) {
+    if (file.exists(meta_file)) {
+      meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
+      if (!is.null(meta)) {
+        if (!is.null(meta$user_id) && as.character(meta$user_id) != as.character(user_id)) {
+          return(list(access_denied = TRUE))
+        }
+        initialising <- identical(meta$status, "pending") && (is.null(meta$process_pid) || length(meta$process_pid) == 0)
+        if (!initialising) {
+          return(list(
+            job_id = meta$id %||% basename(job_dir),
+            status = meta$status %||% "running",
+            message = "Existing model submission recovered; no duplicate process was started"
+          ))
+        }
+      }
+    }
+    if (!dir.exists(job_dir)) return(NULL)
+    if (attempt < wait_attempts) Sys.sleep(0.05)
+  }
+  if (dir.exists(job_dir)) list(incomplete_claim = TRUE) else NULL
+}
+
 sdm_force_cpu_runtime_config <- function(body) {
   body$gpu_enabled <- "off"
   model_id <- as.character(body$model_id %||% body$modelId %||% "")[1]
@@ -50,6 +83,26 @@ handle_model_run <- function(req, app_dir) {
     }
   }
 
+  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
+  job_id <- sdm_model_request_job_id(body)
+  jobs_base <- file.path(app_dir, "outputs", "jobs")
+  dir.create(jobs_base, recursive = TRUE, showWarnings = FALSE)
+  job_dir <- file.path(jobs_base, job_id)
+  request_run_id <- as.character(body$runId %||% body$run_id %||% "")[1]
+  deterministic_job_id <- nzchar(request_run_id) && grepl("^[A-Za-z0-9-]{8,80}$", request_run_id)
+
+  # BullMQ retries reuse the API run UUID. Return the persisted submission
+  # before capacity checks so a retry cannot create a second R process merely
+  # because the first process currently occupies the last worker slot.
+  if (deterministic_job_id) {
+    existing <- sdm_existing_model_submission(job_dir, user_id)
+    if (!is.null(existing)) {
+      if (isTRUE(existing$access_denied)) return(sdm_error_code(req, "ACCESS_DENIED", "Run ID belongs to another user"))
+      if (isTRUE(existing$incomplete_claim)) return(sdm_error_code(req, "INTERNAL_ERROR", "Existing model submission is still being initialised; retry shortly"))
+      return(existing)
+    }
+  }
+
   tryCatch({
     mem_info <- sdm_mem_info()
     if (is.list(mem_info) && is.numeric(mem_info$memavail) && is.finite(mem_info$memavail)) {
@@ -72,14 +125,6 @@ handle_model_run <- function(req, app_dir) {
     )))
   }
 
-  job_id <- paste0("run-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
-  job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
-  dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
-  tmp_dir <- file.path(job_dir, ".tmp")
-  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
-
-  user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
-
   script_path <- file.path(app_dir, "plumber", "R", "run_model_background.R")
   if (!file.exists(script_path)) {
     return(sdm_error_code(req, "INTERNAL_ERROR", paste("Model run script not found at:", script_path)))
@@ -91,6 +136,7 @@ handle_model_run <- function(req, app_dir) {
     python_device = python_device
   )
   is_gpu_model <- sdm_backend_is_gpu(gpu_backend)
+  gpu_fallback_msg <- NULL
   if (is_gpu_model) {
     active_gpu <- sdm_count_active_gpu_runs()
     if (active_gpu >= SDM_MAX_GPU_CONCURRENT_RUNS) {
@@ -109,27 +155,58 @@ handle_model_run <- function(req, app_dir) {
         warning("[GPU] sdm_gpu_available_vram() returned NA — GPU telemetry unavailable. Ensure the selected accelerator is visible to the worker.")
       }
       free_gb <- if (is.finite(free_mib) && !is.na(free_mib)) sprintf("%.1f GiB", free_mib / 1024) else "unknown"
-      msg <- paste0("GPU requested but VRAM insufficient (", free_gb, " free, min ~1.5 GiB). Auto-fallback to CPU for this run.")
+      gpu_fallback_msg <- paste0("GPU requested but VRAM insufficient (", free_gb, " free, min ~1.5 GiB). Auto-fallback to CPU for this run.")
       is_gpu_model <- FALSE
       body <- sdm_force_cpu_runtime_config(body)
-      # Write GPU-fallback progress entry so frontend UI displays it
-      progress_json_path <- file.path(job_dir, "progress.json")
-      fb_entry <- list(
-        timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-        percent = 0,
-        detail = msg,
-        stage = "gpu_fallback"
-      )
-      cat(jsonlite::toJSON(fb_entry, auto_unbox = TRUE), "\n",
-          file = progress_json_path, append = TRUE)
-      # Also record in meta.json so status endpoint surfaces it immediately
-      meta_path <- file.path(job_dir, "meta.json")
-      if (file.exists(meta_path)) {
-        m <- tryCatch(jsonlite::fromJSON(meta_path, simplifyVector = FALSE), error = function(e) list())
-        m$gpu_fallback <- msg
-        sdm_write_json(m, meta_path)
-      }
     }
+  }
+
+  # Claim only after all admission checks have passed. The directory creation is
+  # atomic, so concurrent BullMQ retries cannot launch a second process.
+  claimed <- dir.create(job_dir, recursive = FALSE, showWarnings = FALSE)
+  if (!claimed) {
+    existing <- sdm_existing_model_submission(job_dir, user_id, wait_attempts = 20L)
+    if (!is.null(existing) && !isTRUE(existing$incomplete_claim)) {
+      if (isTRUE(existing$access_denied)) return(sdm_error_code(req, "ACCESS_DENIED", "Run ID belongs to another user"))
+      return(existing)
+    }
+    return(sdm_error_code(req, "INTERNAL_ERROR", "Could not acquire the model submission claim; retry shortly"))
+  }
+  tmp_dir <- file.path(job_dir, ".tmp")
+  dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+
+  if (!is.null(gpu_fallback_msg)) {
+    fb_entry <- list(
+      timestamp = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+      percent = 0,
+      detail = gpu_fallback_msg,
+      stage = "gpu_fallback"
+    )
+    cat(jsonlite::toJSON(fb_entry, auto_unbox = TRUE), "\n",
+        file = file.path(job_dir, "progress.json"), append = TRUE)
+  }
+
+  job_meta <- list(
+    id = job_id,
+    user_id = user_id,
+    status = "pending",
+    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+    config = as.list(body),
+    output_dir = job_dir,
+    process_pid = NULL,
+    gpu_fallback = gpu_fallback_msg
+  )
+  job_meta_file <- file.path(job_dir, "meta.json")
+  claim_persisted <- tryCatch({
+    sdm_write_json(job_meta, job_meta_file)
+    TRUE
+  }, error = function(e) {
+    sdm_log_error("Failed to persist model claim for %s: %s", job_id, conditionMessage(e))
+    FALSE
+  })
+  if (!claim_persisted) {
+    unlink(job_dir, recursive = TRUE, force = TRUE)
+    return(sdm_error_code(req, "INTERNAL_ERROR", "Failed to persist the model submission claim; it was released for retry"))
   }
 
   env <- c(
@@ -142,27 +219,40 @@ handle_model_run <- function(req, app_dir) {
     CUBLAS_WORKSPACE_CONFIG = ":4096:8"
   )
 
-  proc <- callr::r_bg(function(script, job_dir, app_dir) {
-    source(script, local = TRUE)
-  }, args = list(script_path, job_dir, app_dir),
-  stdout = file.path(job_dir, "stdout.log"),
-  stderr = file.path(job_dir, "stderr.log"),
-  cmdargs = c("--no-save", "--no-restore"),
-  env = env)
+  proc <- tryCatch(
+    callr::r_bg(function(script, job_dir, app_dir) {
+      source(script, local = TRUE)
+    }, args = list(script_path, job_dir, app_dir),
+    stdout = file.path(job_dir, "stdout.log"),
+    stderr = file.path(job_dir, "stderr.log"),
+    cmdargs = c("--no-save", "--no-restore"),
+    env = env),
+    error = function(e) {
+      unlink(job_dir, recursive = TRUE, force = TRUE)
+      sdm_log_error("Failed to start model process for %s: %s", job_id, conditionMessage(e))
+      NULL
+    }
+  )
+  if (is.null(proc)) {
+    return(sdm_error_code(req, "INTERNAL_ERROR", "Failed to start the model process; the submission claim was released for retry"))
+  }
   device_tag <- if (is_gpu_model) gpu_backend else "cpu"
   sdm_process_registry[[job_id]] <- list(proc = proc, device = device_tag)
 
-  job_meta <- list(
-    id = job_id,
-    user_id = user_id,
-    status = "pending",
-    started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    config = as.list(body),
-    output_dir = job_dir,
-    process_pid = proc$get_pid()
-  )
-  job_meta_file <- file.path(job_dir, "meta.json")
-  sdm_write_json(job_meta, job_meta_file)
+  job_meta$process_pid <- proc$get_pid()
+  meta_written <- tryCatch({
+    sdm_write_json(job_meta, job_meta_file)
+    TRUE
+  }, error = function(e) {
+    sdm_log_error("Failed to persist model process metadata for %s: %s", job_id, conditionMessage(e))
+    FALSE
+  })
+  if (!meta_written) {
+    tryCatch(proc$kill(), error = function(e) NULL)
+    sdm_process_registry[[job_id]] <- NULL
+    unlink(job_dir, recursive = TRUE, force = TRUE)
+    return(sdm_error_code(req, "INTERNAL_ERROR", "Failed to persist model process metadata; the process was stopped and the claim released"))
+  }
 
   progress_log <- file.path(job_dir, "progress.log")
 
@@ -507,19 +597,20 @@ handle_targets_status <- function(res, job_id) {
     if (!is.null(proc)) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
     }
-    if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
+    if (!process_alive) {
+      pid <- sdm_normalize_pid(meta$process_pid)
+      if (!is.na(pid)) {
         tryCatch({ process_alive <- tools::pskill(pid, signal = 0) }, error = function(e) NULL)
       }
     }
     if (!process_alive) {
-      meta$status <- "failed"
-      meta$error <- "Process crashed or was killed"
-      meta$error_code <- "PROCESS_CRASH"
-      meta$error_hint <- "The process was terminated by the OS, likely due to insufficient memory. Reduce covariates, use coarser resolution, or increase available memory."
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
+      proposed <- meta
+      proposed$status <- "failed"
+      proposed$error <- "Process crashed or was killed"
+      proposed$error_code <- "PROCESS_CRASH"
+      proposed$error_hint <- "The process was terminated by the OS, likely due to insufficient memory. Reduce covariates, use coarser resolution, or increase available memory."
+      proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta <- sdm_commit_terminal_meta(meta_file, proposed)$meta
       sdm_process_registry[[job_id]] <- NULL
     }
   }
@@ -739,8 +830,8 @@ handle_model_status <- function(res, job_id) {
       })
     }
     if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
+      pid <- sdm_normalize_pid(meta$process_pid)
+      if (!is.na(pid)) {
         tryCatch({
           process_alive <- tools::pskill(pid, signal = 0)
         }, error = function(e) {
@@ -767,12 +858,13 @@ handle_model_status <- function(res, job_id) {
       }
     }
     if (!process_alive) {
-      meta$status <- "failed"
-      meta$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
-      meta$error_code <- "PROCESS_CRASH"
-      meta$error_hint <- "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
+      proposed <- meta
+      proposed$status <- "failed"
+      proposed$error <- "Process crashed or was killed (OOM, segfault, or external signal)"
+      proposed$error_code <- "PROCESS_CRASH"
+      proposed$error_hint <- "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."
+      proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta <- sdm_commit_terminal_meta(meta_file, proposed)$meta
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
@@ -788,8 +880,8 @@ handle_model_status <- function(res, job_id) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
     }
     if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
+      pid <- sdm_normalize_pid(meta$process_pid)
+      if (!is.na(pid)) {
         tryCatch({
           process_alive <- tools::pskill(pid, signal = 0)
         }, error = function(e) NULL)
@@ -810,19 +902,20 @@ handle_model_status <- function(res, job_id) {
       }
     }
     if (!process_alive) {
-      meta$status <- "failed"
+      proposed <- meta
+      proposed$status <- "failed"
       stderr_content <- tryCatch({
         lines <- readLines(file.path(job_dir, "stderr.log"), warn = FALSE)
         paste(tail(lines, 15), collapse = "\n")
       }, error = function(e) NULL)
       if (!is.null(stderr_content) && nzchar(stderr_content)) {
-        meta$error <- paste0("R process died while loading modules: ", stderr_content)
+        proposed$error <- paste0("R process died while loading modules: ", stderr_content)
       } else {
-        meta$error <- "R process died while loading modules \u2014 no stderr output available"
+        proposed$error <- "R process died while loading modules \u2014 no stderr output available"
       }
-      meta$error_code <- "RUNNER_LOAD_FAILED"
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
+      proposed$error_code <- "RUNNER_LOAD_FAILED"
+      proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta <- sdm_commit_terminal_meta(meta_file, proposed)$meta
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
@@ -838,27 +931,28 @@ handle_model_status <- function(res, job_id) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
     }
     if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
+      pid <- sdm_normalize_pid(meta$process_pid)
+      if (!is.na(pid)) {
         tryCatch({
           process_alive <- tools::pskill(pid, signal = 0)
         }, error = function(e) NULL)
       }
     }
     if (!process_alive) {
-      meta$status <- "failed"
+      proposed <- meta
+      proposed$status <- "failed"
       stderr_content <- tryCatch({
         lines <- readLines(file.path(job_dir, "stderr.log"), warn = FALSE)
         paste(tail(lines, 15), collapse = "\n")
       }, error = function(e) NULL)
       if (!is.null(stderr_content) && nzchar(stderr_content)) {
-        meta$error <- paste0("R process died: ", stderr_content)
+        proposed$error <- paste0("R process died: ", stderr_content)
       } else {
-        meta$error <- "R process died before loading modules \u2014 no stderr output available"
+        proposed$error <- "R process died before loading modules \u2014 no stderr output available"
       }
-      meta$error_code <- "RUNNER_START_FAILED"
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
+      proposed$error_code <- "RUNNER_START_FAILED"
+      proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta <- sdm_commit_terminal_meta(meta_file, proposed)$meta
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
@@ -867,17 +961,13 @@ handle_model_status <- function(res, job_id) {
   }
 
   if (identical(meta$status, "running") && sdm_redis_cancel_check(job_id)) {
-    meta$status <- "cancelled"
-    meta$error <- "Cancelled by user"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    sdm_write_json(meta, meta_file)
-    # Re-read: background process may have written "completed" in the race window
-    Sys.sleep(1)
-    meta2 <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) list())
-    if (identical(meta2$status, "completed")) {
-      meta <- meta2
-      # Preserve the process's authoritative status — don't clear Redis keys
-    } else {
+    proposed <- meta
+    proposed$status <- "cancelled"
+    proposed$error <- "Cancelled by user"
+    proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    terminal <- sdm_commit_terminal_meta(meta_file, proposed)
+    meta <- terminal$meta
+    if (isTRUE(terminal$committed)) {
       sdm_process_registry[[job_id]] <- NULL
       sdm_redis_progress_clear(job_id)
       sdm_redis_cancel_clear(job_id)
@@ -936,71 +1026,100 @@ handle_model_status <- function(res, job_id) {
 handle_model_cancel <- function(req, job_id) {
   job_dir <- sdm_safe_job_dir(job_id)
   if (is.null(job_dir)) {
-    return(list(ok = FALSE, message = "Invalid job ID"))
+    return(list(ok = FALSE, status = "failed", message = "Invalid job ID"))
   }
   meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file)) {
+    return(list(ok = TRUE, status = "cancelled", message = "Run metadata not found; nothing to cancel"))
+  }
 
-  if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this run"))
-      }
+  read_meta <- function() tryCatch(
+    jsonlite::fromJSON(meta_file, simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  terminal_response <- function(meta) {
+    status <- as.character(meta$status %||% "cancelled")
+    list(ok = TRUE, status = status, message = paste("Run is already", status))
+  }
+
+  meta <- read_meta()
+  if (is.null(meta)) return(list(ok = FALSE, status = "failed", message = "Run metadata is unreadable"))
+  if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
+    if (as.character(meta$user_id) != as.character(req$user_id)) {
+      return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this run"))
     }
   }
+  if (meta$status %in% c("completed", "failed", "cancelled")) return(terminal_response(meta))
 
   entry <- sdm_process_registry[[job_id]]
   proc <- sdm_registry_proc(entry)
   killed <- FALSE
 
-  if (!is.null(proc) && inherits(proc, "Process")) {
-    if (proc$is_alive()) {
-      proc$kill()
-      killed <- TRUE
-      # Wait briefly for process to die, then escalate to SIGKILL if still alive
-      Sys.sleep(3)
-      if (proc$is_alive()) {
-        pid <- proc$get_pid()
-        tryCatch(tools::pskill(pid, signal = 9), error = function(e) NULL)
-        Sys.sleep(2)
+  # Hold the same lock used by background completion while re-reading metadata,
+  # signalling the process, and committing cancellation. This removes the
+  # check-then-write window where both callers could report different terminal
+  # states.
+  terminal <- tryCatch(
+    sdm_with_meta_lock(meta_file, function() {
+      current <- read_meta()
+      if (is.null(current)) stop("Run metadata disappeared during cancellation")
+      if (current$status %in% c("completed", "failed", "cancelled")) {
+        return(list(meta = current, committed = FALSE, killed = FALSE))
       }
-    }
-    device_tag <- if (is.list(entry)) entry$device else "cpu"
-    # Give any discrete GPU backend time to release VRAM after termination.
-    if (killed && sdm_backend_is_discrete_gpu(device_tag)) {
-      Sys.sleep(2)
-    }
-    rm(list = job_id, envir = sdm_process_registry)
+
+      if (!is.null(proc) && inherits(proc, "process")) {
+        if (tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+          tryCatch(proc$kill(), error = function(e) NULL)
+          killed <<- TRUE
+          Sys.sleep(0.25)
+          if (tryCatch(proc$is_alive(), error = function(e) FALSE)) {
+            tryCatch(tools::pskill(proc$get_pid(), signal = 9), error = function(e) NULL)
+          }
+        }
+      }
+
+      if (!killed && !is.null(current$process_pid)) {
+        pid <- sdm_normalize_pid(current$process_pid)
+        if (!is.na(pid)) {
+          tryCatch({
+            tools::pskill(pid, signal = 9)
+            killed <<- TRUE
+          }, error = function(e) NULL)
+        }
+      }
+
+      current$status <- "cancelled"
+      current$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      current$error <- "Cancelled by user"
+      sdm_write_json(current, meta_file)
+      list(meta = current, committed = TRUE, killed = killed)
+    }),
+    error = function(e) NULL
+  )
+  if (is.null(terminal)) {
+    return(list(ok = FALSE, status = "failed", message = "Could not commit cancellation metadata"))
   }
+  if (!isTRUE(terminal$committed)) return(terminal_response(terminal$meta))
+
+  if (!is.null(proc) && inherits(proc, "process")) {
+    device_tag <- if (is.list(entry)) entry$device else "cpu"
+    if (killed && sdm_backend_is_discrete_gpu(device_tag)) Sys.sleep(2)
+    sdm_process_registry[[job_id]] <- NULL
+  }
+  sdm_redis_cancel_set(job_id)
 
   progress_log <- file.path(job_dir, "progress.log")
-
-  if (file.exists(meta_file)) {
-    meta <- jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
-
-    if (!killed && !is.null(meta$process_pid)) {
-      tryCatch({
-        tools::pskill(meta$process_pid, signal = 9)
-        killed <- TRUE
-      }, error = function(e) NULL)
-    }
-
-    meta$status <- "cancelled"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    meta$error <- "Cancelled by user"
-    sdm_write_json(meta, meta_file)
-    sdm_redis_cancel_set(job_id)
-  }
-
   if (killed) {
     log_line <- paste0(format(Sys.time(), "%H:%M:%S"), " [CANCELLED] Process killed for job ", job_id)
     cat(log_line, "\n")
-    if (file.exists(progress_log)) {
-      cat(log_line, "\n", file = progress_log, append = TRUE)
-    }
+    if (file.exists(progress_log)) cat(log_line, "\n", file = progress_log, append = TRUE)
   }
 
-  list(ok = TRUE, message = if (killed) "Run cancelled and process terminated" else "Run cancelled (process not found)")
+  list(
+    ok = TRUE,
+    status = "cancelled",
+    message = if (killed) "Run cancelled and process terminated" else "Run cancelled (process not found)"
+  )
 }
 
 handle_model_delete <- function(req, job_id) {
@@ -1177,8 +1296,8 @@ handle_async_status <- function(res, job_id, app_dir) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
     }
     if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
+      pid <- sdm_normalize_pid(meta$process_pid)
+      if (!is.na(pid)) {
         tryCatch({
           ps_info <- tools::ps()
           process_alive <- pid %in% ps_info$PID
@@ -1186,21 +1305,23 @@ handle_async_status <- function(res, job_id, app_dir) {
       }
     }
     if (!process_alive) {
-      meta$status <- "failed"
-      meta$error <- if (!is.null(result_read_error)) {
+      proposed <- meta
+      proposed$status <- "failed"
+      proposed$error <- if (!is.null(result_read_error)) {
         paste0("Process exited with an unreadable result: ", result_read_error)
       } else {
         "Process crashed or was killed (OOM, segfault, or external signal)"
       }
-      meta$error_code <- "PROCESS_CRASH"
-      meta$error_hint <- "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
+      proposed$error_code <- "PROCESS_CRASH"
+      proposed$error_hint <- "The R process was terminated by the OS. Check system memory, reduce raster resolution, or run with fewer covariates."
+      proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta <- sdm_commit_terminal_meta(meta_file, proposed)$meta
       sdm_process_registry[[basename(job_id)]] <- NULL
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "failed", error = meta$error,
-                  error_code = meta$error_code, error_hint = meta$error_hint))
+      return(list(available = TRUE, status = meta$status,
+                  error = meta$error %||% NULL, result = meta$result %||% NULL,
+                  error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
     }
   }
 
@@ -1212,8 +1333,8 @@ handle_async_status <- function(res, job_id, app_dir) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
     }
     if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
+      pid <- sdm_normalize_pid(meta$process_pid)
+      if (!is.na(pid)) {
         tryCatch({
           ps_info <- tools::ps()
           process_alive <- pid %in% ps_info$PID
@@ -1221,36 +1342,42 @@ handle_async_status <- function(res, job_id, app_dir) {
       }
     }
     if (!process_alive) {
-      meta$status <- "failed"
+      proposed <- meta
+      proposed$status <- "failed"
       stderr_content <- tryCatch({
         lines <- readLines(file.path(job_dir, "stderr.log"), warn = FALSE)
         paste(tail(lines, 15), collapse = "\n")
       }, error = function(e) NULL)
       if (!is.null(stderr_content) && nzchar(stderr_content)) {
-        meta$error <- paste0("R process died while loading modules: ", stderr_content)
+        proposed$error <- paste0("R process died while loading modules: ", stderr_content)
       } else {
-        meta$error <- "R process died while loading modules \u2014 no stderr output available"
+        proposed$error <- "R process died while loading modules \u2014 no stderr output available"
       }
-      meta$error_code <- "RUNNER_LOAD_FAILED"
-      sdm_write_json(meta, meta_file)
+      proposed$error_code <- "RUNNER_LOAD_FAILED"
+      proposed$error_hint <- "The R process was killed while loading SDM modules. Check container memory limits, reduce covariates, or increase memory allocation."
+      proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta <- sdm_commit_terminal_meta(meta_file, proposed)$meta
       sdm_process_registry[[basename(job_id)]] <- NULL
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "failed", error = meta$error,
-                  error_code = "RUNNER_LOAD_FAILED", error_hint = "The R process was killed while loading SDM modules. Check container memory limits, reduce covariates, or increase memory allocation."))
+      return(list(available = TRUE, status = meta$status,
+                  error = meta$error %||% NULL, result = meta$result %||% NULL,
+                  error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
     }
   }
 
   if (identical(meta$status, "running") && is.null(result) && sdm_redis_cancel_check(basename(job_id))) {
-    meta$status <- "cancelled"
-    meta$error <- "Cancelled by user"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    sdm_write_json(meta, meta_file)
+    proposed <- meta
+    proposed$status <- "cancelled"
+    proposed$error <- "Cancelled by user"
+    proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    meta <- sdm_commit_terminal_meta(meta_file, proposed)$meta
     sdm_process_registry[[basename(job_id)]] <- NULL
     sdm_redis_progress_clear(basename(job_id))
     sdm_redis_cancel_clear(basename(job_id))
-    return(list(available = TRUE, status = "cancelled", error = "Cancelled by user",
-                error_code = NULL, error_hint = NULL))
+    return(list(available = TRUE, status = meta$status,
+                error = meta$error %||% NULL, result = meta$result %||% NULL,
+                error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
   }
 
   error_code <- meta$error_code %||% NULL
@@ -1259,22 +1386,28 @@ handle_async_status <- function(res, job_id, app_dir) {
   if (!is.null(result)) {
     if (identical(result$status, "completed")) {
       sdm_process_registry[[basename(job_id)]] <- NULL
-      meta$status <- "completed"
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      meta$result <- result$result
-      sdm_write_json(meta, meta_file)
+      proposed <- meta
+      proposed$status <- "completed"
+      proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      proposed$result <- result$result
+      meta <- sdm_commit_terminal_meta(meta_file, proposed)$meta
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "completed", result = result$result, error_code = error_code, error_hint = error_hint))
+      return(list(available = TRUE, status = meta$status,
+                  result = meta$result %||% NULL, error = meta$error %||% NULL,
+                  error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
     } else if (identical(result$status, "failed")) {
       sdm_process_registry[[basename(job_id)]] <- NULL
-      meta$status <- "failed"
-      meta$error <- result$error
-      meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-      sdm_write_json(meta, meta_file)
+      proposed <- meta
+      proposed$status <- "failed"
+      proposed$error <- result$error
+      proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      meta <- sdm_commit_terminal_meta(meta_file, proposed)$meta
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "failed", error = result$error, error_code = error_code, error_hint = error_hint))
+      return(list(available = TRUE, status = meta$status,
+                  result = meta$result %||% NULL, error = meta$error %||% NULL,
+                  error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
     }
   }
 

@@ -43,9 +43,11 @@ Sys.setenv(R_MAX_VSIZE = sdm_detect_vsize())
 # Load Redis cancel check for periodic cancellation polling
 source(file.path(app_dir, "plumber", "R", "redis.R"))
 
-# Bootstrap must load before write_meta (which uses sdm_safe_rename)
+# Bootstrap must load before the shared metadata helpers (which use
+# sdm_safe_rename and %||%).
 source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
+source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"))
 
 meta_file <- file.path(job_dir, "meta.json")
 progress_file <- file.path(job_dir, "progress.log")
@@ -103,16 +105,29 @@ read_meta <- function() {
   jsonlite::fromJSON(meta_file, simplifyVector = FALSE)
 }
 
-write_meta <- function(meta) {
-  tmp_path <- paste0(meta_file, ".tmp")
-  writeLines(jsonlite::toJSON(meta, null = "null", auto_unbox = TRUE, pretty = TRUE), tmp_path)
-  sdm_safe_rename(tmp_path, meta_file)
+write_nonterminal_meta <- function(meta) {
+  sdm_with_meta_lock(meta_file, function() {
+    current <- tryCatch(read_meta(), error = function(e) NULL)
+    if (!is.null(current) && as.character(current$status %||% "") %in% c("completed", "failed", "cancelled")) {
+      return(list(meta = current, written = FALSE))
+    }
+    sdm_write_json(meta, meta_file)
+    list(meta = meta, written = TRUE)
+  })
+}
+
+stop_if_terminal <- function(write_result) {
+  if (!isTRUE(write_result$written)) {
+    log_fun("Background process observed terminal state ", write_result$meta$status, "; stopping without overwrite")
+    quit(save = "no", status = 0, runLast = TRUE)
+  }
+  write_result$meta
 }
 
 # Write initial status before module loading (catches OOM during source)
 meta <- read_meta()
 meta$status <- "loading"
-write_meta(meta)
+meta <- stop_if_terminal(write_nonterminal_meta(meta))
 write_heartbeat("loading_start")
 
 progress_fun(list(value = 0.0, detail = "Initialising background process"))
@@ -140,12 +155,12 @@ check_cancel_background <- function(job_id, log_fun) {
   if (!exists("sdm_redis_cancel_check", inherits = TRUE)) return(FALSE)
   if (sdm_redis_cancel_check(job_id)) {
     options(sdm_cancelled = TRUE)
-    m <- read_meta()
-    m$status <- "cancelled"
-    m$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    m$error <- "Cancelled by user"
-    write_meta(m)
-    log_fun("Model run cancelled by user")
+    proposed <- read_meta()
+    proposed$status <- "cancelled"
+    proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    proposed$error <- "Cancelled by user"
+    terminal <- sdm_commit_terminal_meta(meta_file, proposed)
+    log_fun("Model run terminal state: ", terminal$meta$status)
     quit(save = "no", status = 0, runLast = TRUE)
   }
   FALSE
@@ -154,7 +169,7 @@ check_cancel_background <- function(job_id, log_fun) {
 job_id <- basename(job_dir)
 meta <- read_meta()
 meta$status <- "running"
-write_meta(meta)
+meta <- stop_if_terminal(write_nonterminal_meta(meta))
 
 # Wrap main execution in tryCatch so failures set meta.json to "failed"
 tryCatch({
@@ -329,11 +344,12 @@ tryCatch({
 
   # Handle cancellation: run_fast_sdm returns NULL when cancelled
   if (is.null(result)) {
-    meta$status <- "cancelled"
-    meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-    meta$error <- "Cancelled by user"
-    write_meta(meta)
-    log_fun("Model run cancelled by user")
+    proposed <- read_meta()
+    proposed$status <- "cancelled"
+    proposed$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+    proposed$error <- "Cancelled by user"
+    terminal <- sdm_commit_terminal_meta(meta_file, proposed)
+    log_fun("Model run terminal state: ", terminal$meta$status)
     quit(save = "no", status = 0, runLast = TRUE)
   }
 
@@ -454,8 +470,12 @@ tryCatch({
     }
   }
   progress_fun(list(value = 0.995, detail = "Finalising persisted outputs", stage = "output"))
-  write_meta(meta)
-  progress_fun(list(value = 1.0, detail = "All outputs complete", stage = "complete"))
+  terminal <- sdm_commit_terminal_meta(meta_file, meta)
+  if (isTRUE(terminal$committed)) {
+    progress_fun(list(value = 1.0, detail = "All outputs complete", stage = "complete"))
+  } else {
+    log_fun("Terminal state already committed as ", terminal$meta$status, "; completion metadata was not overwritten")
+  }
   gc(verbose = FALSE)
 }, error = function(e) {
   meta$status <- "failed"
@@ -480,6 +500,16 @@ tryCatch({
     }, error = function(e) NULL)
   }
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-  write_meta(meta)
-  cat("Run failed [", err_code, "]:", err_msg, "\n")
+  terminal <- tryCatch(
+    sdm_commit_terminal_meta(meta_file, meta),
+    error = function(lock_error) {
+      cat("Failed to commit terminal metadata:", conditionMessage(lock_error), "\n")
+      NULL
+    }
+  )
+  if (!is.null(terminal) && !isTRUE(terminal$committed)) {
+    cat("Run error did not overwrite terminal state:", terminal$meta$status, "\n")
+  } else {
+    cat("Run failed [", err_code, "]:", err_msg, "\n")
+  }
 })
