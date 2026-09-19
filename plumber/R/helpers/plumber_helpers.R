@@ -70,8 +70,8 @@ sdm_check_process_alive <- function(job_id, meta) {
     tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
   }
   if (!process_alive && !is.null(meta$process_pid)) {
-    pid <- as.integer(meta$process_pid)
-    if (is.finite(pid)) {
+    pid <- sdm_normalize_pid(meta$process_pid)
+    if (!is.na(pid)) {
       tryCatch({ process_alive <- tools::pskill(pid, signal = 0) }, error = function(e) NULL)
     }
   }
@@ -90,9 +90,82 @@ sdm_error <- function(req, status, message) {
 sdm_write_json <- function(value, path, ...) {
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
   tmp_path <- paste0(path, ".tmp")
-  writeLines(jsonlite::toJSON(value, auto_unbox = TRUE, pretty = TRUE, ...), tmp_path)
+  json_args <- list(x = value, null = "null", auto_unbox = TRUE, pretty = TRUE)
+  overrides <- list(...)
+  if (length(overrides) > 0L) json_args[names(overrides)] <- overrides
+  writeLines(do.call(jsonlite::toJSON, json_args), tmp_path)
   sdm_safe_rename(tmp_path, path)
   invisible(path)
+}
+
+sdm_normalize_pid <- function(value) {
+  pid <- suppressWarnings(as.integer(unlist(value, recursive = TRUE, use.names = FALSE)))
+  if (length(pid) != 1L || !is.finite(pid) || pid <= 0L) return(NA_integer_)
+  pid
+}
+
+# Serialize terminal metadata transitions across the Plumber request process and
+# the background model process. A lock is only reclaimed after its owner process
+# is dead; the ownership token prevents an old holder from deleting a successor.
+sdm_with_meta_lock <- function(meta_file, action, wait_seconds = 5, stale_seconds = 30) {
+  lock_dir <- paste0(meta_file, ".lock")
+  owner_file <- file.path(lock_dir, "owner")
+  token <- paste(Sys.getpid(), format(Sys.time(), "%Y%m%d%H%M%OS6"),
+                 sprintf("%08x", sample.int(.Machine$integer.max, 1L)), sep = "-")
+  deadline <- Sys.time() + wait_seconds
+
+  release_owned_lock <- function() {
+    owner <- tryCatch(readLines(owner_file, warn = FALSE, n = 1L), error = function(e) character())
+    if (length(owner) == 1L && identical(owner, token)) {
+      unlink(lock_dir, recursive = TRUE, force = TRUE)
+    }
+  }
+
+  repeat {
+    if (dir.create(lock_dir, showWarnings = FALSE)) {
+      writeLines(token, owner_file)
+      break
+    }
+
+    lock_age <- tryCatch(
+      as.numeric(difftime(Sys.time(), file.info(lock_dir)$mtime, units = "secs")),
+      error = function(e) 0
+    )
+    owner <- tryCatch(readLines(owner_file, warn = FALSE, n = 1L), error = function(e) character())
+    owner_pid <- if (length(owner) == 1L) sdm_normalize_pid(strsplit(owner, "-", fixed = TRUE)[[1L]][1L]) else NA_integer_
+    owner_alive <- if (is.na(owner_pid)) FALSE else tryCatch(
+      isTRUE(tools::pskill(owner_pid, signal = 0)),
+      error = function(e) FALSE
+    )
+
+    if (length(lock_age) == 1L && is.finite(lock_age) && lock_age > stale_seconds && !owner_alive) {
+      stale_dir <- paste0(lock_dir, ".stale-", token)
+      if (file.rename(lock_dir, stale_dir)) {
+        unlink(stale_dir, recursive = TRUE, force = TRUE)
+        next
+      }
+    }
+    if (Sys.time() >= deadline) stop("Timed out acquiring model metadata lock")
+    Sys.sleep(0.01)
+  }
+  on.exit(release_owned_lock(), add = TRUE)
+  action()
+}
+
+# Whichever terminal transition acquires the lock first wins; later
+# completion/cancellation/error writers return the committed state instead of
+# overwriting it.
+sdm_commit_terminal_meta <- function(meta_file, proposed_meta, wait_seconds = 5, stale_seconds = 30) {
+  sdm_with_meta_lock(meta_file, function() {
+    current <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
+    terminal <- c("completed", "failed", "cancelled")
+    if (!is.null(current) && as.character(current$status %||% "") %in% terminal) {
+      return(list(meta = current, committed = FALSE))
+    }
+
+    sdm_write_json(proposed_meta, meta_file)
+    list(meta = proposed_meta, committed = TRUE)
+  }, wait_seconds = wait_seconds, stale_seconds = stale_seconds)
 }
 
 # Cached probe for the configured Python interpreter. This deliberately runs only

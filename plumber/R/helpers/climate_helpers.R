@@ -104,8 +104,8 @@ handle_climate_status <- function(res, job_id, app_dir) {
       tryCatch({ process_alive <- proc$is_alive() }, error = function(e) NULL)
     }
     if (!process_alive && !is.null(meta$process_pid)) {
-      pid <- as.integer(meta$process_pid)
-      if (is.finite(pid)) {
+      pid <- sdm_normalize_pid(meta$process_pid)
+      if (!is.na(pid)) {
         tryCatch({ ps_info <- tools::ps(); process_alive <- pid %in% ps_info$PID }, error = function(e) NULL)
       }
     }
