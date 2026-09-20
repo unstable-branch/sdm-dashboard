@@ -2,7 +2,7 @@
 
 > **Dated history.** This file records recovery checkpoints and is not the current project-status authority. See [STATUS.md](STATUS.md), [ROADMAP.md](ROADMAP.md), and [REVIEW_LEDGER.md](REVIEW_LEDGER.md) for current truth. Add future recovery events here only as dated historical entries, not as replacements for those documents.
 
-_Last updated: 2026-09-17_
+_Last updated: 2026-09-20_
 
 This branch is a staged recovery of the reviewed `main` snapshot. The architecture is being retained: the work is repairing contracts between Next.js, Hono, Plumber, PostgreSQL, queues, and the R modelling pipeline rather than replacing them.
 
@@ -28,8 +28,8 @@ This branch is a staged recovery of the reviewed `main` snapshot. The architectu
 4. **Canonical input assets and protected execution**
    - Added an additive canonical asset registry with opaque IDs, immutable content identity, scope, kind, lifecycle state, and derivative lineage.
    - Occurrence upload, generation, cleaning, frontend state, synchronous and queued model execution, targets, batch and retry paths now resolve current asset authority before use.
-   - Protected Hono-to-Plumber calls carry immutable current-principal clients; direct R status, cancellation and deletion authorization denies missing, corrupt, ownerless and unauthorized metadata before side effects.
-   - Boundary, mask, target-group and climate-directory inputs still require canonical-asset cutover.
+   - Protected Hono-to-Plumber calls carry immutable current-principal clients; model execution additionally requires a short-lived HMAC attestation over the exact server-resolved payload.
+   - Boundary/mask, target-group and current/future climate collections now use opaque asset IDs and are re-resolved immediately before dispatch.
 
 ## Security policy being implemented
 
@@ -44,10 +44,10 @@ This branch is a staged recovery of the reviewed `main` snapshot. The architectu
 
 **Milestone 2: security boundaries** remains active. The next coherent slices are:
 
-1. Canonicalize boundary, mask, target-group and climate-directory inputs.
-2. Add durable execution ownership for standalone runs and targets so restart reconciliation never invents creator authority.
-3. Revalidate current account/project authority for open SSE and WebSocket delivery.
-4. Run the auth-enabled two-user, project-member, revoked-member, administrator, API-key, direct-Plumber and failure-path acceptance matrix.
+1. Add durable execution ownership for standalone runs and targets so restart reconciliation never invents creator authority.
+2. Revalidate current account/project authority for open SSE and WebSocket delivery.
+3. Run the auth-enabled two-user, project-member, revoked-member, administrator, API-key, direct-Plumber and failure-path acceptance matrix in the built stack.
+4. Verify climate shared-member reclamation before allowing physical deletion.
 5. Preserve unavailable monitoring as unavailable until an explicitly authorized service-metrics path exists.
 
 This branch is intentionally not presented as a finished security milestone yet. The reviewed local candidate also carries the isolated Plumber workaround documentation and a full-suite path correction; these do not close the remaining security or environment gates.
@@ -61,7 +61,7 @@ This branch is intentionally not presented as a finished security milestone yet.
 
 ## Known limitations at this checkpoint
 
-- Boundary, mask, target-group and climate-directory inputs are not yet canonicalized.
+- Physical reclamation of files referenced by system climate collections remains disabled; administrator deletion is a soft asset lifecycle transition.
 - Standalone run and standalone Targets restart reconciliation is deliberately blocked until durable execution ownership exists.
 - Existing path-based historical records are not automatically trusted or reassigned.
 - The lockfile-backed full R suite is not available locally because required packages such as `data.table`, ENMeval and torch are absent. Fast smoke, focused changed-path tests and release audit pass; the attempted broad system-library suite fails on missing dependencies and is not represented as green.
