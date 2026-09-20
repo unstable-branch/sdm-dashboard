@@ -4,8 +4,8 @@ import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { db } from "../db/index.js";
-import { inputAssets } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import { inputAssets, projectMembers } from "../db/schema.js";
+import { and, eq } from "drizzle-orm";
 import {
   InputAssetRegistrationError,
   registerInputAssetFromServerPath,
@@ -38,6 +38,19 @@ function uploadScope(projectId: unknown): { scope: "private" | "project"; projec
   if (projectId === undefined || projectId === null || projectId === "") return { scope: "private", projectId: null };
   if (!isAssetId(projectId)) return null;
   return { scope: "project", projectId };
+}
+
+async function canCreateProjectBoundary(userId: string, projectId: string | null): Promise<boolean> {
+  if (projectId === null) return true;
+  try {
+    const [membership] = await db.select({ role: projectMembers.role })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
+      .limit(1);
+    return membership?.role === "editor" || membership?.role === "admin";
+  } catch {
+    return false;
+  }
 }
 
 async function resolveBoundaryForRead(user: { id: string; role: string }, assetId: string, destinationProjectId: string | null = null) {
@@ -100,6 +113,9 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
     }
     const scope = uploadScope(body.projectId);
     if (!scope) return c.json({ error: "Invalid projectId" }, 400);
+    if (!(await canCreateProjectBoundary(user.id, scope.projectId))) {
+      return c.json({ error: "Project membership does not permit boundary upload" }, 403);
+    }
 
     const buffer = await file.arrayBuffer();
     const base64 = Buffer.from(buffer).toString("base64");
@@ -262,6 +278,9 @@ boundaryRoutes.post("/boundary/download", async (c) => {
     }
     const scope = uploadScope(body.projectId);
     if (!scope) return c.json({ error: "Invalid projectId" }, 400);
+    if (!(await canCreateProjectBoundary(user.id, scope.projectId))) {
+      return c.json({ error: "Project membership does not permit boundary download" }, 403);
+    }
     const producerBody = {
       type: body.type,
       resolution: body.resolution,

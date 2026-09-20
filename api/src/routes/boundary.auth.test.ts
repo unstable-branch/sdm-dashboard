@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { Hono } from "hono";
 import { boundaryRoutes } from "./boundary.js";
 
@@ -30,8 +30,15 @@ vi.mock("../services/input-assets.js", () => ({
 }));
 vi.mock("../services/audit.js", () => ({ logAction: vi.fn(), extractClientInfo: vi.fn(() => ({})) }));
 vi.mock("../db/index.js", () => ({ db: { select: mocks.dbSelect } }));
-vi.mock("../db/schema.js", () => ({ inputAssets: { kind: "kind" } }));
-vi.mock("drizzle-orm", () => ({ eq: vi.fn((left: unknown, right: unknown) => ({ left, right })) }));
+vi.mock("../db/schema.js", () => ({ inputAssets: { kind: "kind" }, projectMembers: { projectId: "projectId", userId: "userId", role: "role" } }));
+vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions: unknown[]) => conditions),
+  eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 function app() { return new Hono().route("/api/v1/data", boundaryRoutes); }
 
@@ -75,6 +82,27 @@ describe("canonical boundary route input", () => {
     const res = await app().request(`/api/v1/data/boundary/default?type=custom&boundaryAssetId=11111111-1111-4111-8111-111111111111&projectId=${projectId}`);
     expect(res.status).toBe(200);
     expect(mocks.resolve).toHaveBeenCalledWith(expect.objectContaining({ destinationProjectId: projectId }));
+  });
+
+  it("rejects project upload before invoking the producer when membership is unavailable", async () => {
+    const form = new FormData();
+    form.append("file", new File(["{}"], "boundary.geojson", { type: "application/geo+json" }));
+    form.append("projectId", "33333333-3333-4333-8333-333333333333");
+    const res = await app().request("/api/v1/data/boundary/upload", { method: "POST", body: form });
+    expect(res.status).toBe(403);
+    expect(mocks.plumberPost).not.toHaveBeenCalled();
+    expect(mocks.register).not.toHaveBeenCalled();
+  });
+
+  it("rejects project download before invoking the producer when membership is unavailable", async () => {
+    const res = await app().request("/api/v1/data/boundary/download", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: "33333333-3333-4333-8333-333333333333" }),
+    });
+    expect(res.status).toBe(403);
+    expect(mocks.plumberPostRaw).not.toHaveBeenCalled();
+    expect(mocks.register).not.toHaveBeenCalled();
   });
 
   it("rejects extent file paths before calling Plumber", async () => {

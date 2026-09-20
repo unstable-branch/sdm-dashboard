@@ -24,7 +24,9 @@ get_ne_boundary_path <- function(scale = "110m", type = "admin0") {
   scale <- match.arg(scale, c("10m", "50m", "110m"))
   type <- match.arg(type, c("admin0", "land"))
   root <- tryCatch(sdm_project_root(), error = function(e) getwd())
-  boundary_dir <- file.path(root, "data", "boundaries", "ne", scale)
+  configured_boundary_root <- Sys.getenv("SDM_INPUT_ASSET_BOUNDARY_ROOT", unset = "")
+  boundary_root <- if (nzchar(configured_boundary_root)) configured_boundary_root else file.path(root, "data", "boundaries")
+  boundary_dir <- file.path(boundary_root, "ne", scale)
   if (type == "admin0") {
     file.path(boundary_dir, "ne_10m_admin_0_countries.geojson")
   } else {
