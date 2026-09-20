@@ -1,14 +1,49 @@
-handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL) {
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+
+sdm_boundary_storage_root <- function(app_dir, configured_root = Sys.getenv("SDM_INPUT_ASSET_BOUNDARY_ROOT", unset = "")) {
+  root <- if (!is.null(configured_root) && nzchar(configured_root)) configured_root else file.path(app_dir, "data", "boundaries")
+  normalizePath(root, winslash = "/", mustWork = FALSE)
+}
+
+sdm_boundary_path_has_parent_segment <- function(path) {
+  normalized <- gsub("\\\\", "/", path, fixed = TRUE)
+  grepl("(^|/)\\.\\.(/|$)", normalized, perl = TRUE)
+}
+
+sdm_boundary_path_has_symlink <- function(path, root) {
+  candidate <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  root_path <- normalizePath(root, winslash = "/", mustWork = FALSE)
+  if (Sys.readlink(root_path) != "") return(TRUE)
+  relative_path <- if (identical(candidate, root_path)) "" else substring(candidate, nchar(root_path) + 2L)
+  current <- root_path
+  for (segment in strsplit(relative_path, "/", fixed = TRUE)[[1]]) {
+    if (!nzchar(segment)) next
+    current <- file.path(current, segment)
+    if (Sys.readlink(current) != "") return(TRUE)
+  }
+  FALSE
+}
+
+sdm_resolve_boundary_path <- function(path, root = NULL, app_dir = NULL) {
+  if (is.null(path) || length(path) != 1L || is.na(path) || !nzchar(path) || !startsWith(path, "/")) return(NULL)
+  if (grepl("[[:cntrl:]]", path) || sdm_boundary_path_has_parent_segment(path)) return(NULL)
+  root_path <- normalizePath(root %||% sdm_boundary_storage_root(app_dir %||% getwd()), winslash = "/", mustWork = FALSE)
+  candidate <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  if (!(identical(candidate, root_path) || startsWith(candidate, paste0(root_path, "/")))) return(NULL)
+  if (!file.exists(candidate) || dir.exists(candidate) || sdm_boundary_path_has_symlink(path, root_path)) return(NULL)
+  candidate
+}
+
+handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL, file_path = NULL) {
   dataset_type <- type %||% "admin0"
   scale <- resolution %||% "110m"
   country_val <- country %||% "all"
 
-  boundary_path <- if (dataset_type == "custom" && !is.null(country) && nzchar(country)) {
-    custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "boundaries"), winslash = "/"), error = function(e) NULL)
-    resolved_path <- tryCatch(normalizePath(country, winslash = "/", mustWork = FALSE), error = function(e) NULL)
-    if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, custom_dir)) {
+  boundary_path <- if (dataset_type == "custom") {
+    resolved_path <- sdm_resolve_boundary_path(file_path, sdm_boundary_storage_root(app_dir))
+    if (is.null(resolved_path)) {
       res$status <- 403L
-      return(list(error = "Invalid boundary file path"))
+      return(list(error = "Invalid server-owned boundary file"))
     }
     resolved_path
   } else if (dataset_type %in% c("admin0", "land")) {
@@ -20,11 +55,15 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
     NULL
   }
 
-  if (!is.null(boundary_path) && !file.exists(boundary_path)) {
+  if (dataset_type != "custom" && !is.null(boundary_path) && !file.exists(boundary_path)) {
     abs_path <- file.path(app_dir, boundary_path)
     if (file.exists(abs_path)) boundary_path <- abs_path
   }
   if (is.null(boundary_path) || !file.exists(boundary_path)) {
+    if (dataset_type == "custom") {
+      res$status <- 404L
+      return(list(error = "Boundary file not found"))
+    }
     fallback <- sdm_default_mask_file
     if (!file.exists(fallback)) fallback <- file.path(app_dir, fallback)
     boundary_path <- fallback
@@ -54,7 +93,7 @@ handle_boundary_upload <- function(req, res, app_dir) {
   on.exit(unlink(tmp), add = TRUE)
   writeBin(jsonlite::base64_dec(file_content), tmp)
 
-  boundary_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  boundary_dir <- file.path(sdm_boundary_storage_root(app_dir), "custom")
   dir.create(boundary_dir, recursive = TRUE, showWarnings = FALSE)
   uuid_base <- paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_", gsub("-", "", uuid::UUIDgenerate()))
 
@@ -105,7 +144,7 @@ handle_boundary_upload <- function(req, res, app_dir) {
 }
 
 handle_boundary_list <- function(req, res, app_dir) {
-  custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  custom_dir <- file.path(sdm_boundary_storage_root(app_dir), "custom")
   if (!dir.exists(custom_dir)) {
     return(list(boundaries = list()))
   }
@@ -131,9 +170,9 @@ handle_boundary_delete <- function(req, res, app_dir) {
     res$status <- 400L
     return(list(error = "File path required"))
   }
-  custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "boundaries", "custom"), winslash = "/"), error = function(e) NULL)
-  resolved_path <- tryCatch(normalizePath(file_path, winslash = "/", mustWork = FALSE), error = function(e) NULL)
-  if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, custom_dir)) {
+  custom_dir <- file.path(sdm_boundary_storage_root(app_dir), "custom")
+  resolved_path <- sdm_resolve_boundary_path(file_path, custom_dir)
+  if (is.null(resolved_path)) {
     res$status <- 403L
     return(list(error = "Invalid file path"))
   }
@@ -166,7 +205,7 @@ sdm_boundary_owned_by <- function(boundary_path, user_id) {
 }
 
 handle_boundary_countries <- function(res, app_dir) {
-  boundary_path <- file.path(app_dir, "data", "boundaries", "ne", "110m", "ne_10m_admin_0_countries.geojson")
+  boundary_path <- file.path(sdm_boundary_storage_root(app_dir), "ne", "110m", "ne_10m_admin_0_countries.geojson")
   if (!file.exists(boundary_path)) {
     res$status <- 404L
     return(list(error = "Admin 0 boundary not found — download NE data first"))
@@ -182,21 +221,27 @@ handle_boundary_countries <- function(res, app_dir) {
 }
 
 handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2) {
-  if (is.null(file_path) || !file.exists(file_path)) {
-    if (!is.null(type)) {
-      res_type <- type %||% "admin0"
-      res_scale <- resolution %||% "110m"
-      if (identical(res_scale, "auto")) res_scale <- ne_boundary_infer_scale(NULL)
-      if (res_type == "custom" && !is.null(country) && nzchar(country)) {
-        file_path <- country
-      } else if (res_type %in% c("admin0", "land")) {
-        file_path <- get_ne_boundary_path(res_scale, res_type)
-        if (!file.exists(file_path)) {
-          file_path <- download_ne_boundary(res_scale, res_type)
-        }
-        if (res_type == "admin0" && !is.null(country) && nzchar(country) && tolower(country) != "all") {
-          file_path <- filter_admin0_to_country(file_path, country)
-        }
+  if (!is.null(file_path)) {
+    file_path <- sdm_resolve_boundary_path(file_path, sdm_boundary_storage_root(app_dir))
+    if (is.null(file_path)) {
+      res$status <- 403L
+      return(list(error = "Invalid server-owned boundary file"))
+    }
+  } else if (!is.null(type)) {
+    res_type <- type %||% "admin0"
+    res_scale <- resolution %||% "110m"
+    if (identical(res_scale, "auto")) res_scale <- ne_boundary_infer_scale(NULL)
+    if (res_type == "custom") {
+      res$status <- 400L
+      return(list(error = "Custom boundaries require a server-owned file"))
+    }
+    if (res_type %in% c("admin0", "land")) {
+      file_path <- get_ne_boundary_path(res_scale, res_type)
+      if (!file.exists(file_path)) {
+        file_path <- download_ne_boundary(res_scale, res_type)
+      }
+      if (res_type == "admin0" && !is.null(country) && nzchar(country) && tolower(country) != "all") {
+        file_path <- filter_admin0_to_country(file_path, country)
       }
     }
   }
@@ -241,13 +286,15 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
       }
     }
 
-    custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+    custom_dir <- file.path(sdm_boundary_storage_root(app_dir), "custom")
     dir.create(custom_dir, recursive = TRUE, showWarnings = FALSE)
     label <- if (country_val != "all") gsub("[^a-zA-Z0-9_-]", "_", tolower(country_val)) else type
     saved_name <- sprintf("ne_%s_%s_%s.geojson", scale, type, label)
     saved_path <- file.path(custom_dir, saved_name)
 
-    file.copy(boundary_path, saved_path, overwrite = TRUE)
+    if (!isTRUE(file.copy(boundary_path, saved_path, overwrite = TRUE))) {
+      return(list(status = "error", message = "Failed to save downloaded boundary"))
+    }
 
     list(
       status = "success",

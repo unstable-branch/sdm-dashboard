@@ -121,6 +121,7 @@ services:
       - ./Worldclim_future:/app/Worldclim_future
     environment:
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_WORLDCLIM_DIR=/app/Worldclim
       - SDM_CHELSA_DIR=/app/chelsa
       - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
@@ -178,6 +179,7 @@ services:
     environment:
       - NODE_ENV=development
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
       - SDM_INPUT_ASSET_CHELSA_ROOT=/app/chelsa
       - SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT=/app/Worldclim_future
@@ -194,6 +196,7 @@ services:
       - ./api/src:/app/api/src:ro
       - ./packages/shared:/app/packages/shared:ro
       - ./data/uploads:/app/data/uploads
+      - ./data/boundaries:/app/data/boundaries:ro
       - ./outputs:/app/outputs
       # The API only verifies immutable manifests and their members. Keep the
       # exact Plumber roots, but never grant it write access to climate data.

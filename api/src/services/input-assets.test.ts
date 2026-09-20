@@ -12,6 +12,7 @@ import {
   registerInputAsset,
   registerDerivedInputAsset,
   registerSystemInputAsset,
+  registerInputAssetFromServerPath,
   registerClimateCollectionFromServerPath,
   registerSystemClimateCollectionFromServerPath,
   makeInputAssetLocator,
@@ -359,6 +360,43 @@ describe("canonical input asset authorization", () => {
 });
 
 describe("server-only registration", () => {
+  it("maps an actual producer path under the dedicated boundary root to an opaque asset locator", async () => {
+    const boundaryRoot = await mkdtemp("/tmp/sdm-boundaries-");
+    await mkdir(join(boundaryRoot, "custom"), { recursive: true });
+    const boundaryPath = join(boundaryRoot, "custom", "boundary.geojson");
+    await writeFile(boundaryPath, "{}");
+    const uploadRoot = await mkdtemp("/tmp/sdm-uploads-");
+    const systemRoot = await mkdtemp("/tmp/sdm-system-");
+    const inserted: Record<string, unknown>[] = [];
+    const database = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => { inserted.push(value); return [value]; } }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+
+    try {
+      const registered = await registerInputAssetFromServerPath({
+        creatorUserId: A,
+        scope: "private",
+        kind: "custom_boundary",
+        absolutePath: boundaryPath,
+      }, { roots: { uploads: uploadRoot, boundaries: boundaryRoot, system: systemRoot }, database });
+
+      expect(registered.storageLocator).toBe("boundaries/custom/boundary.geojson");
+      expect(inserted[0]?.kind).toBe("custom_boundary");
+      await expect(registerInputAsset({
+        creatorUserId: A,
+        scope: "private",
+        kind: "custom_boundary",
+        root: "uploads",
+        relativePath: "boundary.geojson",
+      }, { roots: { uploads: uploadRoot, boundaries: boundaryRoot, system: systemRoot }, database })).rejects.toThrow("boundary root");
+    } finally {
+      await rm(boundaryRoot, { recursive: true, force: true });
+      await rm(uploadRoot, { recursive: true, force: true });
+      await rm(systemRoot, { recursive: true, force: true });
+    }
+  });
+
   it("issues a canonical locator, records content identity, and rejects system scope on generic registration", async () => {
     const inserted: Record<string, unknown>[] = [];
     const database = {
