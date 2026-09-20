@@ -258,7 +258,17 @@ const modelConfigObjectSchema = z.object({
   gllvmLvCorr: z.boolean().default(false),
 });
 
-export const modelConfigSchema = z.preprocess(rejectForbiddenExecutionKeys, modelConfigObjectSchema);
+const modelConfigValidatedSchema = modelConfigObjectSchema.superRefine((config, context) => {
+  if (config.biasMethod === "target_group" && !config.targetGroupAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["targetGroupAssetId"],
+      message: "Target-group bias requires an opaque target-group asset ID",
+    });
+  }
+});
+
+export const modelConfigSchema = z.preprocess(rejectForbiddenExecutionKeys, modelConfigValidatedSchema);
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 

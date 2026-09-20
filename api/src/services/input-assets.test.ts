@@ -13,6 +13,7 @@ import {
   registerDerivedInputAsset,
   registerSystemInputAsset,
   registerClimateCollectionFromServerPath,
+  registerSystemClimateCollectionFromServerPath,
   makeInputAssetLocator,
   InputAssetRegistrationError,
 } from "./input-assets.js";
@@ -124,6 +125,60 @@ describe("canonical input asset storage containment", () => {
 });
 
 describe("canonical climate collection manifests", () => {
+  it("reuses an immutable system collection across requesting principals", async () => {
+    const climateRoot = join(root, "Worldclim");
+    await mkdir(climateRoot);
+    await writeFile(join(climateRoot, "climate.tif"), "climate");
+    await writeFile(join(climateRoot, "climate.json"), JSON.stringify({
+      version: 1, metadata: { source: "worldclim", resolution: 10 },
+      members: [{ locator: "worldclim/climate.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: { variable: "bio1" } }],
+    }));
+    const climateRoots = { ...roots(), worldclim: climateRoot };
+    const manifestContent = await readFile(join(climateRoot, "climate.json"));
+    const existing = asset(CLIMATE, {
+      creatorUserId: A,
+      scope: "system",
+      kind: "climate_collection",
+      storageLocator: "worldclim/climate.json",
+      contentSha256: createHash("sha256").update(manifestContent).digest("hex"),
+      contentSize: manifestContent.length,
+    });
+    const database = {
+      insert: () => ({ values: () => ({ onConflictDoNothing: () => ({ returning: async () => [] }) }) }),
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [existing] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+
+    await expect(registerSystemClimateCollectionFromServerPath({
+      creatorUserId: B,
+      absolutePath: join(climateRoot, "climate.json"),
+    }, { roots: climateRoots, database })).resolves.toMatchObject({ id: CLIMATE, scope: "system" });
+  });
+
+  it("never promotes manifests from user-controlled roots into system climate assets", async () => {
+    const database = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => [asset(CLIMATE, { ...value, id: CLIMATE, kind: "climate_collection" } as Partial<InputAssetRow>)] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+    await expect(registerSystemClimateCollectionFromServerPath({
+      creatorUserId: A,
+      absolutePath: join(root, "climate.json"),
+    }, { roots: roots(), database })).rejects.toThrow("climate root");
+  });
+
+  it("requires every system climate member to use the manifest's approved root", async () => {
+    const climateRoot = join(root, "Worldclim");
+    await mkdir(climateRoot);
+    const manifestPath = join(climateRoot, "climate.json");
+    await writeFile(manifestPath, JSON.stringify({
+      version: 1, metadata: { source: "worldclim" },
+      members: [{ locator: "uploads/climate.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: {} }],
+    }));
+    await expect(registerSystemClimateCollectionFromServerPath({
+      creatorUserId: A,
+      absolutePath: manifestPath,
+    }, { roots: { ...roots(), worldclim: climateRoot }, database: fakeDatabase() })).rejects.toThrow("member root");
+  });
+
   it("registers a server-produced v1 manifest only when every member identity is valid", async () => {
     const database = {
       select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),

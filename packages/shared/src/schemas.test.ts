@@ -213,6 +213,12 @@ describe("modelConfigSchema", () => {
       const result = modelConfigSchema.safeParse(rest);
       expect(result.success).toBe(false);
     });
+
+    it("requires an opaque target-group asset for target-group bias", () => {
+      const result = modelConfigSchema.safeParse({ ...validMinimal, biasMethod: "target_group" });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues[0]?.path).toEqual(["targetGroupAssetId"]);
+    });
   });
 
   describe("wrong types", () => {

@@ -19,6 +19,8 @@ import { writeAtomic } from "../services/storage.js";
 
 export const targetGroupRoutes = new Hono<AppEnv>();
 
+targetGroupRoutes.use("*", authMiddleware);
+
 const __filename = fileURLToPath(import.meta.url);
 const UPLOAD_DIR = join(resolve(dirname(__filename), "../../.."), "data", "uploads");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
