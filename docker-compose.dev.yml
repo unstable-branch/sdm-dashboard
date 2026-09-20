@@ -120,6 +120,7 @@ services:
       - ./chelsa:/app/chelsa
       - ./Worldclim_future:/app/Worldclim_future
     environment:
+      - NODE_ENV=development
       - SDM_PROJECT_ROOT=/app
       - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_WORLDCLIM_DIR=/app/Worldclim

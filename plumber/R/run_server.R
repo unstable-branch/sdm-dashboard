@@ -62,6 +62,23 @@ if (file.exists(env_file)) {
   }
 }
 
+# Validate the dedicated execution key before opening external resources or
+# registering routes. It is separate from the general internal proxy key so a
+# captured proxy credential cannot mint model execution attestations.
+source(file.path(app_dir, "plumber", "R", "startup_validation.R"), local = FALSE)
+internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
+data_encryption_key <- Sys.getenv("DATA_ENCRYPTION_KEY", "")
+production_secret_issues <- sdm_production_secret_issues(
+  internal_key = internal_key,
+  execution_key = Sys.getenv("PLUMBER_EXECUTION_KEY", ""),
+  data_encryption_key = data_encryption_key
+)
+if (length(production_secret_issues) > 0L) {
+  cat("FATAL: missing or weak required secrets in production:", paste(production_secret_issues, collapse = ", "), "\n")
+  cat("  Set these environment variables before starting Plumber.\n")
+  quit(status = 1)
+}
+
 # PostgreSQL can lag behind the container process even when Compose is starting
 # normally. Retry pool creation instead of permanently disabling pooled access.
 library(pool)
@@ -91,26 +108,6 @@ if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
   cat("OpenAPI docs enabled at /openapi.json\n")
 } else {
   tryCatch(pr$setDocs(FALSE), error = function(e) NULL)
-}
-
-# Internal auth key set by Hono when proxying authenticated requests
-internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
-data_encryption_key <- Sys.getenv("DATA_ENCRYPTION_KEY", "")
-
-# In production, refuse to start if required secrets are missing or weak.
-if (identical(Sys.getenv("NODE_ENV"), "production")) {
-  issues <- character(0)
-  if (!nzchar(internal_key) || nchar(internal_key) < 32L) {
-    issues <- c(issues, "PLUMBER_INTERNAL_KEY (>=32 chars)")
-  }
-  if (!nzchar(data_encryption_key) || nchar(data_encryption_key) < 32L) {
-    issues <- c(issues, "DATA_ENCRYPTION_KEY (>=32 chars)")
-  }
-  if (length(issues) > 0L) {
-    cat("FATAL: missing or weak required secrets in production:", paste(issues, collapse = ", "), "\n")
-    cat("  Set these environment variables before starting Plumber.\n")
-    quit(status = 1)
-  }
 }
 
 auth_fail <- function(res, status, msg) {
