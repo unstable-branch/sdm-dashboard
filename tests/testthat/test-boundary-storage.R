@@ -73,6 +73,17 @@ test_that("Natural Earth descendant symlinks are rejected", {
   expect_true(boundary_env$sdm_boundary_path_has_symlink(ne_path, boundary_root))
 })
 
+test_that("custom mask resolution uses the server-resolved file instead of country paths", {
+  ne_env <- new.env(parent = boundary_env)
+  sys.source(file.path(project_root, "R", "covariates", "ne_boundary.R"), envir = ne_env)
+  resolved <- tempfile(fileext = ".geojson")
+  writeLines("{}", resolved)
+  on.exit(unlink(resolved, force = TRUE), add = TRUE)
+
+  expect_equal(ne_env$resolve_mask_file("custom", "110m", "/etc/passwd", default_file = resolved), resolved)
+  expect_null(ne_env$resolve_mask_file("custom", "110m", "/etc/passwd", default_file = NULL))
+})
+
 test_that("Natural Earth archive members stay relative to the extraction root", {
   ne_env <- new.env(parent = globalenv())
   sys.source(file.path(project_root, "R", "covariates", "ne_boundary.R"), ne_env)
