@@ -660,14 +660,41 @@ export async function registerSystemInputAsset(input: RegisterSystemInputAssetIn
 }
 
 /** Only lifecycle state can be changed after registration; ownership and locator are immutable. */
+export interface InputAssetStateAuthorization {
+  principal: InputAssetPrincipal;
+  expectedKind?: InputAssetKind;
+}
+
 export async function updateInputAssetState(
   assetId: string,
   state: Exclude<InputAssetState, "ready">,
   dependencies: InputAssetDependencies = {},
+  authorization?: InputAssetStateAuthorization,
 ): Promise<boolean> {
   if (!isUuid(assetId) || !isOneOf(state, ["deleted", "quarantined"] as const)) return false;
   const database = dependencies.database || db;
   try {
+    if (authorization) {
+      if (typeof database.transaction !== "function") return false;
+      return await database.transaction(async (tx: Database) => {
+        const txDependencies = { ...dependencies, database: tx as unknown as Database };
+        const resolved = await resolveInputAsset({
+          assetId,
+          principal: authorization.principal,
+          action: "use",
+          expectedKind: authorization.expectedKind,
+        }, txDependencies);
+        if (!resolved.ok) return false;
+        const now = new Date();
+        const [updated] = await tx.update(inputAssets).set({
+          state,
+          deletedAt: state === "deleted" ? now : null,
+          quarantinedAt: state === "quarantined" ? now : null,
+          updatedAt: now,
+        }).where(and(eq(inputAssets.id, assetId), eq(inputAssets.state, "ready"))).returning({ id: inputAssets.id });
+        return Boolean(updated);
+      });
+    }
     const now = new Date();
     const [updated] = await database.update(inputAssets).set({
       state,
