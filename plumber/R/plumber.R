@@ -349,15 +349,6 @@ function(res, resolution = NULL, type = NULL, country = NULL, file_path = NULL)
 #* @post /api/v1/data/boundary/upload
 function(req, res) handle_boundary_upload(req, res, app_dir)
 
-#* List custom boundaries
-#* @post /api/v1/data/boundary/list
-function(req, res) handle_boundary_list(req, res, app_dir)
-
-#* Delete a custom boundary
-#* @param file_path Path to the boundary file to delete
-#* @post /api/v1/data/boundary/delete
-function(req, res) handle_boundary_delete(req, res, app_dir)
-
 #* List country names
 #* @post /api/v1/data/boundary/countries
 function(res) handle_boundary_countries(res, app_dir)
