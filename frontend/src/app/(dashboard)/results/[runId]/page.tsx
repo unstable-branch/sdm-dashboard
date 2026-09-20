@@ -12,6 +12,7 @@ import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, RefreshC
 import { cn } from "@/lib/utils";
 import { manifestRecordCount } from "@/lib/manifest";
 import { apiGet, apiPost, apiDownload, fetchWithAuth } from "@/services/api";
+import { buildBoundaryGeoJsonUrl } from "@/services/boundary-url";
 import { useRunDetail } from "@/hooks/use-queries";
 import { useJobSSE } from "@/hooks/use-job-sse";
 import { SuitabilityMap } from "@/components/results/suitability-map";
@@ -300,22 +301,8 @@ export default function ResultsPage() {
         : Promise.resolve(null),
       (() => {
         const cfg = run?.config as Record<string, unknown> | undefined;
-        const bt = cfg?.maskBoundaryType as string | undefined;
-        if (bt === "custom") {
-          const customFile = cfg?.maskFile as string | undefined;
-          const params = new URLSearchParams();
-          params.set("type", "custom");
-          if (customFile) params.set("country", customFile);
-          return fetchGeoJSON(`/api/v1/data/boundary/default?${params.toString()}`);
-        }
-        if (!bt) return fetchGeoJSON("/api/v1/data/boundary/default");
-        const cc = cfg?.maskCountry as string | undefined;
-        const res = cfg?.maskResolution as string | undefined;
-        const params = new URLSearchParams();
-        if (cc && cc !== "all") params.set("country", cc);
-        if (res && res !== "auto") params.set("resolution", res);
-        params.set("type", bt);
-        return fetchGeoJSON(`/api/v1/data/boundary/default?${params.toString()}`);
+        const url = buildBoundaryGeoJsonUrl(cfg || {});
+        return url ? fetchGeoJSON(url) : Promise.resolve(null);
       })(),
     ])
       .then(([reportText, odmapMd, odmapCsv, eooGeoJSON, aooGeoJSON, boundaryGeoJSON]) => {

@@ -259,12 +259,6 @@ function DataPageContent() {
     fetchAvailableBiovars();
   }, [clearDownloadJob, fetchScenarios, fetchAvailableBiovars]);
 
-  const handleDeleteScenario = async (id: string) => {
-    try {
-      await apiPost(`/api/v1/climate/delete/${id}`);
-      setScenarios((prev) => prev.filter((s) => s.id !== id));
-    } catch { }
-  };
 
   // ── Upload ──────────────────────────────────────────────────
   const fetchUploads = useCallback(async () => {
@@ -462,7 +456,7 @@ function DataPageContent() {
               onSetCmip6Gcm={setCmip6Gcm} onSetCmip6Ssp={setCmip6Ssp} onSetCmip6Period={setCmip6Period}
               onCmip6Download={handleCmip6Download} onToggleAvgGcm={toggleAvgGcm} onAvgDownload={handleAvgDownload}
               onDownloadComplete={handleDownloadComplete} onDownloadFailed={handleDownloadFailed} onCancelDownload={handleCancelDownload}
-              onFetchScenarios={fetchScenarios} onDeleteScenario={handleDeleteScenario} />
+              onFetchScenarios={fetchScenarios} />
           </>
         )}
 

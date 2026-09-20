@@ -2,14 +2,13 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Download, Upload, Trash2, Loader2, CheckCircle2, AlertTriangle, Globe, RefreshCw } from "lucide-react";
-import { apiGet, apiPost, apiDelete, apiUpload } from "@/services/api";
+import { apiGet, apiPost, apiUpload } from "@/services/api";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
 interface BoundaryFile {
-  file_path: string;
-  file_name: string;
-  file_size: number;
-  modified_at: string;
+  boundaryAssetId: string;
+  contentSize: number;
+  createdAt: string;
 }
 
 export function BoundaryTab() {
@@ -104,11 +103,11 @@ export function BoundaryTab() {
     }
   };
 
-  const handleDelete = async (filePath: string) => {
-    setDeleteLoading(filePath);
+  const handleDelete = async (boundaryAssetId: string) => {
+    setDeleteLoading(boundaryAssetId);
     try {
-      await apiDelete(`/api/v1/data/boundary/delete/${encodeURIComponent(filePath)}`);
-      setBoundaries((prev) => prev.filter((b) => b.file_path !== filePath));
+      await apiPost(`/api/v1/data/boundary/delete/${boundaryAssetId}`, {});
+      setBoundaries((prev) => prev.filter((b) => b.boundaryAssetId !== boundaryAssetId));
       setConfirmDelete(null);
     } catch {
       // swallow
@@ -294,27 +293,27 @@ export function BoundaryTab() {
                 </thead>
                 <tbody>
                   {boundaries.map((b) => (
-                    <tr key={b.file_path} className="border-b border-sdm-border/50 hover:bg-sdm-surface-soft/50">
+                    <tr key={b.boundaryAssetId} className="border-b border-sdm-border/50 hover:bg-sdm-surface-soft/50">
                       <td className="px-4 py-2">
                         <div className="flex items-center gap-2">
                           <Globe className="h-3.5 w-3.5 shrink-0 text-sdm-accent" />
-                          <span className="text-sdm-text font-medium truncate max-w-[300px]">{b.file_name}</span>
+                          <span className="text-sdm-text font-medium truncate max-w-[300px]">Boundary {b.boundaryAssetId.slice(0, 8)}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-2 text-right text-sdm-muted whitespace-nowrap">{formatSize(b.file_size)}</td>
-                      <td className="px-4 py-2 text-right text-sdm-muted whitespace-nowrap">{b.modified_at?.slice(0, 10) || "—"}</td>
+                      <td className="px-4 py-2 text-right text-sdm-muted whitespace-nowrap">{formatSize(b.contentSize)}</td>
+                      <td className="px-4 py-2 text-right text-sdm-muted whitespace-nowrap">{b.createdAt?.slice(0, 10) || "—"}</td>
                       <td className="px-4 py-2 text-right">
-                        {confirmDelete === b.file_path ? (
+                        {confirmDelete === b.boundaryAssetId ? (
                           <div className="flex items-center gap-1 justify-end">
                             <span className="text-sdm-warning flex items-center gap-1">
                               <AlertTriangle className="h-3 w-3" /> Delete?
                             </span>
                             <button
-                              onClick={() => handleDelete(b.file_path)}
-                              disabled={deleteLoading === b.file_path}
+                              onClick={() => handleDelete(b.boundaryAssetId)}
+                              disabled={deleteLoading === b.boundaryAssetId}
                               className="px-2 py-0.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs disabled:opacity-50"
                             >
-                              {deleteLoading === b.file_path ? "..." : "Yes"}
+                              {deleteLoading === b.boundaryAssetId ? "..." : "Yes"}
                             </button>
                             <button
                               onClick={() => setConfirmDelete(null)}
@@ -325,7 +324,7 @@ export function BoundaryTab() {
                           </div>
                         ) : (
                           <button
-                            onClick={() => setConfirmDelete(b.file_path)}
+                            onClick={() => setConfirmDelete(b.boundaryAssetId)}
                             className="text-sdm-muted hover:text-red-400 transition-colors"
                             title="Delete boundary"
                           >
