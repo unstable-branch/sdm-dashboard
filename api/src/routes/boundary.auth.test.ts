@@ -184,6 +184,17 @@ describe("canonical boundary route input", () => {
     }));
   });
 
+  it("redacts producer download errors", async () => {
+    mocks.plumberPostRaw.mockResolvedValueOnce([500, { error: "/app/data/boundaries/private.geojson" }]);
+    const res = await app().request("/api/v1/data/boundary/download", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "admin0", resolution: "110m", country: "all" }),
+    });
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({ error: "Boundary download failed" });
+  });
+
   it("lists a registered boundary by opaque ID and resolves that ID for extent", async () => {
     mocks.dbSelect.mockReturnValue({
       from: vi.fn(() => ({

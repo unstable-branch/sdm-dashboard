@@ -348,6 +348,7 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
       )
     )
   }, error = function(e) {
-    list(status = "error", message = conditionMessage(e))
+    warning("Boundary download failed: ", conditionMessage(e), call. = FALSE)
+    list(status = "error", message = "Boundary download failed")
   })
 }

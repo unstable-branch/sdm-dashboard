@@ -55,6 +55,18 @@ get_ne_boundary_path <- function(scale = "110m", type = "admin0") {
   }
 }
 
+sdm_ne_archive_members_safe <- function(members) {
+  for (member in members) {
+    normalized <- sub("/+$", "", gsub("\\\\", "/", member, fixed = TRUE))
+    segments <- strsplit(normalized, "/", fixed = TRUE)[[1]]
+    if (!nzchar(normalized) || grepl("[[:cntrl:]]", normalized) || startsWith(normalized, "/") ||
+        grepl("^[A-Za-z]:", normalized) || any(segments %in% c("..", ""))) {
+      return(FALSE)
+    }
+  }
+  TRUE
+}
+
 #' Download Natural Earth boundary dataset
 #' @param scale "10m", "50m", or "110m"
 #' @param type "admin0" or "land"
@@ -78,14 +90,23 @@ download_ne_boundary <- function(scale = "110m", type = "admin0", force = FALSE)
   }
   zip_path <- tempfile(fileext = ".zip")
   on.exit(unlink(zip_path), add = TRUE)
+  extract_dir <- tempfile("sdm-ne-extract-")
+  dir.create(extract_dir, recursive = TRUE, showWarnings = FALSE)
+  on.exit(unlink(extract_dir, recursive = TRUE), add = TRUE)
   tryCatch({
     utils::download.file(url, zip_path, mode = "wb", quiet = TRUE, timeout = 300)
-    utils::unzip(zip_path, exdir = dirname(boundary_path))
-    if (!sdm_ne_boundary_path_is_safe(boundary_path)) return(NULL)
-    extracted <- list.files(dirname(boundary_path), pattern = "\\.(geojson|json|shp)$", full.names = TRUE, recursive = TRUE)
+    members <- utils::unzip(zip_path, list = TRUE)$Name
+    if (!sdm_ne_archive_members_safe(members)) return(NULL)
+    utils::unzip(zip_path, exdir = extract_dir)
+    extracted_all <- list.files(extract_dir, all.files = TRUE, recursive = TRUE, full.names = TRUE, no.. = TRUE)
+    if (any(vapply(extracted_all, function(path) {
+      target <- Sys.readlink(path)
+      length(target) > 0L && !is.na(target) && nzchar(target)
+    }, logical(1)))) return(NULL)
+    extracted <- extracted_all[grepl("\\.(geojson|json|shp)$", extracted_all, ignore.case = TRUE)]
     src <- grep("\\.geojson$", extracted, value = TRUE)
     if (length(src) > 0) {
-      sdm_safe_rename(src[1], boundary_path)
+      if (!isTRUE(file.copy(src[1], boundary_path, overwrite = force))) return(NULL)
     } else {
       src <- grep("\\.shp$", extracted, value = TRUE)
       if (length(src) > 0) {

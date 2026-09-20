@@ -73,6 +73,15 @@ test_that("Natural Earth descendant symlinks are rejected", {
   expect_true(boundary_env$sdm_boundary_path_has_symlink(ne_path, boundary_root))
 })
 
+test_that("Natural Earth archive members stay relative to the extraction root", {
+  ne_env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "R", "covariates", "ne_boundary.R"), ne_env)
+  expect_true(ne_env$sdm_ne_archive_members_safe(c("ne/file.geojson", "ne/")))
+  expect_false(ne_env$sdm_ne_archive_members_safe(c("../outside.geojson")))
+  expect_false(ne_env$sdm_ne_archive_members_safe(c("/absolute.geojson")))
+  expect_false(ne_env$sdm_ne_archive_members_safe(c("C:/absolute.geojson")))
+})
+
 test_that("download rejects custom path aliases before reading a source file", {
   download_env <- new.env(parent = globalenv())
   sys.source(file.path(project_root, "plumber", "R", "helpers", "boundary_helpers.R"), envir = download_env)
