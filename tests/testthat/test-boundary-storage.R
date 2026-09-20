@@ -94,6 +94,20 @@ test_that("download rejects custom path aliases before reading a source file", {
   expect_equal(response$status, 400L)
   expect_equal(result$status, "error")
 })
+
+test_that("extent rejects invalid selectors before resolving a boundary", {
+  extent_env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "helpers", "boundary_helpers.R"), envir = extent_env)
+  app_dir <- tempfile("sdm-boundary-extent-")
+  dir.create(app_dir, recursive = TRUE)
+  on.exit(unlink(app_dir, recursive = TRUE, force = TRUE), add = TRUE)
+
+  response <- new.env()
+  result <- extent_env$handle_boundary_extent(response, app_dir, type = "not-a-boundary", resolution = "110m")
+  expect_equal(response$status, 400L)
+  expect_equal(result$error, "Invalid boundary type or resolution")
+})
+
 test_that("download filenames are unique even for the same Natural Earth request", {
   first <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")
   second <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")

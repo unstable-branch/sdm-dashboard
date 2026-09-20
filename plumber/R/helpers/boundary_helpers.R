@@ -56,6 +56,11 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
   dataset_type <- type %||% "admin0"
   scale <- resolution %||% "110m"
   country_val <- country %||% "all"
+  if (!is.character(dataset_type) || length(dataset_type) != 1L || !dataset_type %in% c("admin0", "land", "custom") ||
+      !is.character(scale) || length(scale) != 1L || !scale %in% c("auto", "10m", "50m", "110m")) {
+    res$status <- 400L
+    return(list(error = "Invalid boundary type or resolution"))
+  }
 
   if (dataset_type %in% c("admin0", "land")) {
     natural_earth_path <- tryCatch(get_ne_boundary_path(scale, dataset_type), error = function(e) NULL)
@@ -160,6 +165,14 @@ handle_boundary_upload <- function(req, res, app_dir) {
         }
       }
       utils::unzip(src, exdir = zip_dir)
+      extracted_all <- list.files(zip_dir, all.files = TRUE, recursive = TRUE, full.names = TRUE, no.. = TRUE)
+      if (any(vapply(extracted_all, function(path) {
+        target <- Sys.readlink(path)
+        length(target) > 0L && !is.na(target) && nzchar(target)
+      }, logical(1)))) {
+        res$status <- 400L
+        return(list(error = "ZIP archive contains symlinks; refusing to extract"))
+      }
       src <- list.files(zip_dir, pattern = "\\.(shp|kml|gpkg|geojson|json)$", full.names = TRUE, recursive = TRUE)[1]
       if (is.na(src) || !file.exists(src)) {
         res$status <- 400L
@@ -167,13 +180,18 @@ handle_boundary_upload <- function(req, res, app_dir) {
       }
     }
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
-    tryCatch({
+    converted <- tryCatch({
       vec <- sf::st_read(src, quiet = TRUE)
       sf::st_write(vec, dest, delete_dsn = TRUE, quiet = TRUE)
+      TRUE
     }, error = function(e) {
-      res$status <- 400L
-      stop("Failed to convert boundary file: ", conditionMessage(e))
+      warning("Boundary conversion failed: ", conditionMessage(e), call. = FALSE)
+      FALSE
     })
+    if (!converted) {
+      res$status <- 400L
+      return(list(error = "Boundary conversion failed"))
+    }
   } else {
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
     if (file.exists(dest) || sdm_boundary_path_has_symlink(dest, boundary_root) ||
@@ -224,6 +242,11 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     res$status <- 500L
     return(list(error = "Boundary storage root is unsafe"))
   }
+  if ((!is.null(type) && (!is.character(type) || length(type) != 1L || !type %in% c("admin0", "land", "custom"))) ||
+      (!is.null(resolution) && (!is.character(resolution) || length(resolution) != 1L || !resolution %in% c("auto", "10m", "50m", "110m")))) {
+    res$status <- 400L
+    return(list(error = "Invalid boundary type or resolution"))
+  }
   if (!is.null(file_path)) {
     file_path <- sdm_resolve_boundary_path(file_path, boundary_root)
     if (is.null(file_path)) {
@@ -267,8 +290,9 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     buf <- as.numeric(buffer_deg) %||% 2
     list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
   }, error = function(e) {
+    warning("Boundary extent failed: ", conditionMessage(e), call. = FALSE)
     res$status <- 500L
-    list(error = paste("Failed to compute extent:", conditionMessage(e)))
+    list(error = "Boundary extent failed")
   })
 }
 
@@ -287,9 +311,10 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
     }
     scale <- resolution %||% "110m"
     country_val <- country %||% "all"
-    if (!is.character(type) || length(type) != 1L || !type %in% c("admin0", "land")) {
+    if (!is.character(type) || length(type) != 1L || !type %in% c("admin0", "land") ||
+        !is.character(scale) || length(scale) != 1L || !scale %in% c("10m", "50m", "110m")) {
       res$status <- 400L
-      return(list(status = "error", message = "Boundary downloads require an admin0 or land dataset"))
+      return(list(status = "error", message = "Invalid boundary type or resolution"))
     }
     natural_earth_path <- get_ne_boundary_path(scale, type)
     if (sdm_boundary_path_has_symlink(natural_earth_path, boundary_root)) {
@@ -349,6 +374,7 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
     )
   }, error = function(e) {
     warning("Boundary download failed: ", conditionMessage(e), call. = FALSE)
+    res$status <- 500L
     list(status = "error", message = "Boundary download failed")
   })
 }

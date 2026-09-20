@@ -145,6 +145,7 @@ services:
       - r-future:/app/Worldclim_future
     environment:
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_WORLDCLIM_DIR=/app/Worldclim
       - SDM_CHELSA_DIR=/app/chelsa
       - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
