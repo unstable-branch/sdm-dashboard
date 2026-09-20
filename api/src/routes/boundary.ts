@@ -40,12 +40,13 @@ function uploadScope(projectId: unknown): { scope: "private" | "project"; projec
   return { scope: "project", projectId };
 }
 
-async function resolveBoundaryForRead(user: { id: string; role: string }, assetId: string) {
+async function resolveBoundaryForRead(user: { id: string; role: string }, assetId: string, destinationProjectId: string | null = null) {
   return resolveInputAsset({
     assetId,
     principal: { id: user.id, role: user.role },
     action: "read",
     expectedKind: "custom_boundary",
+    destinationProjectId,
   });
 }
 
@@ -61,6 +62,8 @@ boundaryRoutes.get("/boundary/default", async (c) => {
     const type = c.req.query("type");
     const country = c.req.query("country");
     const boundaryAssetId = c.req.query("boundaryAssetId") || c.req.query("boundary_asset_id");
+    const projectId = c.req.query("projectId") || null;
+    if (projectId !== null && !isAssetId(projectId)) return c.json({ error: "Invalid projectId" }, 400);
     const body: Record<string, unknown> = {};
     if (resolution) body.resolution = resolution;
     if (type === "custom") {
@@ -68,7 +71,7 @@ boundaryRoutes.get("/boundary/default", async (c) => {
         return c.json({ error: "Custom boundaries require boundaryAssetId; path aliases are not supported." }, 400);
       }
       if (!isAssetId(boundaryAssetId)) return c.json({ error: "Invalid boundaryAssetId" }, 400);
-      const resolved = await resolveBoundaryForRead(user, boundaryAssetId);
+      const resolved = await resolveBoundaryForRead(user, boundaryAssetId, projectId);
       if (!resolved.ok) return c.json({ error: "Boundary not found" }, 404);
       body.type = "custom";
       body.file_path = resolved.absolutePath;
@@ -148,6 +151,11 @@ boundaryRoutes.get("/boundary/list", async (c) => {
     const rows = await db.select().from(inputAssets).where(eq(inputAssets.kind, "custom_boundary"));
     const boundaries = [];
     for (const row of rows) {
+      if (projectId !== null) {
+        if (row.scope !== "project" || row.projectId !== projectId) continue;
+      } else if (row.scope !== "private" || row.creatorUserId !== user.id) {
+        continue;
+      }
       const resolved = await resolveInputAsset({
         assetId: row.id,
         principal: { id: user.id, role: user.role },
@@ -222,13 +230,15 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
     const resolution = c.req.query("resolution");
     const country = c.req.query("country");
     const bufferDeg = c.req.query("buffer_deg") || "2";
+    const projectId = c.req.query("projectId") || null;
+    if (projectId !== null && !isAssetId(projectId)) return c.json({ error: "Invalid projectId" }, 400);
     if (type === "custom" && (!boundaryAssetId || country)) {
       return c.json({ error: "Custom boundaries require boundaryAssetId; path aliases are not supported." }, 400);
     }
     const body: Record<string, unknown> = { buffer_deg: Number(bufferDeg) };
     if (boundaryAssetId) {
       if (!isAssetId(boundaryAssetId)) return c.json({ error: "Invalid boundaryAssetId" }, 400);
-      const resolved = await resolveBoundaryForRead(user, boundaryAssetId);
+      const resolved = await resolveBoundaryForRead(user, boundaryAssetId, projectId);
       if (!resolved.ok) return c.json({ error: "Boundary not found" }, 404);
       body.file_path = resolved.absolutePath;
     }

@@ -11,15 +11,16 @@ sdm_boundary_path_has_parent_segment <- function(path) {
 }
 
 sdm_boundary_path_has_symlink <- function(path, root) {
-  candidate <- normalizePath(path, winslash = "/", mustWork = FALSE)
-  root_path <- normalizePath(root, winslash = "/", mustWork = FALSE)
-  if (Sys.readlink(root_path) != "") return(TRUE)
-  relative_path <- if (identical(candidate, root_path)) "" else substring(candidate, nchar(root_path) + 2L)
-  current <- root_path
-  for (segment in strsplit(relative_path, "/", fixed = TRUE)[[1]]) {
-    if (!nzchar(segment)) next
-    current <- file.path(current, segment)
-    if (Sys.readlink(current) != "") return(TRUE)
+  candidates <- unique(c(root, path))
+  for (candidate in candidates) {
+    candidate <- gsub("\\\\", "/", candidate, fixed = TRUE)
+    current <- if (startsWith(candidate, "/")) "/" else ""
+    for (segment in strsplit(candidate, "/", fixed = TRUE)[[1]]) {
+      if (!nzchar(segment)) next
+      current <- file.path(current, segment)
+      link_target <- Sys.readlink(current)
+      if (length(link_target) > 0L && !is.na(link_target) && nzchar(link_target)) return(TRUE)
+    }
   }
   FALSE
 }
@@ -135,73 +136,11 @@ handle_boundary_upload <- function(req, res, app_dir) {
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
     file.copy(src, dest, overwrite = TRUE)
   }
-  sdm_write_boundary_owner(dest, req$user_id %||% "anonymous")
   list(
     file_path = normalizePath(dest, winslash = "/"),
     file_name = file_name,
     file_size = file.size(dest)
   )
-}
-
-handle_boundary_list <- function(req, res, app_dir) {
-  custom_dir <- file.path(sdm_boundary_storage_root(app_dir), "custom")
-  if (!dir.exists(custom_dir)) {
-    return(list(boundaries = list()))
-  }
-  user_id <- req$user_id %||% NULL
-  is_admin <- isTRUE(req$user_role == "admin")
-  files <- list.files(custom_dir, pattern = "\\.geojson$", full.names = TRUE)
-  boundaries <- lapply(files, function(f) {
-    if (!is.null(user_id) && !is_admin && !sdm_boundary_owned_by(f, user_id)) return(NULL)
-    list(
-      file_path = normalizePath(f, winslash = "/"),
-      file_name = basename(f),
-      file_size = file.size(f),
-      modified_at = format(file.mtime(f), "%Y-%m-%dT%H:%M:%SZ")
-    )
-  })
-  boundaries <- Filter(Negate(is.null), boundaries)
-  list(boundaries = boundaries)
-}
-
-handle_boundary_delete <- function(req, res, app_dir) {
-  file_path <- req$args$file_path
-  if (is.null(file_path) || !nzchar(file_path)) {
-    res$status <- 400L
-    return(list(error = "File path required"))
-  }
-  custom_dir <- file.path(sdm_boundary_storage_root(app_dir), "custom")
-  resolved_path <- sdm_resolve_boundary_path(file_path, custom_dir)
-  if (is.null(resolved_path)) {
-    res$status <- 403L
-    return(list(error = "Invalid file path"))
-  }
-  if (!file.exists(resolved_path)) {
-    res$status <- 404L
-    return(list(error = "File not found"))
-  }
-  user_id <- req$user_id %||% NULL
-  is_admin <- isTRUE(req$user_role == "admin")
-  if (!is.null(user_id) && !is_admin && !sdm_boundary_owned_by(resolved_path, user_id)) {
-    res$status <- 403L
-    return(list(error = sdm_error_code_direct("ACCESS_DENIED", "You do not have permission to delete this boundary")))
-  }
-  file.remove(resolved_path)
-  sidecar <- paste0(resolved_path, ".owner")
-  if (file.exists(sidecar)) file.remove(sidecar)
-  list(ok = TRUE)
-}
-
-sdm_write_boundary_owner <- function(boundary_path, user_id) {
-  sidecar <- paste0(boundary_path, ".owner")
-  tryCatch(writeLines(user_id, sidecar), error = function(e) NULL)
-}
-
-sdm_boundary_owned_by <- function(boundary_path, user_id) {
-  sidecar <- paste0(boundary_path, ".owner")
-  if (!file.exists(sidecar)) return(FALSE)
-  owner <- tryCatch(readLines(sidecar, warn = FALSE)[1], error = function(e) NULL)
-  !is.null(owner) && nzchar(owner) && owner == user_id
 }
 
 handle_boundary_countries <- function(res, app_dir) {
@@ -261,6 +200,12 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
   })
 }
 
+sdm_boundary_download_filename <- function(type, resolution, country) {
+  label <- if (!identical(country, "all")) gsub("[^a-zA-Z0-9_-]", "_", tolower(country)) else type
+  token <- gsub("[^A-Za-z0-9]", "", basename(tempfile("boundary-")))
+  sprintf("ne_%s_%s_%s_%s.geojson", resolution, type, label, token)
+}
+
 handle_boundary_download <- function(res, app_dir, type = "admin0", resolution = "110m", country = "all") {
   tryCatch({
     scale <- resolution %||% "110m"
@@ -288,8 +233,7 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
 
     custom_dir <- file.path(sdm_boundary_storage_root(app_dir), "custom")
     dir.create(custom_dir, recursive = TRUE, showWarnings = FALSE)
-    label <- if (country_val != "all") gsub("[^a-zA-Z0-9_-]", "_", tolower(country_val)) else type
-    saved_name <- sprintf("ne_%s_%s_%s.geojson", scale, type, label)
+    saved_name <- sdm_boundary_download_filename(type, scale, country_val)
     saved_path <- file.path(custom_dir, saved_name)
 
     if (!isTRUE(file.copy(boundary_path, saved_path, overwrite = TRUE))) {
