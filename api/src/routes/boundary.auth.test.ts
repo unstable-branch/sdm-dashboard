@@ -133,6 +133,14 @@ describe("canonical boundary route input", () => {
     expect(mocks.register).not.toHaveBeenCalled();
   });
 
+  it("rejects opaque custom assets on non-custom default requests", async () => {
+    const res = await app().request("/api/v1/data/boundary/default?boundaryAssetId=11111111-1111-4111-8111-111111111111", {
+      headers: { "x-user-id": "22222222-2222-4222-8222-222222222222", "x-user-role": "user" },
+    });
+    expect(res.status).toBe(400);
+    expect(mocks.resolve).not.toHaveBeenCalled();
+  });
+
   it("rejects extent file paths before calling Plumber", async () => {
     const res = await app().request("/api/v1/data/boundary/extent?file_path=/etc/passwd");
     expect(res.status).toBe(400);

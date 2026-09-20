@@ -77,6 +77,9 @@ boundaryRoutes.get("/boundary/default", async (c) => {
     const boundaryAssetId = c.req.query("boundaryAssetId") || c.req.query("boundary_asset_id");
     const projectId = c.req.query("projectId") || null;
     if (projectId !== null && !isAssetId(projectId)) return c.json({ error: "Invalid projectId" }, 400);
+    if (boundaryAssetId && type !== "custom") {
+      return c.json({ error: "boundaryAssetId requires type=custom" }, 400);
+    }
     const body: Record<string, unknown> = {};
     if (resolution) body.resolution = resolution;
     if (type === "custom") {
@@ -248,6 +251,9 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
     const bufferDeg = c.req.query("buffer_deg") || "2";
     const projectId = c.req.query("projectId") || null;
     if (projectId !== null && !isAssetId(projectId)) return c.json({ error: "Invalid projectId" }, 400);
+    if (boundaryAssetId && type !== "custom") {
+      return c.json({ error: "boundaryAssetId is only valid for custom boundaries" }, 400);
+    }
     if (type === "custom" && (!boundaryAssetId || country)) {
       return c.json({ error: "Custom boundaries require boundaryAssetId; path aliases are not supported." }, 400);
     }
