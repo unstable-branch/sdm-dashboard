@@ -40,6 +40,15 @@ test_that("boundary path resolution rejects traversal and accepts only regular i
   expect_false(boundary_env$sdm_boundary_root_is_safe(linkroot))
   expect_null(boundary_env$sdm_resolve_boundary_path(file.path(linkroot, "custom", "safe.geojson"), linkroot))
   unlink(linkroot, force = TRUE)
+
+  outside_dir <- tempfile("sdm-boundary-custom-target-")
+  dir.create(outside_dir)
+  custom_link <- file.path(root, "custom")
+  unlink(custom_link, recursive = TRUE, force = TRUE)
+  file.symlink(outside_dir, custom_link)
+  expect_true(boundary_env$sdm_boundary_path_has_symlink(custom_link, root))
+  unlink(custom_link, force = TRUE)
+  unlink(outside_dir, recursive = TRUE, force = TRUE)
 })
 
 test_that("Natural Earth paths use the configured boundary root", {

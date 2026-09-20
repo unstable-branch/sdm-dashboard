@@ -117,7 +117,15 @@ handle_boundary_upload <- function(req, res, app_dir) {
     return(list(error = "Boundary storage root is unsafe"))
   }
   boundary_dir <- file.path(boundary_root, "custom")
+  if (sdm_boundary_path_has_symlink(boundary_dir, boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Custom boundary storage is unsafe"))
+  }
   dir.create(boundary_dir, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(boundary_dir) || sdm_boundary_path_has_symlink(boundary_dir, boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Custom boundary storage is unsafe"))
+  }
   uuid_base <- paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_", gsub("-", "", uuid::UUIDgenerate()))
 
   needs_conversion <- !ext %in% c("geojson", "json")
@@ -156,7 +164,15 @@ handle_boundary_upload <- function(req, res, app_dir) {
     })
   } else {
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
-    file.copy(src, dest, overwrite = TRUE)
+    if (file.exists(dest) || sdm_boundary_path_has_symlink(dest, boundary_root) ||
+        !isTRUE(file.copy(src, dest, overwrite = FALSE))) {
+      res$status <- 500L
+      return(list(error = "Failed to save uploaded boundary"))
+    }
+  }
+  if (is.null(sdm_resolve_boundary_path(normalizePath(dest, winslash = "/", mustWork = FALSE), boundary_root))) {
+    res$status <- 500L
+    return(list(error = "Uploaded boundary storage is unsafe"))
   }
   list(
     file_path = normalizePath(dest, winslash = "/"),
@@ -272,12 +288,22 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
     }
 
     custom_dir <- file.path(boundary_root, "custom")
+    if (sdm_boundary_path_has_symlink(custom_dir, boundary_root)) {
+      return(list(status = "error", message = "Custom boundary storage is unsafe"))
+    }
     dir.create(custom_dir, recursive = TRUE, showWarnings = FALSE)
+    if (!dir.exists(custom_dir) || sdm_boundary_path_has_symlink(custom_dir, boundary_root)) {
+      return(list(status = "error", message = "Custom boundary storage is unsafe"))
+    }
     saved_name <- sdm_boundary_download_filename(type, scale, country_val)
     saved_path <- file.path(custom_dir, saved_name)
 
-    if (!isTRUE(file.copy(boundary_path, saved_path, overwrite = TRUE))) {
+    if (file.exists(saved_path) || sdm_boundary_path_has_symlink(saved_path, boundary_root) ||
+        !isTRUE(file.copy(boundary_path, saved_path, overwrite = FALSE))) {
       return(list(status = "error", message = "Failed to save downloaded boundary"))
+    }
+    if (is.null(sdm_resolve_boundary_path(normalizePath(saved_path, winslash = "/", mustWork = FALSE), boundary_root))) {
+      return(list(status = "error", message = "Downloaded boundary storage is unsafe"))
     }
 
     list(
