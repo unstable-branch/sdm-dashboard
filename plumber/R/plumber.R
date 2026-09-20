@@ -181,9 +181,6 @@ function(req, res, job_id) handle_climate_status(req, res, job_id, app_dir)
 #* @get /api/v1/climate/scenarios
 function(res) handle_climate_scenarios(res, app_dir)
 
-#* Delete a climate scenario
-#* @post /api/v1/climate/delete/<scenario_id>
-function(req, res, scenario_id) handle_climate_delete(req, res, scenario_id, app_dir)
 
 #* Cancel a climate download
 #* @post /api/v1/climate/cancel/<job_id>

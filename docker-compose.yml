@@ -94,6 +94,7 @@ services:
       - plumber-chelsa:/app/chelsa
       - plumber-future:/app/Worldclim_future
     environment:
+      - NODE_ENV=production
       - SDM_PROJECT_ROOT=/app
       - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_WORLDCLIM_DIR=/app/Worldclim
@@ -108,6 +109,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_URL=redis://redis:6379
       - SDM_MIN_GPU_VRAM_MIB=1500
+      - DATA_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
       - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
       - ALA_API_KEY=${ALA_API_KEY:-}
     init: true

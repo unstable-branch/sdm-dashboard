@@ -59,6 +59,63 @@ describe("Plumber principal binding", () => {
     );
   });
 
+  it("does not retry an attested model submission after a retryable response", async () => {
+    vi.stubEnv("PLUMBER_EXECUTION_KEY", "execution-secret");
+    fetchMock.mockImplementation(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "temporarily unavailable" }),
+      text: async () => "temporarily unavailable",
+    }));
+    const client = plumberForPrincipal({ id: "user-a", role: "editor" }, "http://plumber");
+
+    await expect(client.runModel({ species: "Test", model_id: "glm" })).rejects.toThrow("temporarily unavailable");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry an attested Targets submission after a retryable response", async () => {
+    fetchMock.mockImplementation(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "temporarily unavailable" }),
+      text: async () => "temporarily unavailable",
+    }));
+    const client = plumberForPrincipal({ id: "user-a", role: "editor" }, "http://plumber");
+
+    await expect(client.targetsRun({ configs: [{ species: "Test" }] })).rejects.toThrow("503");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("attests canonical Targets payloads with the dedicated execution key", async () => {
+    vi.stubEnv("PLUMBER_EXECUTION_KEY", "execution-secret");
+    const client = plumberForPrincipal({ id: "user-a", role: "editor" }, "http://plumber");
+
+    await client.targetsRun({ configs: [{ species: "Test", model_id: "glm" }] });
+
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    const body = fetchMock.mock.calls[0][1].body as string;
+    const timestamp = headers["X-SDM-Execution-Timestamp"];
+    const nonce = headers["X-SDM-Execution-Nonce"];
+    expect(headers["X-SDM-Execution-Signature"]).toBe(
+      createHmac("sha256", "execution-secret").update(`${timestamp}\n${nonce}\nuser-a\n${body}`).digest("hex"),
+    );
+  });
+
+  it("retains retries for idempotent model status polling", async () => {
+    let calls = 0;
+    fetchMock.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return { ok: false, status: 503, json: async () => ({ error: "retry" }), text: async () => "retry" };
+      }
+      return { ok: true, status: 200, json: async () => ({ status: "running" }), text: async () => "" };
+    });
+    const client = plumberForPrincipal({ id: "user-a", role: "editor" }, "http://plumber");
+
+    await expect(client.getModelStatus("job-1")).resolves.toEqual({ status: "running" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("isolates concurrent principals", async () => {
     const seen: Array<[string | undefined, string | undefined]> = [];
     fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
