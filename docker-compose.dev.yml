@@ -126,6 +126,7 @@ services:
       - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-dev-plumber-key}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:-dev-plumber-execution-key}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-true}
       - GDAL_CACHEMAX=512
       - SDM_CHILD_MAX_VSIZE=6Gb
@@ -182,6 +183,7 @@ services:
       - SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT=/app/Worldclim_future
       - PLUMBER_URL=http://plumber:8000
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:-dev-plumber-key}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:-dev-plumber-execution-key}
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:-sdm_dev_only_change_me}@postgres:5432/sdm_platform
       - REDIS_URL=redis://redis:6379
       - GRAFANA_URL=http://grafana:3000

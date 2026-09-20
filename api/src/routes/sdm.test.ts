@@ -112,6 +112,7 @@ const buildRunPayloadConfig = {
   dnnMultispeciesArchitecture: "DNN_Large",
   dnnMultispeciesNSeeds: 4,
   occurrenceAssetId: "11111111-1111-1111-1111-111111111111",
+  currentClimateAssetId: "22222222-2222-4222-8222-222222222222",
 };
 
 vi.mock("../db", () => ({
@@ -126,7 +127,10 @@ vi.mock("../services/model-payload", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../services/model-payload.js")>();
   return {
     ...actual,
-    resolveModelInputAsset: vi.fn(async () => ({ absolutePath: "/srv/inputs/authorized.csv", kind: "cleaned_occurrence" })),
+    resolveModelInputAssets: vi.fn(async () => ({
+      occurrenceFile: "/srv/inputs/authorized.csv",
+      worldclimDir: "/srv/climate/current",
+    })),
     resolveTargetsConfigs: vi.fn(async (configs: Record<string, unknown>[]) => configs.map((config) => {
       const resolved = { ...config };
       delete resolved.occurrenceAssetId;
@@ -153,6 +157,16 @@ vi.mock("../services/plumber-sync", () => ({
   getLastSyncError: vi.fn(() => null),
   getLastSyncAge: vi.fn(() => 0),
 }));
+
+vi.mock("../services/input-assets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/input-assets.js")>();
+  return {
+    ...actual,
+    registerSystemClimateCollectionFromServerPath: vi.fn(async () => ({
+      id: "33333333-3333-4333-8333-333333333333",
+    })),
+  };
+});
 
 vi.mock("../middleware/rate-limit", () => ({
   modelRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
@@ -239,6 +253,7 @@ describe("SDM routes", () => {
         file_count: 19,
         size_bytes: 123,
         is_averaged: false,
+        climateCollectionId: "33333333-3333-4333-8333-333333333333",
       }],
     });
   });
@@ -499,6 +514,9 @@ describe("SDM routes", () => {
       });
       expect(payload.biovars).toBe("1,4,6,12");
       expect(payload.projection_extent).toBe("-180,180,-90,90");
+      expect(payload.occurrence_file).toBe("/srv/inputs/authorized.csv");
+      expect(payload.worldclim_dir).toBe("/srv/climate/current");
+      expect(payload).not.toHaveProperty("current_climate_asset_id");
       expect(payload.dnn_l2_lambda).toBeUndefined();
     });
   });
@@ -765,9 +783,9 @@ describe("canonical asset execution boundary", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     const modelPayload = await import("../services/model-payload");
-    vi.mocked(modelPayload.resolveModelInputAsset).mockResolvedValue({
-      absolutePath: "/srv/inputs/authorized.csv",
-      kind: "cleaned_occurrence",
+    vi.mocked(modelPayload.resolveModelInputAssets).mockResolvedValue({
+      occurrenceFile: "/srv/inputs/authorized.csv",
+      worldclimDir: "/srv/climate/current",
     });
     vi.mocked(modelPayload.resolveTargetsConfigs).mockImplementation(async (configs) =>
       configs.map((config) => {
@@ -784,7 +802,7 @@ describe("canonical asset execution boundary", () => {
       const { db } = await import("../db");
       const { plumberClient } = await import("../services/plumber");
       const { enqueueSdmJob } = await import("../services/queue");
-      const { resolveModelInputAsset, resolveTargetsConfigs } = await import("../services/model-payload");
+      const { resolveModelInputAssets, resolveTargetsConfigs } = await import("../services/model-payload");
       for (const request of [
         { path: "/run", body: { ...buildRunPayloadConfig, [key]: "/client/escape.csv" } },
         { path: "/run", body: { ...buildRunPayloadConfig, async: true, [key]: "/client/escape.csv" } },
@@ -802,20 +820,21 @@ describe("canonical asset execution boundary", () => {
         expect(plumberClient.runModel).not.toHaveBeenCalled();
         expect(plumberClient.targetsRun).not.toHaveBeenCalled();
         expect(enqueueSdmJob).not.toHaveBeenCalled();
-        expect(resolveModelInputAsset).not.toHaveBeenCalled();
+        expect(resolveModelInputAssets).not.toHaveBeenCalled();
         expect(resolveTargetsConfigs).not.toHaveBeenCalled();
       }
     },
   );
 
   it.each([
-    ["foreign", "not_authorized"],
-    ["viewer", "not_authorized"],
-    ["revoked", "not_authorized"],
-    ["deleted", "not_found"],
-    ["quarantined", "not_authorized"],
-    ["unsafe", "unsafe_storage"],
-  ] as const)("denies %s assets before sync, async, or targets dispatch", async (_label, reason) => {
+    ["foreign", "not_authorized", 404],
+    ["viewer", "not_authorized", 404],
+    ["revoked", "not_authorized", 404],
+    ["deleted", "not_found", 404],
+    ["quarantined", "not_authorized", 404],
+    ["unsafe", "unsafe_storage", 404],
+    ["missing canonical", "invalid_request", 400],
+  ] as const)("denies %s assets before sync, async, or targets dispatch", async (_label, reason, expectedStatus) => {
     const { db } = await import("../db");
     const { plumberClient } = await import("../services/plumber");
     const { enqueueSdmJob } = await import("../services/queue");
@@ -829,14 +848,14 @@ describe("canonical asset execution boundary", () => {
       vi.clearAllMocks();
       const error = new modelPayload.ModelInputAssetError(reason);
       if (request.targets) vi.mocked(modelPayload.resolveTargetsConfigs).mockRejectedValueOnce(error);
-      else vi.mocked(modelPayload.resolveModelInputAsset).mockRejectedValueOnce(error);
+      else vi.mocked(modelPayload.resolveModelInputAssets).mockRejectedValueOnce(error);
 
       const res = await boundaryApp.request(request.path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request.body),
       });
-      expect(res.status).toBe(request.targets ? 503 : 404);
+      expect(res.status).toBe(request.targets ? 503 : expectedStatus);
       expect(await res.text()).not.toContain(reason);
       expect(db.insert).not.toHaveBeenCalled();
       expect(plumberClient.runModel).not.toHaveBeenCalled();

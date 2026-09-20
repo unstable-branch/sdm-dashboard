@@ -83,7 +83,7 @@ services:
       context: .
       dockerfile: plumber/Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - plumber-data:/app/data
       - upload-data:/app/data/uploads
@@ -99,6 +99,7 @@ services:
       - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:?PLUMBER_EXECUTION_KEY is required}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
       - GDAL_CACHEMAX=512
       - SDM_CHILD_MAX_VSIZE=6Gb
@@ -148,6 +149,7 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - PLUMBER_URL=${PLUMBER_URL:-http://plumber:8000}
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:?PLUMBER_EXECUTION_KEY is required}
       - GARAGE_ENDPOINT=${GARAGE_ENDPOINT:-http://garage:3900}
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY:?GARAGE_ACCESS_KEY is required}
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY:?GARAGE_SECRET_KEY is required}

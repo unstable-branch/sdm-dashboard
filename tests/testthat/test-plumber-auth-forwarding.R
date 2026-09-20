@@ -23,6 +23,15 @@ testthat::test_that("trusted preroute propagation fails closed", {
   testthat::expect_true(length(trusted_blocks) >= 3L)
 })
 
+testthat::test_that("manifest-publishing climate discovery requires authentication", {
+  project_root <- normalizePath(file.path(testthat::test_path(), "..", ".."), winslash = "/", mustWork = TRUE)
+  env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "auth.R"), envir = env)
+  testthat::expect_true(env$requires_auth("/api/v1/climate/scenarios"))
+  testthat::expect_true(env$requires_auth("/api/v1/future/scenarios"))
+  testthat::expect_false(env$requires_auth("/api/v1/climate/check"))
+})
+
 
 testthat::test_that("job authorization fails closed on principal, owner, metadata, and storage errors", {
   root <- tempfile("sdm-auth-")
