@@ -42,30 +42,50 @@ function futureMatch(
     && scenario.period === period;
 }
 
+function selectUniqueCollection(
+  scenarios: ClimateScenarioResponse[],
+  matches: (scenario: ClimateScenarioResponse) => boolean,
+  unavailableMessage: string,
+  ambiguousMessage: string,
+): ClimateScenarioResponse {
+  const candidates = scenarios.filter((scenario) =>
+    matches(scenario) && typeof scenario.climateCollectionId === "string"
+  );
+  if (candidates.length === 0) throw new Error(unavailableMessage);
+  if (candidates.length > 1) throw new Error(ambiguousMessage);
+  return candidates[0];
+}
+
 export function selectClimateCollectionIds(
   scenarios: ClimateScenarioResponse[],
   config: ClimateSelectionConfig,
 ): { currentClimateAssetId: string; futureClimateAssetId?: string; futureClimateAssetId2?: string } {
-  const current = scenarios.find((scenario) =>
-    currentCollectionMatches(scenario, config)
-    && typeof scenario.climateCollectionId === "string");
-  if (!current?.climateCollectionId) throw new Error("Current climate collection is unavailable");
+  const current = selectUniqueCollection(
+    scenarios,
+    (scenario) => currentCollectionMatches(scenario, config),
+    "Current climate collection is unavailable",
+    "Current climate collection is ambiguous",
+  );
 
   const selected: { currentClimateAssetId: string; futureClimateAssetId?: string; futureClimateAssetId2?: string } = {
     currentClimateAssetId: current.climateCollectionId,
   };
   if (config.futureProjection) {
-    const future = scenarios.find((scenario) =>
-      futureMatch(scenario, config.futureGcm, config.futureSsp, config.futurePeriod)
-      && typeof scenario.climateCollectionId === "string");
-    if (!future?.climateCollectionId) throw new Error("Future climate collection is unavailable");
+    const future = selectUniqueCollection(
+      scenarios,
+      (scenario) => futureMatch(scenario, config.futureGcm, config.futureSsp, config.futurePeriod),
+      "Future climate collection is unavailable",
+      "Future climate collection is ambiguous",
+    );
     selected.futureClimateAssetId = future.climateCollectionId;
   }
   if (config.futureProjection2) {
-    const future = scenarios.find((scenario) =>
-      futureMatch(scenario, config.futureGcm2, config.futureSsp2, config.futurePeriod2)
-      && typeof scenario.climateCollectionId === "string");
-    if (!future?.climateCollectionId) throw new Error("Second future climate collection is unavailable");
+    const future = selectUniqueCollection(
+      scenarios,
+      (scenario) => futureMatch(scenario, config.futureGcm2, config.futureSsp2, config.futurePeriod2),
+      "Second future climate collection is unavailable",
+      "Second future climate collection is ambiguous",
+    );
     selected.futureClimateAssetId2 = future.climateCollectionId;
   }
   return selected;
