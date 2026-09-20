@@ -40,8 +40,8 @@ Required full gates for a release review are pnpm run check:node, pnpm run check
 
 - Shared tests passed: 153 tests. API tests passed: 42 files / 424 tests. Frontend tests passed: 34 files / 219 tests.
 - Workspace typechecks and builds passed. Lint completed with existing non-fatal warning debt and no errors. `git diff --check` passed.
-- The focused canonical-input, climate, authentication, and frontend contract tests passed, including unauthenticated target-group rejection and route-to-Plumber path translation.
-- R and Compose runtime gates were not run because this environment has neither `Rscript` nor Docker. All three Compose YAML files parsed successfully, but that is not a runtime substitute. The Phase 2 candidate is therefore not release-accepted and must pass those gates in the authoritative CI/image environment.
+- The focused canonical-input, climate, authentication, and frontend contract tests passed, including unauthenticated target-group rejection and route-to-Plumber path translation. The R execution-attestation file passed all 5 tests in the pinned CPU image environment.
+- The seven Compose configuration invocations represented by `check:compose` passed with the corrected dummy `PLUMBER_EXECUTION_KEY`, and the pinned CPU Plumber image built successfully. The CPU image smoke gate passed; the complete image-mounted R testthat suite reported 10 failures in crew/CoordinateCleaner/ESM/FDA tests. The host `pnpm run check:node` command could not be invoked because pnpm is unavailable, although its constituent workspace checks were run directly. The Phase 2 candidate is therefore not release-accepted and must pass the complete authoritative gates.
 
 ### Phase 1 gate evidence at implementation SHA `671571c24838149c851d4b5406946afae87c31b7`
 
