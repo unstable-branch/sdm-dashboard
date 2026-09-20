@@ -38,6 +38,7 @@ vi.mock("drizzle-orm", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.dbSelect.mockReset();
 });
 
 function app() { return new Hono().route("/api/v1/data", boundaryRoutes); }
@@ -84,6 +85,17 @@ describe("canonical boundary route input", () => {
     expect(mocks.resolve).toHaveBeenCalledWith(expect.objectContaining({ destinationProjectId: projectId }));
   });
 
+  it("rejects custom download paths before invoking the producer", async () => {
+    const res = await app().request("/api/v1/data/boundary/download", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "custom", country: "/etc/passwd" }),
+    });
+    expect(res.status).toBe(400);
+    expect(mocks.plumberPostRaw).not.toHaveBeenCalled();
+    expect(mocks.register).not.toHaveBeenCalled();
+  });
+
   it("rejects project upload before invoking the producer when membership is unavailable", async () => {
     const form = new FormData();
     form.append("file", new File(["{}"], "boundary.geojson", { type: "application/geo+json" }));
@@ -92,6 +104,22 @@ describe("canonical boundary route input", () => {
     expect(res.status).toBe(403);
     expect(mocks.plumberPost).not.toHaveBeenCalled();
     expect(mocks.register).not.toHaveBeenCalled();
+  });
+
+  it("allows an active project editor to upload before registering the produced boundary", async () => {
+    mocks.dbSelect.mockReturnValue({
+      from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [{ role: "editor" }]) })) })),
+    });
+    mocks.plumberPost.mockResolvedValueOnce({ file_path: "/app/data/boundaries/custom/project-boundary.geojson" });
+    const form = new FormData();
+    form.append("file", new File(["{}"], "boundary.geojson", { type: "application/geo+json" }));
+    form.append("projectId", "33333333-3333-4333-8333-333333333333");
+    const res = await app().request("/api/v1/data/boundary/upload", { method: "POST", body: form });
+    expect(res.status).toBe(200);
+    expect(mocks.register).toHaveBeenCalledWith(expect.objectContaining({
+      scope: "project",
+      projectId: "33333333-3333-4333-8333-333333333333",
+    }));
   });
 
   it("rejects project download before invoking the producer when membership is unavailable", async () => {

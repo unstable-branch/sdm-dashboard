@@ -247,9 +247,12 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
     }
     scale <- resolution %||% "110m"
     country_val <- country %||% "all"
+    if (!is.character(type) || length(type) != 1L || !type %in% c("admin0", "land")) {
+      res$status <- 400L
+      return(list(status = "error", message = "Boundary downloads require an admin0 or land dataset"))
+    }
 
-    boundary_path <- tryCatch(
-      resolve_mask_file(type, scale, country_val, raster_res = NULL, default_file = NULL),
+    boundary_path <- tryCatch(resolve_mask_file(type, scale, country_val, raster_res = NULL, default_file = NULL),
       error = function(e) NULL
     )
 
