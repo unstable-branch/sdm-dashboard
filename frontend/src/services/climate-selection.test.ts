@@ -3,7 +3,9 @@ import { buildCanonicalModelSubmission, selectClimateCollectionIds } from "./cli
 
 const scenarios = [
   { id: "current", type: "current" as const, source: "worldclim" as const, resolution: 10, climateCollectionId: "11111111-1111-4111-8111-111111111111", file_count: 19, size_bytes: 1 },
+  { id: "chelsa-current", type: "current" as const, source: "chelsa" as const, resolution: 0.5, climateCollectionId: "33333333-3333-4333-8333-333333333333", file_count: 19, size_bytes: 1 },
   { id: "future", type: "future" as const, gcm: "ACCESS-CM2", ssp: "SSP2-4.5", period: "2041-2060", climateCollectionId: "22222222-2222-4222-8222-222222222222", file_count: 19, size_bytes: 1 },
+  { id: "future-2", type: "future" as const, gcm: "MPI-ESM1-2-HR", ssp: "SSP3-7.0", period: "2061-2080", climateCollectionId: "44444444-4444-4444-8444-444444444444", file_count: 19, size_bytes: 1 },
 ];
 
 describe("selectClimateCollectionIds", () => {
@@ -28,6 +30,64 @@ describe("selectClimateCollectionIds", () => {
       source: "worldclim", worldclimRes: 10, futureProjection: true,
       futureGcm: "ACCESS-CM2", futureSsp: "SSP2-4.5", futurePeriod: "2041-2060",
     })).toThrow("Future climate collection is unavailable");
+  });
+
+  it("selects the native CHELSA collection when model-time aggregation is explicit", () => {
+    expect(selectClimateCollectionIds(scenarios, {
+      source: "chelsa", worldclimRes: 10, aggregationFactor: 20,
+    })).toEqual({ currentClimateAssetId: "33333333-3333-4333-8333-333333333333" });
+  });
+
+  it("allows a coarser WorldClim target only with explicit aggregation", () => {
+    const nativeWorldclim = [
+      { ...scenarios[0], resolution: 5 },
+    ];
+    expect(selectClimateCollectionIds(nativeWorldclim, {
+      source: "worldclim", worldclimRes: 10, aggregationFactor: 2,
+    })).toEqual({ currentClimateAssetId: "11111111-1111-4111-8111-111111111111" });
+    expect(() => selectClimateCollectionIds(nativeWorldclim, {
+      source: "worldclim", worldclimRes: 10, aggregationFactor: 1,
+    })).toThrow("Current climate collection is unavailable");
+  });
+
+  it("resolves both selected future scenarios", () => {
+    expect(selectClimateCollectionIds(scenarios, {
+      source: "worldclim", worldclimRes: 10,
+      futureProjection: true, futureGcm: "ACCESS-CM2", futureSsp: "SSP2-4.5", futurePeriod: "2041-2060",
+      futureProjection2: true, futureGcm2: "MPI-ESM1-2-HR", futureSsp2: "SSP3-7.0", futurePeriod2: "2061-2080",
+    })).toEqual({
+      currentClimateAssetId: "11111111-1111-4111-8111-111111111111",
+      futureClimateAssetId: "22222222-2222-4222-8222-222222222222",
+      futureClimateAssetId2: "44444444-4444-4444-8444-444444444444",
+    });
+  });
+
+  it("rejects the all-country sentinel for a custom boundary", () => {
+    expect(() => buildCanonicalModelSubmission({
+      source: "worldclim", worldclimRes: 10, maskBoundaryType: "custom", maskAssetId: "all",
+    }, scenarios)).toThrow("Custom boundary selection is unavailable");
+  });
+
+  it("preserves a selected opaque custom boundary asset ID", () => {
+    const submitted = buildCanonicalModelSubmission({
+      source: "worldclim", worldclimRes: 10, maskBoundaryType: "custom",
+      maskAssetId: "55555555-5555-4555-8555-555555555555",
+    }, scenarios);
+    expect(submitted.maskAssetId).toBe("55555555-5555-4555-8555-555555555555");
+  });
+
+  it("keeps both future scenario selectors alongside resolved collection IDs", () => {
+    const submitted = buildCanonicalModelSubmission({
+      source: "worldclim", worldclimRes: 10,
+      futureProjection: true, futureGcm: "ACCESS-CM2", futureSsp: "SSP2-4.5", futurePeriod: "2041-2060",
+      futureProjection2: true, futureGcm2: "MPI-ESM1-2-HR", futureSsp2: "SSP3-7.0", futurePeriod2: "2061-2080",
+    }, scenarios);
+    expect(submitted).toMatchObject({
+      futureGcm: "ACCESS-CM2", futureSsp: "SSP2-4.5", futurePeriod: "2041-2060",
+      futureGcm2: "MPI-ESM1-2-HR", futureSsp2: "SSP3-7.0", futurePeriod2: "2061-2080",
+      futureClimateAssetId: "22222222-2222-4222-8222-222222222222",
+      futureClimateAssetId2: "44444444-4444-4444-8444-444444444444",
+    });
   });
 
   it("removes every legacy path alias before model submission", () => {
