@@ -53,6 +53,18 @@ test_that("Natural Earth paths use the configured boundary root", {
     "/srv/sdm-boundaries/ne/110m/ne_10m_admin_0_countries.geojson"
   )
 })
+test_that("download rejects custom path aliases before reading a source file", {
+  download_env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "helpers", "boundary_helpers.R"), envir = download_env)
+  download_env$resolve_mask_file <- function(...) stop("source file lookup must not run")
+  app_dir <- tempfile("sdm-boundary-download-")
+  dir.create(app_dir, recursive = TRUE)
+  on.exit(unlink(app_dir, recursive = TRUE, force = TRUE), add = TRUE)
+  response <- new.env()
+  result <- download_env$handle_boundary_download(response, app_dir, type = "custom", country = "/etc/passwd")
+  expect_equal(response$status, 400L)
+  expect_equal(result$status, "error")
+})
 test_that("download filenames are unique even for the same Natural Earth request", {
   first <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")
   second <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")
