@@ -63,6 +63,18 @@ describe("selectClimateCollectionIds", () => {
     })).toThrow("Current climate collection is ambiguous");
   });
 
+  it("uses exact future resolution metadata to reject a wrong-resolution duplicate", () => {
+    const resolvedFuture = [
+      ...scenarios.filter((scenario) => scenario.id !== "future"),
+      { ...scenarios[2], resolution: 10, climateCollectionId: "88888888-8888-4888-8888-888888888888" },
+      { ...scenarios[2], id: "future-wrong-resolution", resolution: 5, climateCollectionId: "99999999-9999-4999-8999-999999999999" },
+    ];
+    expect(selectClimateCollectionIds(resolvedFuture, {
+      source: "worldclim", worldclimRes: 10, futureProjection: true,
+      futureGcm: "ACCESS-CM2", futureSsp: "SSP2-4.5", futurePeriod: "2041-2060",
+    }).futureClimateAssetId).toBe("88888888-8888-4888-8888-888888888888");
+  });
+
   it("selects the native CHELSA collection when model-time aggregation is explicit", () => {
     expect(selectClimateCollectionIds(scenarios, {
       source: "chelsa", worldclimRes: 10, aggregationFactor: 20,
@@ -158,6 +170,14 @@ describe("selectClimateCollectionIds", () => {
         futureClimateAssetId2: "44444444-4444-4444-8444-444444444444",
       });
     }
+  });
+
+  it("strips a stale custom-boundary ID when the boundary mode is not custom", () => {
+    const submitted = buildCanonicalModelSubmission({
+      source: "worldclim", worldclimRes: 10, maskBoundaryType: "admin0",
+      maskAssetId: "99999999-9999-4999-8999-999999999999",
+    }, scenarios);
+    expect(submitted).not.toHaveProperty("maskAssetId");
   });
 
   it("removes every legacy path alias before model submission", () => {

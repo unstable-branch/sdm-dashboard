@@ -56,6 +56,37 @@ function selectUniqueCollection(
   return candidates[0];
 }
 
+function selectFutureCollection(
+  scenarios: ClimateScenarioResponse[],
+  config: ClimateSelectionConfig,
+  gcm: string | undefined,
+  ssp: string | undefined,
+  period: string | undefined,
+  unavailableMessage: string,
+  ambiguousMessage: string,
+): ClimateScenarioResponse {
+  const candidates = scenarios.filter((scenario) =>
+    futureMatch(scenario, gcm, ssp, period)
+    && typeof scenario.climateCollectionId === "string"
+  );
+  if (candidates.length === 0) throw new Error(unavailableMessage);
+
+  const requestedResolution = Number(config.worldclimRes);
+  const knownResolution = candidates.filter((scenario) => Number.isFinite(Number(scenario.resolution)));
+  if (!Number.isFinite(requestedResolution) || knownResolution.length === 0) {
+    if (candidates.length > 1) throw new Error(ambiguousMessage);
+    return candidates[0];
+  }
+
+  const compatible = knownResolution.filter((scenario) => Number(scenario.resolution) === requestedResolution);
+  const missingResolution = candidates.length - knownResolution.length;
+  if (compatible.length === 1 && missingResolution === 0) return compatible[0];
+  if (compatible.length > 1 || missingResolution > 0) {
+    throw new Error(ambiguousMessage);
+  }
+  throw new Error(unavailableMessage);
+}
+
 export function selectClimateCollectionIds(
   scenarios: ClimateScenarioResponse[],
   config: ClimateSelectionConfig,
@@ -71,18 +102,24 @@ export function selectClimateCollectionIds(
     currentClimateAssetId: current.climateCollectionId,
   };
   if (config.futureProjection) {
-    const future = selectUniqueCollection(
+    const future = selectFutureCollection(
       scenarios,
-      (scenario) => futureMatch(scenario, config.futureGcm, config.futureSsp, config.futurePeriod),
+      config,
+      config.futureGcm,
+      config.futureSsp,
+      config.futurePeriod,
       "Future climate collection is unavailable",
       "Future climate collection is ambiguous",
     );
     selected.futureClimateAssetId = future.climateCollectionId;
   }
   if (config.futureProjection2) {
-    const future = selectUniqueCollection(
+    const future = selectFutureCollection(
       scenarios,
-      (scenario) => futureMatch(scenario, config.futureGcm2, config.futureSsp2, config.futurePeriod2),
+      config,
+      config.futureGcm2,
+      config.futureSsp2,
+      config.futurePeriod2,
       "Second future climate collection is unavailable",
       "Second future climate collection is ambiguous",
     );
@@ -110,7 +147,7 @@ export function buildCanonicalModelSubmission(
     if (typeof canonical.maskAssetId !== "string" || !UUID_PATTERN.test(canonical.maskAssetId)) {
       throw new Error("Custom boundary selection is unavailable");
     }
-  } else if (canonical.maskAssetId === "all") {
+  } else {
     delete canonical.maskAssetId;
   }
   return { ...canonical, ...selectClimateCollectionIds(scenarios, config) };
