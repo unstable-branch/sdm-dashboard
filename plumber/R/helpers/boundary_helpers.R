@@ -204,6 +204,10 @@ handle_boundary_countries <- function(res, app_dir) {
     res$status <- 404L
     return(list(error = "Admin 0 boundary not found — download NE data first"))
   }
+  if (sdm_boundary_path_has_symlink(boundary_path, boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Natural Earth boundary storage is unsafe"))
+  }
   geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
   feats <- geojson$features %||% list()
   countries <- unique(vapply(feats, function(f) {
