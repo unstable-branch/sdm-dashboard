@@ -267,6 +267,7 @@ async function computeIdentity(path: string, fs: AssetFileSystem): Promise<{ con
 }
 
 async function matchesContentIdentity(asset: InputAssetRow, path: string, fs: AssetFileSystem): Promise<boolean> {
+  if (asset.kind === "custom_boundary" && (asset.contentSize == null || asset.contentSha256 == null)) return false;
   if (asset.contentSize == null && asset.contentSha256 == null) return true;
   const identity = await computeIdentity(path, fs);
   if (asset.contentSize != null && identity.contentSize !== asset.contentSize) return false;
