@@ -276,6 +276,9 @@ boundaryRoutes.post("/boundary/download", async (c) => {
     if (hasPathAlias(body as Record<string, unknown>)) {
       return c.json({ error: "Path-based boundary inputs are not supported; use boundaryAssetId." }, 400);
     }
+    if (body.type === "custom") {
+      return c.json({ error: "Natural Earth downloads do not accept custom boundary paths" }, 400);
+    }
     const scope = uploadScope(body.projectId);
     if (!scope) return c.json({ error: "Invalid projectId" }, 400);
     if (!(await canCreateProjectBoundary(user.id, scope.projectId))) {
