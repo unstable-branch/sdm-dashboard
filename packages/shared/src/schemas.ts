@@ -140,6 +140,12 @@ const modelConfigObjectSchema = z.object({
   futureProjection: z.boolean().default(false),
   futureLabel: z.string().default("Future climate"),
   futureProjection2: z.boolean().default(false).optional(),
+  futureGcm: z.string().min(1).optional(),
+  futureSsp: z.string().min(1).optional(),
+  futurePeriod: z.string().min(1).optional(),
+  futureGcm2: z.string().min(1).optional(),
+  futureSsp2: z.string().min(1).optional(),
+  futurePeriod2: z.string().min(1).optional(),
   futureClimateAssetId: z.string().uuid().optional(),
   futureClimateAssetId2: z.string().uuid().optional(),
   futureLabel2: z.string().default("Future climate 2").optional(),
@@ -231,7 +237,7 @@ const modelConfigObjectSchema = z.object({
   dnnMcSamples: z.number().int().min(0).max(100).default(0),
   dnnUncertaintyMethod: z.enum(["none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"]).default("none"),
   gpuEnabled: z.enum(["auto", "off"]).default("auto"),
-  aggregationFactor: z.number().int().min(1).max(8).default(1),
+  aggregationFactor: z.number().int().min(1).max(20).default(1),
   nCores: z.number().int().min(1).max(64).default(1),
   seed: z.number().int().default(42),
   occurrenceAssetId: z.string().uuid(),
@@ -259,6 +265,20 @@ const modelConfigObjectSchema = z.object({
 });
 
 const modelConfigValidatedSchema = modelConfigObjectSchema.superRefine((config, context) => {
+  if (!config.currentClimateAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["currentClimateAssetId"],
+      message: "Executable model runs require an opaque current-climate asset ID",
+    });
+  }
+  if (config.maskBoundaryType === "custom" && !config.maskAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["maskAssetId"],
+      message: "Custom masking requires an opaque boundary asset ID",
+    });
+  }
   if (config.biasMethod === "target_group" && !config.targetGroupAssetId) {
     context.addIssue({
       code: "custom",
@@ -266,9 +286,26 @@ const modelConfigValidatedSchema = modelConfigObjectSchema.superRefine((config, 
       message: "Target-group bias requires an opaque target-group asset ID",
     });
   }
+  if (config.futureProjection && !config.futureClimateAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["futureClimateAssetId"],
+      message: "Future projection requires an opaque climate collection asset ID",
+    });
+  }
+  if (config.futureProjection2 && !config.futureClimateAssetId2) {
+    context.addIssue({
+      code: "custom",
+      path: ["futureClimateAssetId2"],
+      message: "Second future projection requires an opaque climate collection asset ID",
+    });
+  }
 });
 
 export const modelConfigSchema = z.preprocess(rejectForbiddenExecutionKeys, modelConfigValidatedSchema);
+
+/** Draft/form validation intentionally omits executable asset-resolution requirements. */
+export const modelConfigDraftSchema = z.preprocess(rejectForbiddenExecutionKeys, modelConfigObjectSchema);
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES, buildFutureWorldclimPath } from "@sdm/shared";
+import { GCM_CHOICES, SSP_CHOICES, TIME_PERIOD_CHOICES } from "@sdm/shared";
 
 interface ModelConfigFutureProps {
   futureProjection: boolean;
@@ -88,8 +88,8 @@ export function ModelConfigFuture({
               ))}
             </select>
           </div>
-          <p className="text-xs text-sdm-muted font-mono">
-            Path: Worldclim_future/{buildFutureWorldclimPath(futureGcm, futureSsp, futurePeriod)}
+          <p className="text-xs text-sdm-muted">
+            This selection is resolved to an available opaque climate collection when you submit the model.
           </p>
         </div>
       )}
@@ -133,8 +133,8 @@ export function ModelConfigFuture({
               ))}
             </select>
           </div>
-          <p className="text-xs text-sdm-muted font-mono">
-            Path: Worldclim_future/{buildFutureWorldclimPath(futureGcm2, futureSsp2, futurePeriod2)}
+          <p className="text-xs text-sdm-muted">
+            This selection is resolved to an available opaque climate collection when you submit the model.
           </p>
         </div>
       )}

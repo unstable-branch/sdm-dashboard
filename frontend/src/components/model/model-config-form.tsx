@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from "react";
-import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
+import { modelConfigDraftSchema, type ModelConfig } from "@sdm/shared";
 import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG } from "@sdm/shared";
 import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import { TooltipInfo } from "@/components/ui/tooltip";
@@ -86,7 +86,9 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   }, [autoExtentFromBoundary]);
   const prevBoundary = useRef(boundary);
   useEffect(() => {
-    if (prevBoundary.current === "custom" && boundary !== "custom") {
+    if (boundary === "custom" && prevBoundary.current !== "custom") {
+      setMaskCountry("");
+    } else if (prevBoundary.current === "custom" && boundary !== "custom") {
       setMaskCountry("all");
     }
     prevBoundary.current = boundary;
@@ -383,6 +385,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     if (!extent) { setError("Invalid extent preset"); return; }
     const occurrenceAssetId = cleanedAssetId || rawAssetId;
     if (!occurrenceAssetId) { setError("Select a canonical occurrence asset before running the model."); return; }
+    if (boundary === "custom" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(maskCountry)) {
+      setError("Select an uploaded custom boundary before running the model.");
+      return;
+    }
     // For multi-species models, join species names with comma
     let speciesText = multispeciesText;
     if (!speciesText.trim()) {
@@ -407,6 +413,9 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       return;
     }
 
+    const effectiveAggregationFactor = climateSource === "chelsa"
+      ? Math.max(aggregationFactor, Math.ceil(climateRes / 0.5))
+      : aggregationFactor;
     const config = {
       species: resolvedSpecies,
       speciesFilter: (modelId === "dnn_multispecies" || modelId === "gllvm") ? "" : species,
@@ -447,8 +456,14 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       droughtPeriods: useDrought ? droughtPeriods : undefined,
       futureProjection,
       futureLabel,
+      futureGcm,
+      futureSsp,
+      futurePeriod,
       futureProjection2: futureProjection && futureProjection2,
       futureLabel2: futureProjection2 ? futureLabel2 : undefined,
+      futureGcm2,
+      futureSsp2,
+      futurePeriod2,
       vifReduction,
       vifThreshold: vifReduction ? vifThreshold : undefined,
       elevationDemtype: useElevation ? elevationDemtype : undefined,
@@ -470,7 +485,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       enmevalSelectionMetric: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalSelectionMetric : undefined,
       enmevalTuneArgs: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalTuneArgs : undefined,
       enmevalNullIterations: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalNullIterations : undefined,
-      aggregationFactor,
+      aggregationFactor: effectiveAggregationFactor,
       nCores,
       seed,
       occurrenceAssetId,
@@ -522,10 +537,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       generateCog,
     };
 
-    const preflightConfig = biasMethod === "target_group"
-      ? { ...config, targetGroupAssetId: "00000000-0000-4000-8000-000000000000" }
-      : config;
-    const parsed = modelConfigSchema.safeParse(preflightConfig);
+    const parsed = modelConfigDraftSchema.safeParse(config);
     if (!parsed.success) { setError(parsed.error.errors[0].message); return; }
 
     let submittedConfig: Record<string, unknown> = config;
@@ -539,7 +551,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         return;
       }
     }
-    const finalParsed = modelConfigSchema.safeParse(submittedConfig);
+    const finalParsed = modelConfigDraftSchema.safeParse(submittedConfig);
     if (!finalParsed.success) { setError(finalParsed.error.errors[0].message); return; }
     onSubmit(finalParsed.data as Partial<ModelConfig>);
   };
