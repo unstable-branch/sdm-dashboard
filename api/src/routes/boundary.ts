@@ -7,7 +7,6 @@ import { db } from "../db/index.js";
 import { inputAssets, projectMembers } from "../db/schema.js";
 import { and, eq } from "drizzle-orm";
 import {
-  InputAssetRegistrationError,
   registerInputAssetFromServerPath,
   resolveInputAsset,
   updateInputAssetState,
@@ -98,7 +97,7 @@ boundaryRoutes.get("/boundary/default", async (c) => {
     const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/default", body);
     return c.json(res);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to fetch boundary";
+    const message = "Boundary fetch failed";
     return c.json({ error: message }, 502);
   }
 });
@@ -141,7 +140,7 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
         absolutePath: producedPath,
       });
     } catch (error) {
-      const message = error instanceof InputAssetRegistrationError ? error.message : "Boundary registration failed";
+      const message = "Boundary registration failed";
       return c.json({ error: message }, 502);
     }
 
@@ -157,7 +156,7 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
 
     return c.json({ boundaryAssetId: asset.id });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Boundary upload failed";
+    const message = "Boundary upload failed";
     return c.json({ error: message }, 502);
   }
 });
@@ -191,7 +190,7 @@ boundaryRoutes.get("/boundary/list", async (c) => {
     }
     return c.json({ boundaries });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to list boundaries";
+    const message = "Boundary listing failed";
     return c.json({ error: message }, 502);
   }
 });
@@ -222,7 +221,7 @@ boundaryRoutes.post("/boundary/delete/:id", async (c) => {
     });
     return c.json({ boundaryAssetId, state: "deleted" });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to delete boundary";
+    const message = "Boundary deletion failed";
     return c.json({ error: message }, 502);
   }
 });
@@ -233,7 +232,7 @@ boundaryRoutes.get("/boundary/countries", async (c) => {
     const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/countries", {});
     return c.json(res);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to fetch countries";
+    const message = "Boundary country listing failed";
     return c.json({ error: message }, 502);
   }
 });
@@ -270,7 +269,7 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
     const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/extent", body);
     return c.json(res);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to compute extent";
+    const message = "Boundary extent failed";
     return c.json({ error: message }, 502);
   }
 });
@@ -296,7 +295,7 @@ boundaryRoutes.post("/boundary/download", async (c) => {
       country: body.country,
     };
     const [status, data] = await plumberClient.withUser(user.id).withRole(user.role).postRaw("/api/v1/data/boundary/download", producerBody);
-    if (status >= 400) return c.json(data, status as 400 | 404 | 500);
+    if (status >= 400) return c.json({ error: "Boundary download failed" }, status as 400 | 404 | 500);
     const producedPath = (data as Record<string, unknown>)?.file && typeof (data as Record<string, unknown>).file === "object"
       ? ((data as Record<string, unknown>).file as Record<string, unknown>).file_path
       : undefined;
@@ -313,7 +312,7 @@ boundaryRoutes.post("/boundary/download", async (c) => {
         absolutePath: producedPath,
       });
     } catch (error) {
-      const message = error instanceof InputAssetRegistrationError ? error.message : "Boundary registration failed";
+      const message = "Boundary registration failed";
       return c.json({ error: message }, 502);
     }
     const client = extractClientInfo(c);
@@ -331,7 +330,7 @@ boundaryRoutes.post("/boundary/download", async (c) => {
       boundaryAssetId: asset.id,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to download boundary";
+    const message = "Boundary download failed";
     return c.json({ error: message }, 502);
   }
 });
