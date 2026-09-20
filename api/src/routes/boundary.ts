@@ -54,6 +54,9 @@ boundaryRoutes.use("*", authMiddleware);
 boundaryRoutes.get("/boundary/default", async (c) => {
   try {
     const user = c.get("user");
+    if (PATH_ALIASES.some((key) => c.req.query(key) !== undefined)) {
+      return c.json({ error: "Path-based boundary inputs are not supported; use boundaryAssetId." }, 400);
+    }
     const resolution = c.req.query("resolution");
     const type = c.req.query("type");
     const country = c.req.query("country");
@@ -68,7 +71,7 @@ boundaryRoutes.get("/boundary/default", async (c) => {
       const resolved = await resolveBoundaryForRead(user, boundaryAssetId);
       if (!resolved.ok) return c.json({ error: "Boundary not found" }, 404);
       body.type = "custom";
-      body.country = resolved.absolutePath;
+      body.file_path = resolved.absolutePath;
     } else {
       if (type) body.type = type;
       if (country) body.country = country;
@@ -140,10 +143,18 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
 boundaryRoutes.get("/boundary/list", async (c) => {
   try {
     const user = c.get("user");
+    const projectId = c.req.query("projectId") || null;
+    if (projectId !== null && !isAssetId(projectId)) return c.json({ error: "Invalid projectId" }, 400);
     const rows = await db.select().from(inputAssets).where(eq(inputAssets.kind, "custom_boundary"));
     const boundaries = [];
     for (const row of rows) {
-      const resolved = await resolveBoundaryForRead(user, row.id);
+      const resolved = await resolveInputAsset({
+        assetId: row.id,
+        principal: { id: user.id, role: user.role },
+        action: "read",
+        expectedKind: "custom_boundary",
+        destinationProjectId: projectId,
+      });
       if (!resolved.ok) continue;
       boundaries.push({
         boundaryAssetId: row.id,
@@ -203,13 +214,17 @@ boundaryRoutes.get("/boundary/countries", async (c) => {
 boundaryRoutes.get("/boundary/extent", async (c) => {
   try {
     const user = c.get("user");
-    const filePath = c.req.query("file_path") || c.req.query("filePath");
-    if (filePath) return c.json({ error: "Path-based boundary inputs are not supported; use boundaryAssetId." }, 400);
+    if (PATH_ALIASES.some((key) => c.req.query(key) !== undefined)) {
+      return c.json({ error: "Path-based boundary inputs are not supported; use boundaryAssetId." }, 400);
+    }
     const boundaryAssetId = c.req.query("boundaryAssetId") || c.req.query("boundary_asset_id");
     const type = c.req.query("type");
     const resolution = c.req.query("resolution");
     const country = c.req.query("country");
     const bufferDeg = c.req.query("buffer_deg") || "2";
+    if (type === "custom" && (!boundaryAssetId || country)) {
+      return c.json({ error: "Custom boundaries require boundaryAssetId; path aliases are not supported." }, 400);
+    }
     const body: Record<string, unknown> = { buffer_deg: Number(bufferDeg) };
     if (boundaryAssetId) {
       if (!isAssetId(boundaryAssetId)) return c.json({ error: "Invalid boundaryAssetId" }, 400);
@@ -231,12 +246,52 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
 boundaryRoutes.post("/boundary/download", async (c) => {
   try {
     const user = c.get("user");
-    const body = await c.req.json();
+    const body = await c.req.json() as Record<string, unknown>;
     if (hasPathAlias(body as Record<string, unknown>)) {
       return c.json({ error: "Path-based boundary inputs are not supported; use boundaryAssetId." }, 400);
     }
-    const [status, data] = await plumberClient.withUser(user.id).withRole(user.role).postRaw("/api/v1/data/boundary/download", body);
-    return c.json(data, status >= 400 ? (status as 400 | 404 | 500) : 200);
+    const scope = uploadScope(body.projectId);
+    if (!scope) return c.json({ error: "Invalid projectId" }, 400);
+    const producerBody = {
+      type: body.type,
+      resolution: body.resolution,
+      country: body.country,
+    };
+    const [status, data] = await plumberClient.withUser(user.id).withRole(user.role).postRaw("/api/v1/data/boundary/download", producerBody);
+    if (status >= 400) return c.json(data, status as 400 | 404 | 500);
+    const producedPath = (data as Record<string, unknown>)?.file && typeof (data as Record<string, unknown>).file === "object"
+      ? ((data as Record<string, unknown>).file as Record<string, unknown>).file_path
+      : undefined;
+    if ((data as Record<string, unknown>)?.status !== "success" || typeof producedPath !== "string" || !producedPath.startsWith("/")) {
+      return c.json({ error: "Boundary producer did not return a completed server-owned file" }, 502);
+    }
+    let asset;
+    try {
+      asset = await registerInputAssetFromServerPath({
+        creatorUserId: user.id,
+        scope: scope.scope,
+        projectId: scope.projectId,
+        kind: "custom_boundary",
+        absolutePath: producedPath,
+      });
+    } catch (error) {
+      const message = error instanceof InputAssetRegistrationError ? error.message : "Boundary registration failed";
+      return c.json({ error: message }, 502);
+    }
+    const client = extractClientInfo(c);
+    await logAction({
+      userId: user.id,
+      action: "boundary_downloaded",
+      entity: "input_asset",
+      entityId: asset.id,
+      ...client,
+      details: { scope: scope.scope, projectId: scope.projectId },
+    });
+    return c.json({
+      status: (data as Record<string, unknown>).status,
+      message: (data as Record<string, unknown>).message,
+      boundaryAssetId: asset.id,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to download boundary";
     return c.json({ error: message }, 502);
