@@ -92,7 +92,10 @@ boundaryRoutes.get("/boundary/default", async (c) => {
       }
       if (!isAssetId(boundaryAssetId)) return c.json({ error: "Invalid boundaryAssetId" }, 400);
       const resolved = await resolveBoundaryForRead(user, boundaryAssetId, projectId);
-      if (!resolved.ok) return c.json({ error: "Boundary not found" }, 404);
+      if (!resolved.ok) return c.json(
+        { error: resolved.reason === "unavailable" ? "Boundary authorization unavailable" : "Boundary not found" },
+        resolved.reason === "unavailable" ? 503 : 404,
+      );
       body.type = "custom";
       body.boundary_asset_id = boundaryAssetId;
       if (projectId !== null) body.project_id = projectId;
@@ -174,6 +177,7 @@ boundaryRoutes.get("/boundary/list", async (c) => {
     if (projectId !== null && !isAssetId(projectId)) return c.json({ error: "Invalid projectId" }, 400);
     const rows = await db.select().from(inputAssets).where(eq(inputAssets.kind, "custom_boundary"));
     const boundaries = [];
+    let unavailable = false;
     for (const row of rows) {
       if (projectId !== null) {
         if (row.scope !== "project" || row.projectId !== projectId) continue;
@@ -187,13 +191,17 @@ boundaryRoutes.get("/boundary/list", async (c) => {
         expectedKind: "custom_boundary",
         destinationProjectId: projectId,
       });
-      if (!resolved.ok) continue;
+      if (!resolved.ok) {
+        if (resolved.reason === "unavailable") unavailable = true;
+        continue;
+      }
       boundaries.push({
         boundaryAssetId: row.id,
         contentSize: row.contentSize,
         createdAt: row.createdAt,
       });
     }
+    if (unavailable) return c.json({ error: "Boundary listing unavailable" }, 503);
     return c.json({ boundaries });
   } catch (err) {
     const message = "Boundary listing failed";
@@ -271,7 +279,10 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
     if (boundaryAssetId) {
       if (!isAssetId(boundaryAssetId)) return c.json({ error: "Invalid boundaryAssetId" }, 400);
       const resolved = await resolveBoundaryForRead(user, boundaryAssetId, projectId);
-      if (!resolved.ok) return c.json({ error: "Boundary not found" }, 404);
+      if (!resolved.ok) return c.json(
+        { error: resolved.reason === "unavailable" ? "Boundary authorization unavailable" : "Boundary not found" },
+        resolved.reason === "unavailable" ? 503 : 404,
+      );
       body.boundary_asset_id = boundaryAssetId;
       if (projectId !== null) body.project_id = projectId;
     }
