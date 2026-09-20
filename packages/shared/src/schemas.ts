@@ -279,6 +279,13 @@ const modelConfigValidatedSchema = modelConfigObjectSchema.superRefine((config, 
       message: "Custom masking requires an opaque boundary asset ID",
     });
   }
+  if (config.maskBoundaryType !== "custom" && config.maskAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["maskAssetId"],
+      message: "Opaque boundary asset IDs are only valid for custom masking",
+    });
+  }
   if (config.biasMethod === "target_group" && !config.targetGroupAssetId) {
     context.addIssue({
       code: "custom",

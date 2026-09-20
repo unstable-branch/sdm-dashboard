@@ -27,7 +27,7 @@ const validFull = {
   maskType: "landmass",
   maskAssetId: "11111111-1111-1111-1111-111111111112",
   maskBufferDeg: 0.5,
-  maskBoundaryType: "admin0",
+  maskBoundaryType: "custom",
   maskResolution: "10m",
   maskCountry: "all",
   restrictBackground: true,
@@ -241,6 +241,17 @@ describe("modelConfigSchema", () => {
 
     it("requires an opaque custom-boundary asset when custom masking is enabled", () => {
       const result = modelConfigSchema.safeParse({ ...validMinimal, currentClimateAssetId: "22222222-2222-4222-8222-222222222222", maskBoundaryType: "custom", maskAssetId: "all" });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.some((issue: { path: (string | number)[] }) => issue.path[0] === "maskAssetId")).toBe(true);
+    });
+
+    it("rejects an opaque boundary asset outside custom masking", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        currentClimateAssetId: "22222222-2222-4222-8222-222222222222",
+        maskBoundaryType: "admin0",
+        maskAssetId: "11111111-1111-4111-8111-111111111112",
+      });
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error.issues.some((issue: { path: (string | number)[] }) => issue.path[0] === "maskAssetId")).toBe(true);
     });
@@ -843,6 +854,7 @@ describe("modelConfigSchema", () => {
     it("accepts opaque asset IDs and rejects all climate, mask, and target path aliases", () => {
       const result = modelConfigSchema.safeParse({
         ...validMinimal,
+        maskBoundaryType: "custom",
         maskAssetId: "11111111-1111-1111-1111-111111111112",
         targetGroupAssetId: "11111111-1111-1111-1111-111111111113",
         currentClimateAssetId: "11111111-1111-1111-1111-111111111114",
