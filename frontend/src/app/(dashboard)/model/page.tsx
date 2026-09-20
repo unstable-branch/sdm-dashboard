@@ -7,8 +7,10 @@ import ModelConfigForm from "@/components/model/model-config-form";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
 import { useJobSSE } from "@/hooks/use-job-sse";
+import { useClimateScenarios } from "@/hooks/use-queries";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiPost, apiGet } from "@/services/api";
+import { buildCanonicalModelSubmission } from "@/services/climate-selection";
 import { Ban, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
 
@@ -28,6 +30,7 @@ export default function ModelPage() {
   const uploadResult = useSDMStore((s) => s.uploadResult);
   const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
   const setRecordCount = useSDMStore((s) => s.setRecordCount);
+  const { data: climateData } = useClimateScenarios();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +119,11 @@ export default function ModelPage() {
 
     let submittedRunId: string | undefined;
     try {
-      const result = await apiPost<{ runId: string; jobId: string }>("/api/v1/sdm/run", { ...config, async: true });
+      const submittedConfig = buildCanonicalModelSubmission(
+        config as Partial<ModelConfig> & Record<string, unknown>,
+        climateData?.scenarios || [],
+      );
+      const result = await apiPost<{ runId: string; jobId: string }>("/api/v1/sdm/run", { ...submittedConfig, async: true });
       // Use runId (DB UUID) as the canonical identifier — SSE events and API endpoints use this
       const runId = result.runId || result.jobId;
       submittedRunId = runId;

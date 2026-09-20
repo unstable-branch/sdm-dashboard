@@ -18,8 +18,6 @@ interface ModelConfigBiovarsProps {
   aggregationFactor: number;
   chelsaExtras: string[];
   onChelsaExtrasChange: (extras: string[]) => void;
-  autoDownloadClimate: boolean;
-  onAutoDownloadClimateChange: (value: boolean) => void;
 }
 
 export function ModelConfigBiovars({
@@ -35,8 +33,6 @@ export function ModelConfigBiovars({
   aggregationFactor,
   chelsaExtras,
   onChelsaExtrasChange,
-  autoDownloadClimate,
-  onAutoDownloadClimateChange,
 }: ModelConfigBiovarsProps) {
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">
@@ -79,21 +75,9 @@ export function ModelConfigBiovars({
         </div>
       </div>
 
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={autoDownloadClimate}
-          onChange={(e) => onAutoDownloadClimateChange(e.target.checked)}
-          className="rounded border border-sdm-border bg-sdm-surface-soft"
-          data-testid="climate-auto-download"
-        />
-        <span className="text-sdm-text">
-          Auto-download missing climate layers during the run
-          <span className="text-xs text-sdm-muted ml-2">
-            (Disable this to require all selected layers to be present locally.)
-          </span>
-        </span>
-      </label>
+      <p className="text-xs text-sdm-muted">
+        Download and register climate data on the Data page before running a model.
+      </p>
 
       <div className="space-y-2">
         <ClimateBiovarGrid selected={biovars} missing={missingBiovars} loading={climateCheckLoading} onToggle={toggleBiovar} />
