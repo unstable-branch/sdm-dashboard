@@ -51,6 +51,18 @@ test_that("boundary path resolution rejects traversal and accepts only regular i
   unlink(outside_dir, recursive = TRUE, force = TRUE)
 })
 
+test_that("boundary conversion destinations reject pre-existing symlinks", {
+  root <- tempfile("sdm-boundary-conversion-root-")
+  dir.create(file.path(root, "custom"), recursive = TRUE)
+  outside <- tempfile(fileext = ".geojson")
+  writeLines("{}", outside)
+  destination <- file.path(root, "custom", "converted.geojson")
+  file.symlink(outside, destination)
+  on.exit(unlink(c(root, outside), recursive = TRUE, force = TRUE), add = TRUE)
+
+  expect_false(boundary_env$sdm_boundary_destination_is_safe(destination, root))
+})
+
 test_that("Natural Earth paths use the configured boundary root", {
   previous <- Sys.getenv("SDM_INPUT_ASSET_BOUNDARY_ROOT", unset = "")
   Sys.setenv(SDM_INPUT_ASSET_BOUNDARY_ROOT = "/srv/sdm-boundaries")

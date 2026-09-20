@@ -33,6 +33,10 @@ sdm_boundary_root_is_safe <- function(root) {
   !sdm_boundary_path_has_symlink(root, root)
 }
 
+sdm_boundary_destination_is_safe <- function(path, root) {
+  !file.exists(path) && !dir.exists(path) && !sdm_boundary_path_has_symlink(path, root)
+}
+
 sdm_resolve_boundary_path <- function(path, root = NULL, app_dir = NULL) {
   if (is.null(path) || length(path) != 1L || is.na(path) || !nzchar(path) || !startsWith(path, "/")) return(NULL)
   if (grepl("[[:cntrl:]]", path) || sdm_boundary_path_has_parent_segment(path)) return(NULL)
@@ -180,6 +184,10 @@ handle_boundary_upload <- function(req, res, app_dir) {
       }
     }
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
+    if (!sdm_boundary_destination_is_safe(dest, boundary_root)) {
+      res$status <- 500L
+      return(list(error = "Failed to save uploaded boundary"))
+    }
     converted <- tryCatch({
       vec <- sf::st_read(src, quiet = TRUE)
       sf::st_write(vec, dest, delete_dsn = TRUE, quiet = TRUE)
@@ -194,7 +202,7 @@ handle_boundary_upload <- function(req, res, app_dir) {
     }
   } else {
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
-    if (file.exists(dest) || sdm_boundary_path_has_symlink(dest, boundary_root) ||
+    if (!sdm_boundary_destination_is_safe(dest, boundary_root) ||
         !isTRUE(file.copy(src, dest, overwrite = FALSE))) {
       res$status <- 500L
       return(list(error = "Failed to save uploaded boundary"))
