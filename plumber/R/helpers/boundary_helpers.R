@@ -37,6 +37,80 @@ sdm_boundary_destination_is_safe <- function(path, root) {
   !file.exists(path) && !dir.exists(path) && !sdm_boundary_path_has_symlink(path, root)
 }
 
+sdm_boundary_uuid_is_valid <- function(value) {
+  is.character(value) && length(value) == 1L &&
+    grepl("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", value, ignore.case = TRUE)
+}
+
+sdm_boundary_with_database <- function(callback) {
+  pool_obj <- tryCatch(get("db_pool", envir = .GlobalEnv), error = function(e) NULL)
+  if (exists("sdm_get_db_pool", mode = "function", inherits = TRUE)) {
+    pool_obj <- tryCatch(sdm_get_db_pool(pool_obj), error = function(e) NULL)
+  }
+  if (!is.null(pool_obj) && inherits(pool_obj, "Pool")) {
+    con <- tryCatch(pool::poolCheckout(pool_obj), error = function(e) NULL)
+    if (is.null(con)) return(NULL)
+    on.exit(tryCatch(pool::poolReturn(con), error = function(e) NULL), add = TRUE)
+    return(callback(con))
+  }
+  if (!exists("sdm_db_connect", mode = "function", inherits = TRUE)) return(NULL)
+  con <- tryCatch(sdm_db_connect(), error = function(e) NULL)
+  if (is.null(con)) return(NULL)
+  on.exit(tryCatch(DBI::dbDisconnect(con), error = function(e) NULL), add = TRUE)
+  callback(con)
+}
+
+sdm_boundary_asset_path <- function(req, boundary_asset_id, project_id = NULL, file_path = NULL,
+                                    boundary_root) {
+  user_id <- tryCatch(as.character(req$user_id %||% "")[1], error = function(e) "")
+  user_role <- tryCatch(as.character(req$user_role %||% "")[1], error = function(e) "")
+  if (!sdm_boundary_uuid_is_valid(boundary_asset_id) || !sdm_boundary_uuid_is_valid(user_id) ||
+      !user_role %in% c("admin", "editor", "viewer")) return(NULL)
+  if (!is.null(project_id) && !sdm_boundary_uuid_is_valid(project_id)) return(NULL)
+
+  sdm_boundary_with_database(function(con) {
+    assets <- DBI::dbGetQuery(con,
+      "SELECT id, creator_user_id, scope, project_id, kind, state, storage_locator
+         FROM input_assets
+        WHERE id = $1 AND kind = 'custom_boundary' AND state = 'ready'
+        LIMIT 1",
+      params = list(boundary_asset_id)
+    )
+    if (nrow(assets) != 1L) return(NULL)
+    asset <- assets[1, , drop = FALSE]
+    asset_project_id <- if (is.na(asset$project_id[[1]])) "" else as.character(asset$project_id[[1]])
+    asset_scope <- if (is.na(asset$scope[[1]])) "" else as.character(asset$scope[[1]])
+    if (asset_scope == "private") {
+      if (!identical(as.character(asset$creator_user_id[[1]]), user_id)) return(NULL)
+    } else if (asset_scope == "project") {
+      if (!sdm_boundary_uuid_is_valid(asset_project_id) ||
+          (!is.null(project_id) && !identical(project_id, asset_project_id))) return(NULL)
+      if (!identical(user_role, "admin")) {
+        members <- DBI::dbGetQuery(con,
+          "SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2 LIMIT 1",
+          params = list(asset_project_id, user_id)
+        )
+        if (nrow(members) != 1L || !as.character(members$role[[1]]) %in% c("admin", "editor", "viewer")) return(NULL)
+      }
+    } else {
+      return(NULL)
+    }
+    locator <- if (is.na(asset$storage_locator[[1]])) "" else as.character(asset$storage_locator[[1]])
+    parts <- strsplit(locator, "/", fixed = TRUE)[[1]]
+    if (length(parts) < 2L || !identical(parts[[1]], "boundaries") ||
+        any(!nzchar(parts[-1]) | parts[-1] %in% c(".", "..")) ||
+        any(grepl("[[:cntrl:]\\\\:]", parts[-1]))) return(NULL)
+    candidate <- file.path(boundary_root, paste(parts[-1], collapse = "/"))
+    resolved <- sdm_resolve_boundary_path(candidate, boundary_root)
+    if (is.null(resolved)) return(NULL)
+    if (!is.null(file_path)) {
+      supplied <- tryCatch(normalizePath(file_path, winslash = "/", mustWork = FALSE), error = function(e) NULL)
+      if (is.null(supplied) || !identical(supplied, resolved)) return(NULL)
+    }
+    resolved
+  })
+}
+
 sdm_resolve_boundary_path <- function(path, root = NULL, app_dir = NULL) {
   if (is.null(path) || length(path) != 1L || is.na(path) || !nzchar(path) || !startsWith(path, "/")) return(NULL)
   if (grepl("[[:cntrl:]]", path) || sdm_boundary_path_has_parent_segment(path)) return(NULL)
@@ -51,7 +125,8 @@ sdm_resolve_boundary_path <- function(path, root = NULL, app_dir = NULL) {
   candidate
 }
 
-handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL, file_path = NULL) {
+handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL, file_path = NULL,
+                                    boundary_asset_id = NULL, project_id = NULL, req = NULL) {
   boundary_root <- sdm_boundary_storage_root(app_dir)
   if (!sdm_boundary_root_is_safe(boundary_root)) {
     res$status <- 500L
@@ -75,13 +150,21 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
   }
 
   boundary_path <- if (dataset_type == "custom") {
-    resolved_path <- sdm_resolve_boundary_path(file_path, sdm_boundary_storage_root(app_dir))
+    if (is.null(boundary_asset_id) || is.null(req) || !is.null(file_path)) {
+      res$status <- 400L
+      return(list(error = "Custom boundaries require a canonical asset ID"))
+    }
+    resolved_path <- sdm_boundary_asset_path(req, boundary_asset_id, project_id, boundary_root = boundary_root)
     if (is.null(resolved_path)) {
-      res$status <- 403L
-      return(list(error = "Invalid server-owned boundary file"))
+      res$status <- 404L
+      return(list(error = "Boundary file not found"))
     }
     resolved_path
   } else if (dataset_type %in% c("admin0", "land")) {
+    if (!is.null(file_path)) {
+      res$status <- 400L
+      return(list(error = "Path-based boundary inputs are not supported"))
+    }
     tryCatch(
       resolve_mask_file(dataset_type, scale, country_val, raster_res = NULL, default_file = NULL),
       error = function(e) NULL
@@ -244,7 +327,8 @@ handle_boundary_countries <- function(res, app_dir) {
   list(countries = countries)
 }
 
-handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2) {
+handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2,
+                                   boundary_asset_id = NULL, project_id = NULL, req = NULL) {
   boundary_root <- sdm_boundary_storage_root(app_dir)
   if (!sdm_boundary_root_is_safe(boundary_root)) {
     res$status <- 500L
@@ -255,11 +339,15 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     res$status <- 400L
     return(list(error = "Invalid boundary type or resolution"))
   }
-  if (!is.null(file_path)) {
-    file_path <- sdm_resolve_boundary_path(file_path, boundary_root)
+  if (!is.null(file_path) || identical(type, "custom") || !is.null(boundary_asset_id)) {
+    if (is.null(boundary_asset_id) || is.null(req) || !is.null(file_path) || !identical(type %||% "custom", "custom")) {
+      res$status <- 400L
+      return(list(error = "Custom boundaries require a canonical asset ID"))
+    }
+    file_path <- sdm_boundary_asset_path(req, boundary_asset_id, project_id, boundary_root = boundary_root)
     if (is.null(file_path)) {
-      res$status <- 403L
-      return(list(error = "Invalid server-owned boundary file"))
+      res$status <- 404L
+      return(list(error = "Boundary file not found"))
     }
   } else if (!is.null(type)) {
     res_type <- type %||% "admin0"
