@@ -51,13 +51,13 @@ sdm_boundary_with_database <- function(callback) {
     con <- tryCatch(pool::poolCheckout(pool_obj), error = function(e) NULL)
     if (is.null(con)) return(NULL)
     on.exit(tryCatch(pool::poolReturn(con), error = function(e) NULL), add = TRUE)
-    return(callback(con))
+    return(tryCatch(callback(con), error = function(e) NULL))
   }
   if (!exists("sdm_db_connect", mode = "function", inherits = TRUE)) return(NULL)
   con <- tryCatch(sdm_db_connect(), error = function(e) NULL)
   if (is.null(con)) return(NULL)
   on.exit(tryCatch(DBI::dbDisconnect(con), error = function(e) NULL), add = TRUE)
-  callback(con)
+  tryCatch(callback(con), error = function(e) NULL)
 }
 
 sdm_boundary_asset_path <- function(req, boundary_asset_id, project_id = NULL, file_path = NULL,
@@ -70,7 +70,8 @@ sdm_boundary_asset_path <- function(req, boundary_asset_id, project_id = NULL, f
 
   sdm_boundary_with_database(function(con) {
     assets <- DBI::dbGetQuery(con,
-      "SELECT id, creator_user_id, scope, project_id, kind, state, storage_locator
+      "SELECT id, creator_user_id, scope, project_id, kind, state, storage_locator,
+             content_sha256, content_size
          FROM input_assets
         WHERE id = $1 AND kind = 'custom_boundary' AND state = 'ready'
         LIMIT 1",
@@ -103,6 +104,13 @@ sdm_boundary_asset_path <- function(req, boundary_asset_id, project_id = NULL, f
     candidate <- file.path(boundary_root, paste(parts[-1], collapse = "/"))
     resolved <- sdm_resolve_boundary_path(candidate, boundary_root)
     if (is.null(resolved)) return(NULL)
+    content_sha256 <- if (is.na(asset$content_sha256[[1]])) "" else tolower(as.character(asset$content_sha256[[1]]))
+    content_size <- suppressWarnings(as.numeric(asset$content_size[[1]]))
+    if (!grepl("^[0-9a-f]{64}$", content_sha256) || !is.finite(content_size) || content_size < 0) return(NULL)
+    actual_size <- suppressWarnings(as.numeric(file.info(resolved)$size))
+    actual_hash <- tryCatch(digest::digest(file = resolved, algo = "sha256", serialize = FALSE), error = function(e) NULL)
+    if (!is.finite(actual_size) || actual_size != content_size || is.null(actual_hash) ||
+        !identical(tolower(actual_hash), content_sha256)) return(NULL)
     if (!is.null(file_path)) {
       supplied <- tryCatch(normalizePath(file_path, winslash = "/", mustWork = FALSE), error = function(e) NULL)
       if (is.null(supplied) || !identical(supplied, resolved)) return(NULL)
