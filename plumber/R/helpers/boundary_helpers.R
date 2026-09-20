@@ -57,6 +57,14 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
   scale <- resolution %||% "110m"
   country_val <- country %||% "all"
 
+  if (dataset_type %in% c("admin0", "land")) {
+    natural_earth_path <- tryCatch(get_ne_boundary_path(scale, dataset_type), error = function(e) NULL)
+    if (!is.null(natural_earth_path) && sdm_boundary_path_has_symlink(natural_earth_path, boundary_root)) {
+      res$status <- 500L
+      return(list(error = "Natural Earth boundary storage is unsafe"))
+    }
+  }
+
   boundary_path <- if (dataset_type == "custom") {
     resolved_path <- sdm_resolve_boundary_path(file_path, sdm_boundary_storage_root(app_dir))
     if (is.null(resolved_path)) {
@@ -89,6 +97,10 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
   if (!file.exists(boundary_path)) {
     res$status <- 404L
     return(list(error = "Boundary file not found"))
+  }
+  if (sdm_boundary_path_has_symlink(boundary_path, boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary path is unsafe"))
   }
 
   geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
@@ -224,6 +236,10 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     }
     if (res_type %in% c("admin0", "land")) {
       file_path <- get_ne_boundary_path(res_scale, res_type)
+      if (sdm_boundary_path_has_symlink(file_path, boundary_root)) {
+        res$status <- 500L
+        return(list(error = "Natural Earth boundary storage is unsafe"))
+      }
       if (!file.exists(file_path)) {
         file_path <- download_ne_boundary(res_scale, res_type)
       }
@@ -235,6 +251,10 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
   if (is.null(file_path) || !file.exists(file_path)) {
     res$status <- 404L
     return(list(error = "Boundary file not found"))
+  }
+  if (sdm_boundary_path_has_symlink(file_path, boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary path is unsafe"))
   }
   tryCatch({
     vec <- terra::vect(file_path)
@@ -267,6 +287,11 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
       res$status <- 400L
       return(list(status = "error", message = "Boundary downloads require an admin0 or land dataset"))
     }
+    natural_earth_path <- get_ne_boundary_path(scale, type)
+    if (sdm_boundary_path_has_symlink(natural_earth_path, boundary_root)) {
+      res$status <- 500L
+      return(list(status = "error", message = "Natural Earth boundary storage is unsafe"))
+    }
 
     boundary_path <- tryCatch(resolve_mask_file(type, scale, country_val, raster_res = NULL, default_file = NULL),
       error = function(e) NULL
@@ -285,6 +310,9 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
       } else {
         return(list(status = "error", message = "Boundary not available via Natural Earth download"))
       }
+    }
+    if (sdm_boundary_path_has_symlink(boundary_path, boundary_root)) {
+      return(list(status = "error", message = "Boundary source path is unsafe"))
     }
 
     custom_dir <- file.path(boundary_root, "custom")

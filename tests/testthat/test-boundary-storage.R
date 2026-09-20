@@ -62,6 +62,17 @@ test_that("Natural Earth paths use the configured boundary root", {
     "/srv/sdm-boundaries/ne/110m/ne_10m_admin_0_countries.geojson"
   )
 })
+test_that("Natural Earth descendant symlinks are rejected", {
+  boundary_root <- tempfile("sdm-boundary-ne-root-")
+  outside <- tempfile("sdm-boundary-ne-target-")
+  dir.create(boundary_root, recursive = TRUE)
+  dir.create(outside, recursive = TRUE)
+  file.symlink(outside, file.path(boundary_root, "ne"))
+  on.exit(unlink(c(boundary_root, outside), recursive = TRUE, force = TRUE), add = TRUE)
+  ne_path <- file.path(boundary_root, "ne", "110m", "ne_10m_admin_0_countries.geojson")
+  expect_true(boundary_env$sdm_boundary_path_has_symlink(ne_path, boundary_root))
+})
+
 test_that("download rejects custom path aliases before reading a source file", {
   download_env <- new.env(parent = globalenv())
   sys.source(file.path(project_root, "plumber", "R", "helpers", "boundary_helpers.R"), envir = download_env)
