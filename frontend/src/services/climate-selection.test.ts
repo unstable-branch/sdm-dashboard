@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { modelConfigDraftSchema, modelConfigSchema } from "@sdm/shared";
 import { buildCanonicalModelSubmission, selectClimateCollectionIds } from "./climate-selection";
 
 const scenarios = [
@@ -30,6 +31,36 @@ describe("selectClimateCollectionIds", () => {
       source: "worldclim", worldclimRes: 10, futureProjection: true,
       futureGcm: "ACCESS-CM2", futureSsp: "SSP2-4.5", futurePeriod: "2041-2060",
     })).toThrow("Future climate collection is unavailable");
+  });
+
+  it("fails closed when future selectors match multiple opaque collections", () => {
+    const duplicateFuture = [
+      ...scenarios,
+      {
+        ...scenarios[2],
+        id: "future-duplicate",
+        resolution: 5,
+        climateCollectionId: "66666666-6666-4666-8666-666666666666",
+      },
+    ];
+    expect(() => selectClimateCollectionIds(duplicateFuture, {
+      source: "worldclim", worldclimRes: 10, futureProjection: true,
+      futureGcm: "ACCESS-CM2", futureSsp: "SSP2-4.5", futurePeriod: "2041-2060",
+    })).toThrow("Future climate collection is ambiguous");
+  });
+
+  it("fails closed when current metadata matches multiple opaque collections", () => {
+    const duplicateCurrent = [
+      ...scenarios,
+      {
+        ...scenarios[0],
+        id: "current-duplicate",
+        climateCollectionId: "77777777-7777-4777-8777-777777777777",
+      },
+    ];
+    expect(() => selectClimateCollectionIds(duplicateCurrent, {
+      source: "worldclim", worldclimRes: 10,
+    })).toThrow("Current climate collection is ambiguous");
   });
 
   it("selects the native CHELSA collection when model-time aggregation is explicit", () => {
@@ -88,6 +119,45 @@ describe("selectClimateCollectionIds", () => {
       futureClimateAssetId: "22222222-2222-4222-8222-222222222222",
       futureClimateAssetId2: "44444444-4444-4444-8444-444444444444",
     });
+  });
+
+  it("transitions a deferred form draft into an executable opaque-ID payload", () => {
+    const draft = {
+      species: "Test species",
+      modelId: "glm",
+      biovars: [1, 4, 6],
+      occurrenceAssetId: "88888888-8888-4888-8888-888888888888",
+      source: "worldclim" as const,
+      worldclimRes: 10,
+      maskBoundaryType: "custom" as const,
+      biasMethod: "target_group" as const,
+      futureProjection: true,
+      futureGcm: "ACCESS-CM2",
+      futureSsp: "SSP2-4.5",
+      futurePeriod: "2041-2060",
+      futureProjection2: true,
+      futureGcm2: "MPI-ESM1-2-HR",
+      futureSsp2: "SSP3-7.0",
+      futurePeriod2: "2061-2080",
+    };
+    expect(modelConfigDraftSchema.safeParse(draft).success).toBe(true);
+
+    const submitted = buildCanonicalModelSubmission({
+      ...draft,
+      maskAssetId: "99999999-9999-4999-8999-999999999999",
+      targetGroupAssetId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    }, scenarios);
+    const executable = modelConfigSchema.safeParse(submitted);
+    expect(executable.success).toBe(true);
+    if (executable.success) {
+      expect(executable.data).toMatchObject({
+        currentClimateAssetId: "11111111-1111-4111-8111-111111111111",
+        maskAssetId: "99999999-9999-4999-8999-999999999999",
+        targetGroupAssetId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        futureClimateAssetId: "22222222-2222-4222-8222-222222222222",
+        futureClimateAssetId2: "44444444-4444-4444-8444-444444444444",
+      });
+    }
   });
 
   it("removes every legacy path alias before model submission", () => {
