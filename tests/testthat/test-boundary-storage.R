@@ -131,6 +131,27 @@ test_that("extent rejects invalid selectors before resolving a boundary", {
   expect_equal(result$error, "Invalid boundary type or resolution")
 })
 
+test_that("custom producer reads require a canonical boundary asset ID", {
+  app_dir <- tempfile("sdm-boundary-canonical-read-")
+  dir.create(app_dir, recursive = TRUE)
+  on.exit(unlink(app_dir, recursive = TRUE, force = TRUE), add = TRUE)
+  request <- list(user_id = "11111111-1111-4111-8111-111111111111", user_role = "editor")
+
+  default_response <- new.env()
+  default_result <- boundary_env$handle_boundary_default(
+    default_response, app_dir, type = "custom", file_path = "/etc/passwd", req = request
+  )
+  expect_equal(default_response$status, 400L)
+  expect_equal(default_result$error, "Custom boundaries require a canonical asset ID")
+
+  extent_response <- new.env()
+  extent_result <- boundary_env$handle_boundary_extent(
+    extent_response, app_dir, file_path = "/etc/passwd", type = "custom", req = request
+  )
+  expect_equal(extent_response$status, 400L)
+  expect_equal(extent_result$error, "Custom boundaries require a canonical asset ID")
+})
+
 test_that("download filenames are unique even for the same Natural Earth request", {
   first <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")
   second <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")

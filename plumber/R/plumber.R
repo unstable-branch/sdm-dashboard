@@ -338,10 +338,13 @@ function(req, res, run_id, lat, lng, band = NULL)
 #* @param resolution Boundary resolution
 #* @param type Boundary type (admin0, admin1)
 #* @param country Country name or code
-#* @param file_path Server-owned boundary path resolved by the API
+#* @param boundary_asset_id Opaque boundary asset ID resolved by the API
+#* @param project_id Optional destination project ID
 #* @post /api/v1/data/boundary/default
-function(res, resolution = NULL, type = NULL, country = NULL, file_path = NULL)
-  handle_boundary_default(res, app_dir, resolution, type, country, file_path)
+function(req, res, resolution = NULL, type = NULL, country = NULL, file_path = NULL,
+         boundary_asset_id = NULL, project_id = NULL)
+  handle_boundary_default(res, app_dir, resolution, type, country, file_path,
+    boundary_asset_id, project_id, req)
 
 #* Upload a custom boundary file
 #* @param file_name Name for the boundary file
@@ -354,14 +357,17 @@ function(req, res) handle_boundary_upload(req, res, app_dir)
 function(res) handle_boundary_countries(res, app_dir)
 
 #* Compute bounding box extent
-#* @param file_path Server-owned boundary path resolved by the API
+#* @param boundary_asset_id Opaque boundary asset ID resolved by the API
+#* @param project_id Optional destination project ID
 #* @param type Boundary type (admin0, admin1)
 #* @param resolution Boundary resolution
 #* @param country Country name
 #* @param buffer_deg Buffer in degrees
 #* @post /api/v1/data/boundary/extent
-function(res, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2)
-  handle_boundary_extent(res, app_dir, file_path, type, resolution, country, buffer_deg)
+function(req, res, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2,
+         boundary_asset_id = NULL, project_id = NULL)
+  handle_boundary_extent(res, app_dir, file_path, type, resolution, country, buffer_deg,
+    boundary_asset_id, project_id, req)
 
 #* Download Natural Earth boundary
 #* @param type Boundary type (admin0, admin1)
