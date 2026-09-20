@@ -133,14 +133,22 @@ describe("canonical boundary route input", () => {
     expect(mocks.register).not.toHaveBeenCalled();
   });
 
-  it("uses producer defaults before checking project download membership", async () => {
+  it("passes producer defaults for a private Natural Earth download", async () => {
+    mocks.plumberPostRaw.mockResolvedValueOnce([200, {
+      status: "success",
+      file: { file_path: "/app/data/boundaries/custom/default.geojson" },
+    }]);
     const res = await app().request("/api/v1/data/boundary/download", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ projectId: "33333333-3333-4333-8333-333333333333" }),
+      body: JSON.stringify({}),
     });
-    expect(res.status).toBe(403);
-    expect(mocks.plumberPostRaw).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(mocks.plumberPostRaw).toHaveBeenCalledWith("/api/v1/data/boundary/download", {
+      type: "admin0",
+      resolution: "110m",
+      country: undefined,
+    });
   });
 
   it("rejects opaque custom assets on non-custom default requests", async () => {
