@@ -15,6 +15,10 @@ import {
 export const boundaryRoutes = new Hono<AppEnv>();
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BOUNDARY_TYPES = new Set(["admin0", "land", "custom"]);
+const BOUNDARY_RESOLUTIONS = new Set(["auto", "10m", "50m", "110m"]);
+const isBoundaryType = (value: string | undefined): boolean => value === undefined || BOUNDARY_TYPES.has(value);
+const isBoundaryResolution = (value: string | undefined): boolean => value === undefined || BOUNDARY_RESOLUTIONS.has(value);
 const PATH_ALIASES = [
   "file_path",
   "filePath",
@@ -75,6 +79,7 @@ boundaryRoutes.get("/boundary/default", async (c) => {
     const country = c.req.query("country");
     const boundaryAssetId = c.req.query("boundaryAssetId") || c.req.query("boundary_asset_id");
     const projectId = c.req.query("projectId") || null;
+    if (!isBoundaryType(type) || !isBoundaryResolution(resolution)) return c.json({ error: "Invalid boundary type or resolution" }, 400);
     if (projectId !== null && !isAssetId(projectId)) return c.json({ error: "Invalid projectId" }, 400);
     if (boundaryAssetId && type !== "custom") {
       return c.json({ error: "boundaryAssetId requires type=custom" }, 400);
@@ -207,7 +212,10 @@ boundaryRoutes.post("/boundary/delete/:id", async (c) => {
       expectedKind: "custom_boundary",
     });
     if (!resolved.ok) return c.json({ error: "Boundary not found" }, 404);
-    if (!(await updateInputAssetState(boundaryAssetId, "deleted"))) {
+    if (!(await updateInputAssetState(boundaryAssetId, "deleted", {}, {
+      principal: { id: user.id, role: user.role },
+      expectedKind: "custom_boundary",
+    }))) {
       return c.json({ error: "Boundary deletion failed" }, 502);
     }
 
@@ -249,6 +257,7 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
     const country = c.req.query("country");
     const bufferDeg = c.req.query("buffer_deg") || "2";
     const projectId = c.req.query("projectId") || null;
+    if (!isBoundaryType(type) || !isBoundaryResolution(resolution)) return c.json({ error: "Invalid boundary type or resolution" }, 400);
     if (projectId !== null && !isAssetId(projectId)) return c.json({ error: "Invalid projectId" }, 400);
     if (boundaryAssetId && type !== "custom") {
       return c.json({ error: "boundaryAssetId is only valid for custom boundaries" }, 400);
@@ -278,6 +287,11 @@ boundaryRoutes.post("/boundary/download", async (c) => {
   try {
     const user = c.get("user");
     const body = await c.req.json() as Record<string, unknown>;
+    const requestedType = typeof body.type === "string" ? body.type : undefined;
+    const requestedResolution = typeof body.resolution === "string" ? body.resolution : undefined;
+    if (!isBoundaryType(requestedType) || requestedType === "custom" || !isBoundaryResolution(requestedResolution) || requestedResolution === "auto") {
+      return c.json({ error: "Invalid boundary type or resolution" }, 400);
+    }
     if (hasPathAlias(body as Record<string, unknown>)) {
       return c.json({ error: "Path-based boundary inputs are not supported; use boundaryAssetId." }, 400);
     }
