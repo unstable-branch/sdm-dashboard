@@ -806,6 +806,9 @@ async function resolveInternal(
     if (!asset) return { ok: false, reason: "not_found" };
     if (options.expectedKind && asset.kind !== options.expectedKind) return { ok: false, reason: "invalid_asset" };
     if (options.allowedKinds && !options.allowedKinds.includes(asset.kind)) return { ok: false, reason: "invalid_asset" };
+    if (asset.kind === "custom_boundary" && parseLocator(asset.storageLocator)?.root !== "boundaries") {
+      return { ok: false, reason: "unsafe_storage" };
+    }
     if (options.expectedParentAssetId !== undefined && (asset.parentAssetId || null) !== (options.expectedParentAssetId || null)) {
       return { ok: false, reason: "invalid_lineage" };
     }
