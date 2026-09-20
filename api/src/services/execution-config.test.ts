@@ -55,9 +55,29 @@ describe("execution config boundary", () => {
     }
   });
 
+  it("persists future scenario selectors without retaining filesystem aliases", () => {
+    const projected = projectSafeScienceConfig({
+      ...valid,
+      futureGcm: "ACCESS-CM2",
+      futureSsp: "SSP2-4.5",
+      futurePeriod: "2041-2060",
+      futureGcm2: "MPI-ESM1-2-HR",
+      futureSsp2: "SSP3-7.0",
+      futurePeriod2: "2061-2080",
+    });
+    expect(projected).toMatchObject({
+      futureGcm: "ACCESS-CM2",
+      futureSsp: "SSP2-4.5",
+      futurePeriod: "2041-2060",
+      futureGcm2: "MPI-ESM1-2-HR",
+      futureSsp2: "SSP3-7.0",
+      futurePeriod2: "2061-2080",
+    });
+  });
+
   it("revalidates historical configs before retry and preserves bounded tuning", () => {
     expect(revalidateHistoricalConfig({
-      species: "Test species", model_id: "glm", biovars: "1,4,6", occurrence_asset_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", threshold: 0.5,
+      species: "Test species", model_id: "glm", biovars: "1,4,6", occurrence_asset_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", current_climate_asset_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", threshold: 0.5,
       enmeval_tune_args: { fc: ["L"], rm: [1] },
     })).toMatchObject({ modelId: "glm", biovars: [1, 4, 6], enmevalTuneArgs: { fc: ["L"], rm: [1] } });
     expect(() => revalidateHistoricalConfig({
