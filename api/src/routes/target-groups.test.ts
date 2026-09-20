@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { targetGroupRoutes } from "./target-groups.js";
 
 const mocks = vi.hoisted(() => ({
+  authenticated: true,
   mkdir: vi.fn(),
   writeAtomic: vi.fn(),
   register: vi.fn(),
@@ -10,7 +11,11 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 vi.mock("../middleware/auth.js", () => ({
-  authMiddleware: vi.fn(async (c: any, next: any) => { c.set("user", { id: "22222222-2222-4222-8222-222222222222", email: "test@example.com", role: "editor" }); await next(); }),
+  authMiddleware: vi.fn(async (c: any, next: any) => {
+    if (!mocks.authenticated) return c.json({ error: "Unauthorized" }, 401);
+    c.set("user", { id: "22222222-2222-4222-8222-222222222222", email: "test@example.com", role: "editor" });
+    await next();
+  }),
 }));
 vi.mock("../services/input-assets.js", () => ({
   InputAssetRegistrationError: class InputAssetRegistrationError extends Error {},
@@ -25,6 +30,22 @@ vi.mock("drizzle-orm", () => ({ eq: vi.fn() }));
 function app() { return new Hono().route("/api/v1/data", targetGroupRoutes); }
 
 describe("canonical target-group route input", () => {
+  beforeEach(() => {
+    mocks.authenticated = true;
+    vi.clearAllMocks();
+  });
+
+  it("rejects unauthenticated uploads before writing or registering a file", async () => {
+    mocks.authenticated = false;
+    const form = new FormData();
+    form.append("file", new File(["species,target_group\nA,1"], "groups.csv", { type: "text/csv" }));
+    const res = await app().request("/api/v1/data/target-groups/upload", { method: "POST", body: form });
+    expect(res.status).toBe(401);
+    expect(mocks.mkdir).not.toHaveBeenCalled();
+    expect(mocks.writeAtomic).not.toHaveBeenCalled();
+    expect(mocks.register).not.toHaveBeenCalled();
+  });
+
   it("rejects a target-group path alias without writing or registering a file", async () => {
     const form = new FormData();
     form.append("file", new File(["species,target_group\nA,1"], "groups.csv", { type: "text/csv" }));

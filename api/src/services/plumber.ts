@@ -2,6 +2,7 @@ import type {
   PlumberUploadResponse,
   PlumberJobLogs,
 } from "@sdm/shared";
+import { createHmac, randomUUID } from "node:crypto";
 
 export interface PlumberJobStatus {
   [key: string]: unknown;
@@ -271,10 +272,24 @@ export class PlumberClient {
   }
 
   async runModel(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const executionKey = process.env.PLUMBER_EXECUTION_KEY;
+    if (!executionKey) throw new Error("PLUMBER_EXECUTION_KEY is required for model execution");
+    const body = JSON.stringify(data);
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const nonce = randomUUID();
+    const signature = createHmac("sha256", executionKey)
+      .update(`${timestamp}\n${nonce}\n${this.principal?.id}\n${body}`)
+      .digest("hex");
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/run`, {
       method: "POST",
-      headers: { ...this.headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      headers: {
+        ...this.headers(),
+        "Content-Type": "application/json",
+        "X-SDM-Execution-Timestamp": timestamp,
+        "X-SDM-Execution-Nonce": nonce,
+        "X-SDM-Execution-Signature": signature,
+      },
+      body,
     }, TIMEOUT_MODEL_RUN);
     if (!res.ok) {
       let errorMsg = `Failed to run model: ${res.status}`;
@@ -346,13 +361,13 @@ export class PlumberClient {
   }
 
   async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; message?: string }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`, undefined, undefined, false);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`);
     if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
     return res.json();
   }
 
   async getClimateScenarios(): Promise<{ scenarios: Array<Record<string, unknown>> }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`, undefined, undefined, false);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`);
     if (!res.ok) throw new Error(`Failed to get climate scenarios: ${res.status}`);
     return res.json();
   }

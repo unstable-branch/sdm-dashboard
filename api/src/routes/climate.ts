@@ -5,11 +5,12 @@ import { longCache } from "../middleware/cache.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
-import { getUserProjectIds } from "../services/access.js";
-import { InputAssetRegistrationError, registerClimateCollectionFromServerPath } from "../services/input-assets.js";
-import { db } from "../db/index.js";
-import { runs } from "../db/schema.js";
-import { eq, and, inArray } from "drizzle-orm";
+import {
+  InputAssetRegistrationError,
+  registerSystemClimateCollectionFromServerPath,
+  resolveInputAsset,
+  updateInputAssetState,
+} from "../services/input-assets.js";
 
 export const climateRoutes = new Hono<AppEnv>();
 
@@ -20,10 +21,8 @@ type ClimateRecord = Record<string, unknown>;
 // them before forwarding a request to Plumber so a path cannot be resurrected
 // by a future producer response or persisted job config.
 const CLIMATE_PATH_ALIASES = new Set([
-  "path", "file_path", "filePath", "directory", "dir", "files",
-  "manifest_path", "manifestPath", "worldclimDir", "worldclim_dir",
-  "futureWorldclimDir", "future_worldclim_dir",
-  "futureWorldclimDir2", "future_worldclim_dir2",
+  "path", "filepath", "directory", "dir", "files",
+  "manifestpath", "worldclimdir", "futureworldclimdir", "futureworldclimdir2",
 ]);
 
 class ClimateManifestContractError extends Error {
@@ -33,21 +32,35 @@ class ClimateManifestContractError extends Error {
   }
 }
 
-function containsClimatePathAlias(value: unknown, depth = 0): boolean {
-  if (depth > 6 || !value || typeof value !== "object") return false;
-  if (Array.isArray(value)) return value.some((entry) => containsClimatePathAlias(entry, depth + 1));
-  return Object.entries(value as ClimateRecord).some(([key, child]) =>
-    CLIMATE_PATH_ALIASES.has(key) || containsClimatePathAlias(child, depth + 1),
-  );
+function containsClimatePathAlias(value: unknown): boolean {
+  const pending: unknown[] = [value];
+  let visited = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || typeof current !== "object") continue;
+    visited += 1;
+    if (visited > 10_000) return true;
+    if (Array.isArray(current)) {
+      pending.push(...current);
+      continue;
+    }
+    for (const [key, child] of Object.entries(current as ClimateRecord)) {
+      const normalized = key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      if (CLIMATE_PATH_ALIASES.has(normalized)) return true;
+      pending.push(child);
+    }
+  }
+  return false;
 }
 
-function producerOwnerMatches(record: ClimateRecord, user: ClimateUser): boolean {
+function producerOwnerMatches(record: ClimateRecord, user: ClimateUser, requireOwner: boolean): boolean {
   const owner = record.owner_user_id ?? record.ownerUserId ?? record.user_id ?? record.userId;
-  return owner === undefined || owner === user.id || user.role === "admin";
+  if (owner === undefined) return !requireOwner;
+  return owner === user.id || user.role === "admin";
 }
 
-function trustedManifestPath(record: ClimateRecord, user: ClimateUser): string {
-  if (!producerOwnerMatches(record, user)) {
+function trustedManifestPath(record: ClimateRecord, user: ClimateUser, requireOwner: boolean): string {
+  if (!producerOwnerMatches(record, user, requireOwner)) {
     throw new ClimateManifestContractError("Climate producer response is not authorized for this user");
   }
   // `manifest_path` is an internal, server-produced response contract. No
@@ -59,11 +72,10 @@ function trustedManifestPath(record: ClimateRecord, user: ClimateUser): string {
   return manifestPath;
 }
 
-async function registerCompletedClimateCollection(record: ClimateRecord, user: ClimateUser): Promise<string> {
-  const asset = await registerClimateCollectionFromServerPath({
+async function registerCompletedClimateCollection(record: ClimateRecord, user: ClimateUser, requireOwner: boolean): Promise<string> {
+  const asset = await registerSystemClimateCollectionFromServerPath({
     creatorUserId: user.id,
-    scope: "private",
-    absolutePath: trustedManifestPath(record, user),
+    absolutePath: trustedManifestPath(record, user, requireOwner),
   });
   return asset.id;
 }
@@ -79,8 +91,8 @@ function publicClimateStatus(record: ClimateRecord, climateCollectionId?: string
 
 function publicClimateScenario(record: ClimateRecord, climateCollectionId: string): ClimateRecord {
   const result: ClimateRecord = { climateCollectionId };
-  for (const key of ["type", "source", "gcm", "ssp", "period", "is_averaged"]) {
-    if (record[key] !== undefined && (typeof record[key] === "string" || typeof record[key] === "boolean")) {
+  for (const key of ["id", "type", "source", "gcm", "ssp", "period", "resolution", "is_averaged", "file_count", "size_bytes"]) {
+    if (record[key] !== undefined && (typeof record[key] === "string" || typeof record[key] === "boolean" || typeof record[key] === "number")) {
       result[key] = record[key];
     }
   }
@@ -102,8 +114,13 @@ climateRoutes.get("/scenarios", authMiddleware, longCache, async (c) => {
       if (!scenario || typeof scenario !== "object") continue;
       const record = scenario as ClimateRecord;
       if (record.status !== undefined && record.status !== "completed") continue;
-      const climateCollectionId = await registerCompletedClimateCollection(record, user);
-      scenarios.push(publicClimateScenario(record, climateCollectionId));
+      try {
+        const climateCollectionId = await registerCompletedClimateCollection(record, user, false);
+        scenarios.push(publicClimateScenario(record, climateCollectionId));
+      } catch (error) {
+        if (error instanceof InputAssetRegistrationError && error.reason === "deleted") continue;
+        throw error;
+      }
     }
     return c.json({ scenarios });
   } catch (e) {
@@ -187,7 +204,7 @@ climateRoutes.post("/download", async (c) => {
     const response = plumberData as ClimateRecord;
     if (response.status === "completed") {
       try {
-        const climateCollectionId = await registerCompletedClimateCollection(response, user);
+        const climateCollectionId = await registerCompletedClimateCollection(response, user, true);
         return c.json({ jobId: response.job_id, status: "completed", climateCollectionId });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Climate manifest registration failed";
@@ -201,46 +218,31 @@ climateRoutes.post("/download", async (c) => {
   }
 });
 
-climateRoutes.post("/delete/:scenarioId", async (c) => {
-  try {
-    const scenarioId = c.req.param("scenarioId");
-    const user = c.get("user");
+climateRoutes.post("/delete/:climateCollectionId", async (c) => {
+  const user = c.get("user");
+  if (user.role !== "admin") return c.json({ error: "Climate collection not found" }, 404);
 
-    if (user.role !== "admin") {
-      const projectIds = await getUserProjectIds(user);
-      const ownedRun = await db
-        .select({ id: runs.id })
-        .from(runs)
-        .where(
-          projectIds && projectIds.length > 0
-            ? and(
-                eq(runs.jobId, scenarioId),
-                inArray(runs.projectId, projectIds)
-              )
-            : eq(runs.id, "__never_match__")
-        )
-        .limit(1);
-      if (!ownedRun) {
-        return c.json({ error: "Scenario not found" }, 404);
-      }
-    }
-
-    const result = await plumberClient.withUser(user.id).withRole(user.role).deleteClimateScenario(scenarioId);
-
-    const client = extractClientInfo(c);
-    await logAction({
-      userId: user.id,
-      action: "climate_scenario_deleted",
-      entity: "climate",
-      entityId: scenarioId,
-      ...client,
-    });
-
-    return c.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Delete failed";
-    return c.json({ error: message }, 502);
+  const climateCollectionId = c.req.param("climateCollectionId");
+  const resolved = await resolveInputAsset({
+    assetId: climateCollectionId,
+    principal: { id: user.id, role: user.role },
+    action: "read",
+    expectedKind: "climate_collection",
+  });
+  if (!resolved.ok || resolved.asset.scope !== "system") {
+    return c.json({ error: "Climate collection not found" }, 404);
   }
+  const updated = await updateInputAssetState(climateCollectionId, "deleted");
+  if (!updated) return c.json({ error: "Climate collection lifecycle update failed" }, 503);
+
+  await logAction({
+    userId: user.id,
+    action: "climate_collection_deleted",
+    entity: "input_asset",
+    entityId: climateCollectionId,
+    ...extractClientInfo(c),
+  });
+  return c.json({ ok: true, climateCollectionId, state: "deleted" });
 });
 
 // Climate cancel is handled by the /api/v1/downloads/cancel/:jobId dispatch route,
@@ -257,7 +259,7 @@ climateRoutes.get("/status/:jobId", async (c) => {
     const user = c.get("user");
     const result = await plumberClient.withUser(user.id).withRole(user.role).getClimateStatus(jobId);
     if (result.status === "completed") {
-      const climateCollectionId = await registerCompletedClimateCollection(result, user);
+      const climateCollectionId = await registerCompletedClimateCollection(result, user, true);
       return c.json(publicClimateStatus(result, climateCollectionId));
     }
     return c.json(publicClimateStatus(result));

@@ -59,6 +59,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - PLUMBER_URL=http://plumber:8000
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:?PLUMBER_EXECUTION_KEY is required}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - CSRF_SECRET=${CSRF_SECRET:?CSRF_SECRET is required}
       - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:?DATA_ENCRYPTION_KEY is required}
@@ -146,6 +147,7 @@ services:
       - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
       - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:?PLUMBER_EXECUTION_KEY is required}
       - PLUMBER_AUTH_DISABLED=false
       # Both DATA_ENCRYPTION_KEY (preferred) and SDM_ENCRYPTION_KEY (legacy
       # fallback) are set to the same value so Plumber's crypto.R and the

@@ -66,11 +66,10 @@ requires_auth <- function(path) {
   open_patterns <- c(
     "^/health$",
     "^/ready$",
-    "^/api/v1/climate/scenarios$",
     "^/api/v1/climate/check$",
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
-    "^/api/v1/future/scenarios$",
+
     "^/api/v1/covariates/check$"
   )
 
