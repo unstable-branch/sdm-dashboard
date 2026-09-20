@@ -24,4 +24,13 @@ describe("Plumber canonical execution boundary", () => {
     expect(source).toContain("resolution = as.numeric(sdm_default_worldclim_res)");
     expect(source).toContain("resolution = 0.5");
   });
+
+  it("does not expose the legacy destructive climate deletion route", async () => {
+    const routeSource = await readFile(resolve(process.cwd(), "../plumber/R/plumber.R"), "utf8");
+    const climateSource = await readFile(resolve(process.cwd(), "../plumber/R/helpers/climate_helpers.R"), "utf8");
+    expect(routeSource).not.toContain("@post /api/v1/climate/delete/<scenario_id>");
+    expect(routeSource).not.toContain("handle_climate_delete");
+    expect(climateSource).not.toContain("handle_climate_delete <- function");
+    expect(climateSource).not.toContain("unlink(target_dir, recursive = TRUE, force = TRUE)");
+  });
 });

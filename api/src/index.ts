@@ -39,6 +39,7 @@ import { settingsRoutes } from "./routes/settings.js";
 import { adminRoutes } from "./routes/admin.js";
 import { diagnosticsRoutes } from "./routes/diagnostics.js";
 import jobsRoutes from "./routes/jobs.js";
+import { assertProductionEnv } from "./config/production-env.js";
 
 process.on("uncaughtException", (err) => {
   console.error("[FATAL] Uncaught exception:", err?.stack ?? err?.message ?? err);
@@ -55,26 +56,6 @@ process.on("uncaughtException", (err) => {
 });
 
 const app = new Hono();
-
-function assertProductionEnv(): void {
-  if (process.env.NODE_ENV !== "production") return;
-  const required: Array<[string, number]> = [
-    ["JWT_SECRET", 32],
-    ["PLUMBER_INTERNAL_KEY", 32],
-    ["CSRF_SECRET", 32],
-    ["DATA_ENCRYPTION_KEY", 32],
-  ];
-  const missing: string[] = [];
-  for (const [name, minLen] of required) {
-    const v = process.env[name];
-    if (!v || v.length < minLen) missing.push(`${name} (>=${minLen} chars)`);
-  }
-  if (missing.length > 0) {
-    const msg = `[FATAL] Missing or weak required secrets in production: ${missing.join(", ")}. Refusing to start.`;
-    console.error(msg);
-    throw new Error(msg);
-  }
-}
 
 assertProductionEnv();
 

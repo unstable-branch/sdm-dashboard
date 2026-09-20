@@ -501,33 +501,6 @@ handle_climate_scenarios <- function(res, app_dir) {
   list(scenarios = scenarios)
 }
 
-handle_climate_delete <- function(req, res, scenario_id, app_dir) {
-  user_role <- req$user_role %||% get_hdr(req, "x-forwarded-role") %||% NULL
-  if (!isTRUE(user_role == "admin")) {
-    res$status <- 404L; return(list(error = "Scenario not found"))
-  }
-  future_dir <- sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
-  current_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
-  chelsa_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
-
-  target_dir <- NULL
-  if (scenario_id == "worldclim_current") {
-    target_dir <- current_dir
-  } else if (scenario_id == "chelsa_current") {
-    target_dir <- chelsa_dir
-  } else {
-    target_dir <- file.path(future_dir, basename(scenario_id))
-  }
-
-  if (is.null(target_dir) || !dir.exists(target_dir)) {
-    res$status <- 404L; return(list(error = "Scenario not found"))
-  }
-
-  unlink(target_dir, recursive = TRUE, force = TRUE)
-
-  list(ok = TRUE, message = paste("Scenario deleted:", scenario_id))
-}
-
 handle_climate_cancel <- function(req, res, job_id, app_dir) {
   auth <- sdm_load_authorized_job(req, res, job_id, app_dir)
   if (!isTRUE(auth$ok)) return(list(error = auth$error))
