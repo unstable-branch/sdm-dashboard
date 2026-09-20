@@ -34,8 +34,25 @@ test_that("boundary path resolution rejects traversal and accepts only regular i
   file.symlink(outside, link)
   expect_null(boundary_env$sdm_resolve_boundary_path(link, root))
   unlink(outside, force = TRUE)
+
+  linkroot <- tempfile("sdm-boundary-link-root-")
+  file.symlink(root, linkroot)
+  expect_false(boundary_env$sdm_boundary_root_is_safe(linkroot))
+  expect_null(boundary_env$sdm_resolve_boundary_path(file.path(linkroot, "custom", "safe.geojson"), linkroot))
+  unlink(linkroot, force = TRUE)
 })
 
+test_that("Natural Earth paths use the configured boundary root", {
+  previous <- Sys.getenv("SDM_INPUT_ASSET_BOUNDARY_ROOT", unset = "")
+  Sys.setenv(SDM_INPUT_ASSET_BOUNDARY_ROOT = "/srv/sdm-boundaries")
+  on.exit(if (nzchar(previous)) Sys.setenv(SDM_INPUT_ASSET_BOUNDARY_ROOT = previous) else Sys.unsetenv("SDM_INPUT_ASSET_BOUNDARY_ROOT"), add = TRUE)
+  ne_env <- new.env(parent = boundary_env)
+  sys.source(file.path(project_root, "R", "covariates", "ne_boundary.R"), envir = ne_env)
+  expect_equal(
+    ne_env$get_ne_boundary_path("110m", "admin0"),
+    "/srv/sdm-boundaries/ne/110m/ne_10m_admin_0_countries.geojson"
+  )
+})
 test_that("download filenames are unique even for the same Natural Earth request", {
   first <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")
   second <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")

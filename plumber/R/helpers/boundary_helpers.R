@@ -2,7 +2,11 @@
 
 sdm_boundary_storage_root <- function(app_dir, configured_root = Sys.getenv("SDM_INPUT_ASSET_BOUNDARY_ROOT", unset = "")) {
   root <- if (!is.null(configured_root) && nzchar(configured_root)) configured_root else file.path(app_dir, "data", "boundaries")
-  normalizePath(root, winslash = "/", mustWork = FALSE)
+  root <- path.expand(root)
+  root <- gsub("\\\\", "/", root, fixed = TRUE)
+  if (!startsWith(root, "/")) root <- file.path(getwd(), root)
+  if (!identical(root, "/")) root <- sub("/$", "", root)
+  root
 }
 
 sdm_boundary_path_has_parent_segment <- function(path) {
@@ -25,10 +29,18 @@ sdm_boundary_path_has_symlink <- function(path, root) {
   FALSE
 }
 
+sdm_boundary_root_is_safe <- function(root) {
+  !sdm_boundary_path_has_symlink(root, root)
+}
+
 sdm_resolve_boundary_path <- function(path, root = NULL, app_dir = NULL) {
   if (is.null(path) || length(path) != 1L || is.na(path) || !nzchar(path) || !startsWith(path, "/")) return(NULL)
   if (grepl("[[:cntrl:]]", path) || sdm_boundary_path_has_parent_segment(path)) return(NULL)
-  root_path <- normalizePath(root %||% sdm_boundary_storage_root(app_dir %||% getwd()), winslash = "/", mustWork = FALSE)
+  root_path <- if (is.null(root)) {
+    sdm_boundary_storage_root(app_dir %||% getwd())
+  } else {
+    sdm_boundary_storage_root(getwd(), root)
+  }
   candidate <- normalizePath(path, winslash = "/", mustWork = FALSE)
   if (!(identical(candidate, root_path) || startsWith(candidate, paste0(root_path, "/")))) return(NULL)
   if (!file.exists(candidate) || dir.exists(candidate) || sdm_boundary_path_has_symlink(path, root_path)) return(NULL)
@@ -36,6 +48,11 @@ sdm_resolve_boundary_path <- function(path, root = NULL, app_dir = NULL) {
 }
 
 handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL, file_path = NULL) {
+  boundary_root <- sdm_boundary_storage_root(app_dir)
+  if (!sdm_boundary_root_is_safe(boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary storage root is unsafe"))
+  }
   dataset_type <- type %||% "admin0"
   scale <- resolution %||% "110m"
   country_val <- country %||% "all"
@@ -94,7 +111,12 @@ handle_boundary_upload <- function(req, res, app_dir) {
   on.exit(unlink(tmp), add = TRUE)
   writeBin(jsonlite::base64_dec(file_content), tmp)
 
-  boundary_dir <- file.path(sdm_boundary_storage_root(app_dir), "custom")
+  boundary_root <- sdm_boundary_storage_root(app_dir)
+  if (!sdm_boundary_root_is_safe(boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary storage root is unsafe"))
+  }
+  boundary_dir <- file.path(boundary_root, "custom")
   dir.create(boundary_dir, recursive = TRUE, showWarnings = FALSE)
   uuid_base <- paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_", gsub("-", "", uuid::UUIDgenerate()))
 
@@ -144,7 +166,12 @@ handle_boundary_upload <- function(req, res, app_dir) {
 }
 
 handle_boundary_countries <- function(res, app_dir) {
-  boundary_path <- file.path(sdm_boundary_storage_root(app_dir), "ne", "110m", "ne_10m_admin_0_countries.geojson")
+  boundary_root <- sdm_boundary_storage_root(app_dir)
+  if (!sdm_boundary_root_is_safe(boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary storage root is unsafe"))
+  }
+  boundary_path <- file.path(boundary_root, "ne", "110m", "ne_10m_admin_0_countries.geojson")
   if (!file.exists(boundary_path)) {
     res$status <- 404L
     return(list(error = "Admin 0 boundary not found — download NE data first"))
@@ -160,8 +187,13 @@ handle_boundary_countries <- function(res, app_dir) {
 }
 
 handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2) {
+  boundary_root <- sdm_boundary_storage_root(app_dir)
+  if (!sdm_boundary_root_is_safe(boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary storage root is unsafe"))
+  }
   if (!is.null(file_path)) {
-    file_path <- sdm_resolve_boundary_path(file_path, sdm_boundary_storage_root(app_dir))
+    file_path <- sdm_resolve_boundary_path(file_path, boundary_root)
     if (is.null(file_path)) {
       res$status <- 403L
       return(list(error = "Invalid server-owned boundary file"))
@@ -208,6 +240,11 @@ sdm_boundary_download_filename <- function(type, resolution, country) {
 
 handle_boundary_download <- function(res, app_dir, type = "admin0", resolution = "110m", country = "all") {
   tryCatch({
+    boundary_root <- sdm_boundary_storage_root(app_dir)
+    if (!sdm_boundary_root_is_safe(boundary_root)) {
+      res$status <- 500L
+      return(list(status = "error", message = "Boundary storage root is unsafe"))
+    }
     scale <- resolution %||% "110m"
     country_val <- country %||% "all"
 
@@ -231,7 +268,7 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
       }
     }
 
-    custom_dir <- file.path(sdm_boundary_storage_root(app_dir), "custom")
+    custom_dir <- file.path(boundary_root, "custom")
     dir.create(custom_dir, recursive = TRUE, showWarnings = FALSE)
     saved_name <- sdm_boundary_download_filename(type, scale, country_val)
     saved_path <- file.path(custom_dir, saved_name)

@@ -341,6 +341,10 @@ describe("canonical input asset authorization", () => {
       roots: roots(), database: fakeDatabase({ assets: [asset(RAW, { storageLocator: "/etc/passwd" })] }),
     });
     expect(unsafe).toMatchObject({ ok: false, reason: "unsafe_storage" });
+    const misplacedBoundary = await resolveInputAsset({ assetId: RAW, principal: principal(A), action: "use", expectedKind: "custom_boundary" }, {
+      roots: roots(), database: fakeDatabase({ assets: [asset(RAW, { kind: "custom_boundary", storageLocator: "uploads/asset.csv" })] }),
+    });
+    expect(misplacedBoundary).toMatchObject({ ok: false, reason: "unsafe_storage" });
     const unavailable = await resolveInputAsset({ assetId: RAW, principal: principal(A) }, {
       roots: roots(), database: fakeDatabase({ unavailable: true }),
     });
