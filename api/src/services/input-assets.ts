@@ -166,7 +166,7 @@ function defaultRoots(): InputAssetRootMap {
   };
   return {
     uploads: process.env.SDM_INPUT_ASSET_UPLOAD_ROOT || join(projectRoot, "data", "uploads"),
-    boundaries: process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT || join(projectRoot, "data", "uploads"),
+    boundaries: process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT || join(projectRoot, "data", "boundaries"),
     system: process.env.SDM_INPUT_ASSET_SYSTEM_ROOT || join(projectRoot, "data", "system"),
     // Climate collections are rooted by source/scenario, not by a broad
     // project/data directory. These names are shared with the Plumber
@@ -252,6 +252,9 @@ function validateRegistrationInput(input: RegisterInputAssetInput | RegisterSyst
   }
   if (!ROOT_NAME_RE.test(input.root) || typeof input.relativePath !== "string") {
     throw new InputAssetRegistrationError("Invalid server-owned storage locator");
+  }
+  if (input.kind === "custom_boundary" && input.root !== "boundaries") {
+    throw new InputAssetRegistrationError("Custom boundaries must use the configured boundary root");
   }
   if (input.contentSha256 !== undefined && !HASH_RE.test(input.contentSha256)) {
     throw new InputAssetRegistrationError("Invalid content identity");

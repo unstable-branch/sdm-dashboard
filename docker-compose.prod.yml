@@ -52,6 +52,7 @@ services:
     environment:
       - NODE_ENV=production
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
       - SDM_INPUT_ASSET_CHELSA_ROOT=/app/chelsa
       - SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT=/app/Worldclim_future
@@ -69,6 +70,7 @@ services:
       - GARAGE_BUCKET_RASTERS=${GARAGE_BUCKET_RASTERS:?GARAGE_BUCKET_RASTERS is required}
       - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET_EXPORTS:?GARAGE_BUCKET_EXPORTS is required}
     volumes:
+      - r-boundaries:/app/data/boundaries:ro
       - r-data:/app/outputs
       # Read-only verification of the exact roots published by Plumber.
       - r-climate:/app/Worldclim:ro
@@ -136,6 +138,7 @@ services:
           cpus: "4"
           memory: 8G
     volumes:
+      - r-boundaries:/app/data/boundaries
       - r-data:/app/outputs
       - r-climate:/app/Worldclim
       - r-chelsa:/app/chelsa
@@ -246,6 +249,7 @@ volumes:
   garage-meta:
   garage-data:
   r-data:
+  r-boundaries:
   r-climate:
   r-chelsa:
   r-future:

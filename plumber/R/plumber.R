@@ -338,9 +338,10 @@ function(req, res, run_id, lat, lng, band = NULL)
 #* @param resolution Boundary resolution
 #* @param type Boundary type (admin0, admin1)
 #* @param country Country name or code
+#* @param file_path Server-owned boundary path resolved by the API
 #* @post /api/v1/data/boundary/default
-function(res, resolution = NULL, type = NULL, country = NULL)
-  handle_boundary_default(res, app_dir, resolution, type, country)
+function(res, resolution = NULL, type = NULL, country = NULL, file_path = NULL)
+  handle_boundary_default(res, app_dir, resolution, type, country, file_path)
 
 #* Upload a custom boundary file
 #* @param file_name Name for the boundary file
@@ -362,7 +363,7 @@ function(req, res) handle_boundary_delete(req, res, app_dir)
 function(res) handle_boundary_countries(res, app_dir)
 
 #* Compute bounding box extent
-#* @param file_path Path to boundary file
+#* @param file_path Server-owned boundary path resolved by the API
 #* @param type Boundary type (admin0, admin1)
 #* @param resolution Boundary resolution
 #* @param country Country name

@@ -87,6 +87,7 @@ services:
     volumes:
       - plumber-data:/app/data
       - upload-data:/app/data/uploads
+      - boundary-data:/app/data/boundaries
       - plumber-outputs:/app/outputs
       - plumber-covariates:/app/covariates
       - plumber-worldclim:/app/Worldclim
@@ -94,6 +95,7 @@ services:
       - plumber-future:/app/Worldclim_future
     environment:
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_WORLDCLIM_DIR=/app/Worldclim
       - SDM_CHELSA_DIR=/app/chelsa
       - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
@@ -137,6 +139,7 @@ services:
       - "127.0.0.1:4000:4000"
     environment:
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
       - SDM_INPUT_ASSET_CHELSA_ROOT=/app/chelsa
       - SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT=/app/Worldclim_future
@@ -165,6 +168,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     volumes:
       - upload-data:/app/data/uploads
+      - boundary-data:/app/data/boundaries:ro
       - plumber-outputs:/app/outputs
       # Read-only verification of the same climate roots Plumber publishes.
       # Reuse Plumber's volumes so this does not introduce an empty shadow
@@ -236,6 +240,7 @@ volumes:
   plumber-chelsa:
   plumber-future:
   upload-data:
+  boundary-data:
 
 networks:
   sdm-network:
