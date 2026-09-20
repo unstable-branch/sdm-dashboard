@@ -94,7 +94,8 @@ boundaryRoutes.get("/boundary/default", async (c) => {
       const resolved = await resolveBoundaryForRead(user, boundaryAssetId, projectId);
       if (!resolved.ok) return c.json({ error: "Boundary not found" }, 404);
       body.type = "custom";
-      body.file_path = resolved.absolutePath;
+      body.boundary_asset_id = boundaryAssetId;
+      if (projectId !== null) body.project_id = projectId;
     } else {
       if (type) body.type = type;
       if (country) body.country = country;
@@ -271,7 +272,8 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
       if (!isAssetId(boundaryAssetId)) return c.json({ error: "Invalid boundaryAssetId" }, 400);
       const resolved = await resolveBoundaryForRead(user, boundaryAssetId, projectId);
       if (!resolved.ok) return c.json({ error: "Boundary not found" }, 404);
-      body.file_path = resolved.absolutePath;
+      body.boundary_asset_id = boundaryAssetId;
+      if (projectId !== null) body.project_id = projectId;
     }
     if (effectiveType) body.type = effectiveType;
     if (resolution) body.resolution = resolution;

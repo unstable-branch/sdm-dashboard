@@ -74,7 +74,7 @@ describe("canonical boundary route input", () => {
     expect(res.status).toBe(200);
     expect(mocks.plumberPost).toHaveBeenCalledWith("/api/v1/data/boundary/default", {
       type: "custom",
-      file_path: "/safe/boundary.geojson",
+      boundary_asset_id: "11111111-1111-4111-8111-111111111111",
     });
   });
   it("passes the destination project to current-membership asset authorization", async () => {
@@ -185,7 +185,7 @@ describe("canonical boundary route input", () => {
     expect(res.status).toBe(200);
     expect(mocks.plumberPost).toHaveBeenCalledWith("/api/v1/data/boundary/extent", expect.objectContaining({
       type: "custom",
-      file_path: "/safe/boundary.geojson",
+      boundary_asset_id: "11111111-1111-4111-8111-111111111111",
       buffer_deg: 2,
     }));
   });
@@ -250,7 +250,7 @@ describe("canonical boundary route input", () => {
     const extent = await app().request("/api/v1/data/boundary/extent?boundaryAssetId=11111111-1111-4111-8111-111111111111");
     expect(extent.status).toBe(200);
     expect(mocks.plumberPost).toHaveBeenCalledWith("/api/v1/data/boundary/extent", expect.objectContaining({
-      file_path: "/safe/boundary.geojson",
+      boundary_asset_id: "11111111-1111-4111-8111-111111111111",
     }));
   });
 
