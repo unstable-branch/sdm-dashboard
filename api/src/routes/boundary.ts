@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { lstat, unlink } from "node:fs/promises";
+import { relative, resolve } from "node:path";
 import { plumberClient } from "../services/plumber.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
@@ -7,6 +9,7 @@ import { db } from "../db/index.js";
 import { inputAssets, projectMembers } from "../db/schema.js";
 import { and, eq } from "drizzle-orm";
 import {
+  InputAssetRegistrationError,
   registerInputAssetFromServerPath,
   resolveInputAsset,
   updateInputAssetState,
@@ -64,6 +67,21 @@ async function resolveBoundaryForRead(user: { id: string; role: string }, assetI
     expectedKind: "custom_boundary",
     destinationProjectId,
   });
+}
+
+async function cleanupUnregisteredBoundary(path: string): Promise<void> {
+  const configuredRoot = process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT
+    || resolve(process.env.SDM_PROJECT_ROOT || process.cwd(), "data", "boundaries");
+  const candidate = resolve(path);
+  const root = resolve(configuredRoot);
+  const rel = relative(root, candidate);
+  if (!rel || rel.startsWith("..") || rel.includes("..\\") || rel.includes("../")) return;
+  try {
+    const stat = await lstat(candidate);
+    if (!stat.isSymbolicLink() && stat.isFile()) await unlink(candidate);
+  } catch {
+    // Best-effort cleanup must never change the redacted registration error.
+  }
 }
 
 boundaryRoutes.use("*", authMiddleware);
@@ -149,6 +167,9 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
         absolutePath: producedPath,
       });
     } catch (error) {
+      if (!(error instanceof InputAssetRegistrationError && error.reason === "conflict")) {
+        await cleanupUnregisteredBoundary(producedPath);
+      }
       const message = "Boundary registration failed";
       return c.json({ error: message }, 502);
     }
@@ -340,6 +361,9 @@ boundaryRoutes.post("/boundary/download", async (c) => {
         absolutePath: producedPath,
       });
     } catch (error) {
+      if (!(error instanceof InputAssetRegistrationError && error.reason === "conflict")) {
+        await cleanupUnregisteredBoundary(producedPath);
+      }
       const message = "Boundary registration failed";
       return c.json({ error: message }, 502);
     }
