@@ -257,12 +257,13 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
     const country = c.req.query("country");
     const bufferDeg = c.req.query("buffer_deg") || "2";
     const projectId = c.req.query("projectId") || null;
+    const effectiveType = type || (boundaryAssetId ? "custom" : undefined);
     if (!isBoundaryType(type) || !isBoundaryResolution(resolution)) return c.json({ error: "Invalid boundary type or resolution" }, 400);
     if (projectId !== null && !isAssetId(projectId)) return c.json({ error: "Invalid projectId" }, 400);
-    if (boundaryAssetId && type !== "custom") {
+    if (boundaryAssetId && effectiveType !== "custom") {
       return c.json({ error: "boundaryAssetId is only valid for custom boundaries" }, 400);
     }
-    if (type === "custom" && (!boundaryAssetId || country)) {
+    if (effectiveType === "custom" && (!boundaryAssetId || country)) {
       return c.json({ error: "Custom boundaries require boundaryAssetId; path aliases are not supported." }, 400);
     }
     const body: Record<string, unknown> = { buffer_deg: Number(bufferDeg) };
@@ -272,7 +273,7 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
       if (!resolved.ok) return c.json({ error: "Boundary not found" }, 404);
       body.file_path = resolved.absolutePath;
     }
-    if (type) body.type = type;
+    if (effectiveType) body.type = effectiveType;
     if (resolution) body.resolution = resolution;
     if (country) body.country = country;
     const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/extent", body);
@@ -287,15 +288,15 @@ boundaryRoutes.post("/boundary/download", async (c) => {
   try {
     const user = c.get("user");
     const body = await c.req.json() as Record<string, unknown>;
-    const requestedType = typeof body.type === "string" ? body.type : undefined;
-    const requestedResolution = typeof body.resolution === "string" ? body.resolution : undefined;
+    const requestedType = typeof body.type === "string" ? body.type : "admin0";
+    const requestedResolution = typeof body.resolution === "string" ? body.resolution : "110m";
     if (!isBoundaryType(requestedType) || requestedType === "custom" || !isBoundaryResolution(requestedResolution) || requestedResolution === "auto") {
       return c.json({ error: "Invalid boundary type or resolution" }, 400);
     }
     if (hasPathAlias(body as Record<string, unknown>)) {
       return c.json({ error: "Path-based boundary inputs are not supported; use boundaryAssetId." }, 400);
     }
-    if (body.type === "custom") {
+    if (requestedType === "custom") {
       return c.json({ error: "Natural Earth downloads do not accept custom boundary paths" }, 400);
     }
     const scope = uploadScope(body.projectId);
@@ -304,8 +305,8 @@ boundaryRoutes.post("/boundary/download", async (c) => {
       return c.json({ error: "Project membership does not permit boundary download" }, 403);
     }
     const producerBody = {
-      type: body.type,
-      resolution: body.resolution,
+      type: requestedType,
+      resolution: requestedResolution,
       country: body.country,
     };
     const [status, data] = await plumberClient.withUser(user.id).withRole(user.role).postRaw("/api/v1/data/boundary/download", producerBody);

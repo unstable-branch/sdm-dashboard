@@ -133,6 +133,16 @@ describe("canonical boundary route input", () => {
     expect(mocks.register).not.toHaveBeenCalled();
   });
 
+  it("uses producer defaults before checking project download membership", async () => {
+    const res = await app().request("/api/v1/data/boundary/download", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectId: "33333333-3333-4333-8333-333333333333" }),
+    });
+    expect(res.status).toBe(403);
+    expect(mocks.plumberPostRaw).not.toHaveBeenCalled();
+  });
+
   it("rejects opaque custom assets on non-custom default requests", async () => {
     const res = await app().request("/api/v1/data/boundary/default?boundaryAssetId=11111111-1111-4111-8111-111111111111", {
       headers: { "x-user-id": "22222222-2222-4222-8222-222222222222", "x-user-role": "user" },
@@ -159,6 +169,17 @@ describe("canonical boundary route input", () => {
     expect(res.status).toBe(400);
     expect(mocks.plumberPost).not.toHaveBeenCalled();
     expect(mocks.resolve).not.toHaveBeenCalled();
+  });
+
+  it("infers custom extent type from the opaque asset ID used by the model form", async () => {
+    mocks.plumberPost.mockResolvedValueOnce({ xmin: 1, xmax: 2, ymin: 3, ymax: 4 });
+    const res = await app().request("/api/v1/data/boundary/extent?boundaryAssetId=11111111-1111-4111-8111-111111111111&buffer_deg=2");
+    expect(res.status).toBe(200);
+    expect(mocks.plumberPost).toHaveBeenCalledWith("/api/v1/data/boundary/extent", expect.objectContaining({
+      type: "custom",
+      file_path: "/safe/boundary.geojson",
+      buffer_deg: 2,
+    }));
   });
 
   it("registers a downloaded boundary and returns only its opaque ID", async () => {
