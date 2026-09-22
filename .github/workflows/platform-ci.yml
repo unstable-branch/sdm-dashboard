@@ -188,7 +188,6 @@ jobs:
           version: 10.30.3
 
       - name: Set up Docker Buildx
-        id: buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       - name: Validate release and image contracts
@@ -208,13 +207,45 @@ jobs:
           name: shared-dist
           path: packages/shared/dist
 
-      # Builds plumber, api and frontend images concurrently (buildx bake).
-      # Contexts, Dockerfiles, tags and gha cache scopes are defined in
-      # docker-bake.ci.hcl and mirror the sequential build-push-action steps
-      # this replaces; all three images are loaded into the local docker
-      # daemon for the compose integration, e2e, type-contract and scan steps.
-      - name: Build images in parallel (buildx bake)
-        run: docker buildx bake --file docker-bake.ci.hcl --builder "${{ steps.buildx.outputs.name }}" --load ci
+      # Builds plumber, api and frontend images concurrently. Each build uses
+      # the exact docker/build-push-action flag set it replaces (same context,
+      # Dockerfile, tags and gha cache scopes, loaded into the local docker
+      # daemon for the compose integration, e2e, type-contract and scan steps).
+      # NOTE: buildx bake was evaluated first but its HCL cache-from/cache-to
+      # fields were silently ignored by buildx v0.37.0 (no gha cache manifest
+      # import in the log — PR #98 run 35703111219), so explicit flags win.
+      - name: Build images in parallel
+        run: |
+          docker buildx build \
+            --cache-from type=gha,scope=sdm-dashboard-plumber \
+            --cache-to type=gha,mode=max,scope=sdm-dashboard-plumber \
+            --file plumber/Dockerfile \
+            --tag sdm-dashboard-plumber:latest \
+            --tag sdm-plumber:test \
+            --load . &
+          pids+=($!)
+          docker buildx build \
+            --cache-from type=gha,scope=sdm-dashboard-api \
+            --cache-to type=gha,mode=max,scope=sdm-dashboard-api \
+            --file Dockerfile.api \
+            --tag sdm-dashboard-api:latest \
+            --tag sdm-api:test \
+            --load . &
+          pids+=($!)
+          docker buildx build \
+            --cache-from type=gha,scope=sdm-dashboard-frontend \
+            --cache-to type=gha,mode=max,scope=sdm-dashboard-frontend \
+            --file Dockerfile.frontend \
+            --tag sdm-dashboard-frontend:latest \
+            --tag sdm-frontend:test \
+            --load . &
+          pids+=($!)
+          fail=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || fail=1
+          done
+          docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^sdm-(dashboard-)?(plumber|api|frontend)' || true
+          exit "$fail"
 
       - name: Start services and verify health
         run: |
@@ -323,7 +354,7 @@ jobs:
       # trivy-action scans this replaces.
       - name: Scan images for vulnerabilities
         run: |
-          trivy image --download db-only
+          trivy image --download-db-only
           scan() {
             trivy image \
               --format sarif \
