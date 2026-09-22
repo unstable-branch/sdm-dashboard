@@ -6,8 +6,12 @@
 # Open endpoints (health, reads) bypass auth
 
 # Fatal errors must not serialize frames, variables, provider URLs, or credentials.
-# Auth rejections from the preroute filter set res directly and return FALSE — these
-# do NOT trigger this handler. This only fires for genuine crashes.
+# Auth rejections from the preroute filter THROW a `sdm_auth_denial` condition, which
+# short-circuits the router: plumber 1.3.3 runs every step (preroute, route,
+# serialize) unconditionally, so returning FALSE from a hook does NOT abort and the
+# denied handler would still execute. The custom error handler below converts the
+# condition into the denial response before any route or serializer runs. This
+# options(error=) handler only fires for genuine crashes.
 options(error = function() {
   cond <- tryCatch(get("condition", envir = .GlobalEnv, inherits = FALSE), error = function(e) NULL)
   if (is.null(cond)) return(invisible(NULL))
@@ -47,6 +51,10 @@ source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"), local
 
 # Source error codes and classification
 source(file.path(app_dir, "plumber", "R", "error_codes.R"), local = FALSE)
+
+# Source the typed auth-denial mechanism (must be defined before the preroute
+# hook and error-handler registration below).
+source(file.path(app_dir, "plumber", "R", "auth_denial.R"), local = FALSE)
 
 # Load .env before connecting so local deployments use the same retry path as containers.
 env_file <- file.path(app_dir, ".env")
@@ -96,6 +104,11 @@ pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 # NOTE: We use pr$registerHook("preroute", ...) for the auth gate (see run_server.R
 # preroute hook), NOT #* @filter Auth. The @filter path triggers an empty/false body bug
 # in Plumber 1.3.0–1.3.3 with serializer_json(auto_unbox=TRUE); see rstudio/plumber#1022.
+# Denial aborts via the `sdm_auth_denial` condition thrown by sdm_auth_deny().
+
+# Router error handler: turn auth-denial conditions into their denial response
+# and keep genuine errors redacted — see auth_denial.R.
+pr$setErrorHandler(sdm_auth_error_handler)
 
 # Unbox single-element vectors so JSON primitives are returned instead of arrays
 # e.g. "file_path" remains string, "n_rows" remains number, not [value]
@@ -111,9 +124,8 @@ if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
 }
 
 auth_fail <- function(res, status, msg) {
-  res$status <- status
-  res$body <- msg
-  FALSE
+  # Abort the request pipeline via the typed denial condition — see auth_denial.R
+  sdm_auth_deny(res, status, msg)
 }
 
 get_hdr <- function(req, name) {
