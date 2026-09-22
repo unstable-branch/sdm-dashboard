@@ -35,6 +35,7 @@ import { ecologyRoutes } from "./routes/ecology.js";
 import { authRoutes } from "./routes/auth.js";
 import { publicRoutes } from "./routes/public.js";
 import { projectRoutes } from "./routes/projects.js";
+import { projectMemberRoutes } from "./routes/project-members.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { adminRoutes } from "./routes/admin.js";
 import { diagnosticsRoutes } from "./routes/diagnostics.js";
@@ -197,6 +198,7 @@ app.get("/ready", async (c) => {
 
 app.route("/api/v1/auth", authRoutes);
 app.route("/api/v1/projects", projectRoutes);
+app.route("/api/v1/projects", projectMemberRoutes);
 app.route("/api/v1/settings", settingsRoutes);
 app.route("/api/v1/admin", adminRoutes);
 app.route("/api/v1/sdm", sdmRunRoutes);
