@@ -10,6 +10,13 @@ export type Principal = {
   role: "admin" | "editor" | "viewer";
   authVersion: number;
   source: "jwt" | "api-key";
+  /**
+   * Optional single-project scope for API-key principals. When set, the key
+   * resolves to this principal only for resources inside the project;
+   * out-of-scope use must deny closed. NULL (or absent for JWT principals)
+   * means principal-wide.
+   */
+  scopeProjectId?: string | null;
 };
 
 export class AuthStorageUnavailable extends Error {
@@ -74,12 +81,29 @@ export async function verifyCurrentJwt(token: string): Promise<Principal | null>
 export async function verifyCurrentApiKey(rawKey: string): Promise<Principal | null> {
   const keyHash = createHash("sha256").update(rawKey).digest("hex");
   try {
-    const [key] = await db.select({ userId: apiKeys.userId, expiresAt: apiKeys.expiresAt })
+    const [key] = await db.select({ userId: apiKeys.userId, expiresAt: apiKeys.expiresAt, scopeProjectId: apiKeys.scopeProjectId })
       .from(apiKeys).where(and(eq(apiKeys.keyHash, keyHash))).limit(1);
     if (!key || (key.expiresAt && key.expiresAt <= new Date())) return null;
-    return await currentUser(key.userId, "api-key");
+    const principal = await currentUser(key.userId, "api-key");
+    if (!principal) return null;
+    return { ...principal, scopeProjectId: key.scopeProjectId ?? null };
   } catch (error) {
     if (error instanceof AuthStorageUnavailable) throw error;
     throw new AuthStorageUnavailable();
   }
+}
+
+/**
+ * Key-scope check for project-scoped resources: a scoped API key may only act
+ * inside its bound project. Out-of-scope (and malformed-scope) use denies
+ * closed. Unscoped keys and JWT principals pass through unchanged.
+ */
+export function apiKeyScopeAllows(
+  principal: Pick<Principal, "source"> | { source?: string },
+  projectId: string | null | undefined,
+): boolean {
+  if (principal.source !== "api-key") return true;
+  const scope = (principal as Principal).scopeProjectId;
+  if (scope === null || scope === undefined) return true;
+  return typeof projectId === "string" && projectId === scope;
 }

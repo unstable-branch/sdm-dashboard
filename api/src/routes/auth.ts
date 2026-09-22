@@ -416,10 +416,31 @@ authRoutes.post("/change-password", authMiddleware, rateLimit({ windowMs: 60_000
 authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "apikey-create" }), async (c) => {
   const user = c.get("user");
   const body = await c.req.json();
-  const { name, expiresAt } = body;
+  const { name, expiresAt, scopeProjectId } = body;
 
   if (!name) {
     return c.json({ error: "Name is required" }, 400);
+  }
+
+  // Optional single-project scope: the creator must currently be a member (or
+  // the owner / a global admin) of the project they scope the key to. A stale
+  // or foreign projectId denies closed.
+  let scopedProjectId: string | null = null;
+  if (scopeProjectId !== undefined && scopeProjectId !== null) {
+    if (typeof scopeProjectId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(scopeProjectId)) {
+      return c.json({ error: "Invalid scopeProjectId" }, 400);
+    }
+    const [project] = await db.select({ id: projects.id, ownerId: projects.ownerId })
+      .from(projects).where(eq(projects.id, scopeProjectId)).limit(1);
+    if (!project) return c.json({ error: "Scope project not found" }, 404);
+    if (project.ownerId !== user.id && user.role !== "admin") {
+      const [membership] = await db.select({ id: projectMembers.id })
+        .from(projectMembers)
+        .where(and(eq(projectMembers.projectId, scopeProjectId), eq(projectMembers.userId, user.id)))
+        .limit(1);
+      if (!membership) return c.json({ error: "Not a member of the scope project" }, 403);
+    }
+    scopedProjectId = scopeProjectId;
   }
 
   const rawKey = `sdm_${randomBytes(32).toString("hex")}`;
@@ -432,6 +453,7 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
       keyPreview: rawKey.substring(0, 8),
       name,
       userId: user.id,
+      scopeProjectId: scopedProjectId,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
     })
     .returning();
@@ -443,7 +465,7 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
     entity: "api_keys",
     entityId: apiKey.id,
     ...client,
-    details: { name, expiresAt: apiKey.expiresAt ?? null },
+    details: { name, expiresAt: apiKey.expiresAt ?? null, scoped: scopedProjectId !== null },
   });
 
   return c.json({
