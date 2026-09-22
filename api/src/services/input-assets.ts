@@ -677,7 +677,7 @@ export async function updateInputAssetState(
   try {
     if (authorization) {
       if (typeof database.transaction !== "function") return false;
-      return await database.transaction(async (tx: Database) => {
+      return await database.transaction(async (tx) => {
         const txDependencies = { ...dependencies, database: tx as unknown as Database };
         const resolved = await resolveInputAsset({
           assetId,
