@@ -207,45 +207,26 @@ jobs:
           name: shared-dist
           path: packages/shared/dist
 
-      # Builds plumber, api and frontend images concurrently. Each build uses
-      # the exact docker/build-push-action flag set it replaces (same context,
-      # Dockerfile, tags and gha cache scopes, loaded into the local docker
-      # daemon for the compose integration, e2e, type-contract and scan steps).
-      # NOTE: buildx bake was evaluated first but its HCL cache-from/cache-to
-      # fields were silently ignored by buildx v0.37.0 (no gha cache manifest
-      # import in the log — PR #98 run 35703111219), so explicit flags win.
+      # Builds plumber, api and frontend images concurrently. The bake file
+      # carries the same contexts, Dockerfiles, tags and gha cache scopes as
+      # the sequential build-push-action steps this replaces, and the images
+      # are loaded into the local docker daemon for the compose integration,
+      # e2e, type-contract and scan steps.
+      # NOTE: the gha cache backend requires the cache-service env
+      # (ACTIONS_CACHE_URL / ACTIONS_RUNTIME_TOKEN), which run: steps do not
+      # expose on current runners — plain `run:` invocations of buildx
+      # (bake CLI and explicit --cache-from/--cache-to flags alike) silently
+      # skip gha cache entirely (PR #98 runs 35703111219 / 35705788390).
+      # bake-action runs in the action context and wires the cache env.
       - name: Build images in parallel
-        run: |
-          docker buildx build \
-            --cache-from type=gha,scope=sdm-dashboard-plumber \
-            --cache-to type=gha,mode=max,scope=sdm-dashboard-plumber \
-            --file plumber/Dockerfile \
-            --tag sdm-dashboard-plumber:latest \
-            --tag sdm-plumber:test \
-            --load . &
-          pids+=($!)
-          docker buildx build \
-            --cache-from type=gha,scope=sdm-dashboard-api \
-            --cache-to type=gha,mode=max,scope=sdm-dashboard-api \
-            --file Dockerfile.api \
-            --tag sdm-dashboard-api:latest \
-            --tag sdm-api:test \
-            --load . &
-          pids+=($!)
-          docker buildx build \
-            --cache-from type=gha,scope=sdm-dashboard-frontend \
-            --cache-to type=gha,mode=max,scope=sdm-dashboard-frontend \
-            --file Dockerfile.frontend \
-            --tag sdm-dashboard-frontend:latest \
-            --tag sdm-frontend:test \
-            --load . &
-          pids+=($!)
-          fail=0
-          for pid in "${pids[@]}"; do
-            wait "$pid" || fail=1
-          done
-          docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^sdm-(dashboard-)?(plumber|api|frontend)' || true
-          exit "$fail"
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
+        with:
+          files: docker-bake.ci.hcl
+          targets: ci
+          load: true
+
+      - name: Verify loaded images
+        run: docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^sdm-(dashboard-)?(plumber|api|frontend)'
 
       - name: Start services and verify health
         run: |
@@ -343,36 +324,37 @@ jobs:
           echo "Verifying generated types compile..."
           cd ../packages/shared && pnpm run build
 
-      # Same installer the previous trivy-action steps used internally
-      # (aquasecurity/setup-trivy@3fb12ec, same default 'latest' version).
-      - name: Install Trivy CLI
-        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
-
-      # Scan all three images concurrently. The DB is warmed once first so the
-      # three processes share it instead of racing to download it; severity,
-      # exit-code and SARIF outputs are identical to the sequential
-      # trivy-action scans this replaces.
+      # NOTE: parallel trivy scans were evaluated (one warm DB + three
+      # concurrent scans) but trivy v0.74's fs-cache lock makes concurrent
+      # processes fail fast ("cache may be in use by another process" — PR #98
+      # run 35705788390); per-scan cache dirs would save only ~20-45s and add
+      # fragility. Sequential scans retained.
       - name: Scan images for vulnerabilities
-        run: |
-          trivy image --download-db-only
-          scan() {
-            trivy image \
-              --format sarif \
-              --output "trivy-$1.sarif" \
-              --severity CRITICAL,HIGH \
-              --exit-code 0 \
-              "$2"
-          }
-          pids=()
-          scan plumber sdm-plumber:test & pids+=($!)
-          scan api sdm-api:test & pids+=($!)
-          scan frontend sdm-frontend:test & pids+=($!)
-          fail=0
-          for pid in "${pids[@]}"; do
-            wait "$pid" || fail=1
-          done
-          ls -la trivy-*.sarif
-          exit "$fail"
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sdm-plumber:test
+          format: sarif
+          output: trivy-plumber.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
+
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sdm-api:test
+          format: sarif
+          output: trivy-api.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
+
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: sdm-frontend:test
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0
 
       - name: Teardown
         if: always()
