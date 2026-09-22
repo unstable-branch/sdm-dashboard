@@ -32,11 +32,13 @@ function currentCollectionMatches(scenario: ClimateScenarioResponse, config: Cli
 
 function futureMatch(
   scenario: ClimateScenarioResponse,
+  source: "worldclim" | "chelsa" | undefined,
   gcm: string | undefined,
   ssp: string | undefined,
   period: string | undefined,
 ): boolean {
   return scenario.type === "future"
+    && scenario.source === source
     && scenario.gcm === gcm
     && scenario.ssp === ssp
     && scenario.period === period;
@@ -66,24 +68,20 @@ function selectFutureCollection(
   ambiguousMessage: string,
 ): ClimateScenarioResponse {
   const candidates = scenarios.filter((scenario) =>
-    futureMatch(scenario, gcm, ssp, period)
+    futureMatch(scenario, config.source, gcm, ssp, period)
     && typeof scenario.climateCollectionId === "string"
   );
   if (candidates.length === 0) throw new Error(unavailableMessage);
 
   const requestedResolution = Number(config.worldclimRes);
+  if (!Number.isFinite(requestedResolution)) throw new Error(unavailableMessage);
+
   const knownResolution = candidates.filter((scenario) => Number.isFinite(Number(scenario.resolution)));
-  if (!Number.isFinite(requestedResolution) || knownResolution.length === 0) {
-    if (candidates.length > 1) throw new Error(ambiguousMessage);
-    return candidates[0];
-  }
+  if (knownResolution.length !== candidates.length) throw new Error(ambiguousMessage);
 
   const compatible = knownResolution.filter((scenario) => Number(scenario.resolution) === requestedResolution);
-  const missingResolution = candidates.length - knownResolution.length;
-  if (compatible.length === 1 && missingResolution === 0) return compatible[0];
-  if (compatible.length > 1 || missingResolution > 0) {
-    throw new Error(ambiguousMessage);
-  }
+  if (compatible.length === 1) return compatible[0];
+  if (compatible.length > 1) throw new Error(ambiguousMessage);
   throw new Error(unavailableMessage);
 }
 

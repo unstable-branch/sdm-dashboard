@@ -300,12 +300,41 @@ const modelConfigValidatedSchema = modelConfigObjectSchema.superRefine((config, 
       message: "Future projection requires an opaque climate collection asset ID",
     });
   }
+  if (config.futureProjection) {
+    for (const key of ["futureGcm", "futureSsp", "futurePeriod"] as const) {
+      if (!config[key]) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: "Future projection requires canonical GCM, SSP, and period selectors",
+        });
+      }
+    }
+  }
+  if (config.futureProjection2 && !config.futureProjection) {
+    context.addIssue({
+      code: "custom",
+      path: ["futureProjection2"],
+      message: "Second future projection requires the first future projection",
+    });
+  }
   if (config.futureProjection2 && !config.futureClimateAssetId2) {
     context.addIssue({
       code: "custom",
       path: ["futureClimateAssetId2"],
       message: "Second future projection requires an opaque climate collection asset ID",
     });
+  }
+  if (config.futureProjection2) {
+    for (const key of ["futureGcm2", "futureSsp2", "futurePeriod2"] as const) {
+      if (!config[key]) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: "Second future projection requires canonical GCM, SSP, and period selectors",
+        });
+      }
+    }
   }
 });
 
