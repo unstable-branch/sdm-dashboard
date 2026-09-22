@@ -62,8 +62,10 @@ sdm_require_canonical_execution <- function(req) {
 
 handle_model_run <- function(req, app_dir) {
   if (!isTRUE(sdm_require_canonical_execution(req))) {
-    tryCatch(req$res$status <- 403L, error = function(e) NULL)
-    return(list(error = "Canonical execution attestation required", code = "FORBIDDEN"))
+    # Abort the router pipeline via the typed denial condition — see auth_denial.R.
+    # (Under plumber 1.3.x, merely setting req$res$status and returning a body
+    # still serializes handler output; only a throw short-circuits serve().)
+    sdm_auth_deny(req$res, 403L, list(error = "Canonical execution attestation required", code = "FORBIDDEN"))
   }
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody, simplifyVector = FALSE),
@@ -639,8 +641,8 @@ sdm_validate_targets_config_csv <- function(path) {
 
 handle_targets_run <- function(req, app_dir) {
   if (!isTRUE(sdm_require_canonical_execution(req))) {
-    tryCatch(req$res$status <- 403L, error = function(e) NULL)
-    return(list(error = "Canonical execution attestation required", code = "FORBIDDEN"))
+    # Abort the router pipeline via the typed denial condition — see auth_denial.R.
+    sdm_auth_deny(req$res, 403L, list(error = "Canonical execution attestation required", code = "FORBIDDEN"))
   }
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody, simplifyVector = FALSE),
