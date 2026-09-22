@@ -199,47 +199,34 @@ jobs:
           docker compose -f docker-compose.dev.yml config
           docker compose -f docker-compose.prod.yml config
 
-      - name: Build Plumber image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: plumber/Dockerfile
-          load: true
-          tags: |
-            sdm-dashboard-plumber:latest
-            sdm-plumber:test
-          cache-from: type=gha,scope=sdm-dashboard-plumber
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-plumber
-
+      # Shared dist must be present before the bake step: the API and
+      # frontend Dockerfiles consume it and skip the shared-package rebuild.
       - name: Download shared package artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: shared-dist
           path: packages/shared/dist
 
-      - name: Build API image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+      # Builds plumber, api and frontend images concurrently. The bake file
+      # carries the same contexts, Dockerfiles, tags and gha cache scopes as
+      # the sequential build-push-action steps this replaces, and the images
+      # are loaded into the local docker daemon for the compose integration,
+      # e2e, type-contract and scan steps.
+      # NOTE: the gha cache backend requires the cache-service env
+      # (ACTIONS_CACHE_URL / ACTIONS_RUNTIME_TOKEN), which run: steps do not
+      # expose on current runners — plain `run:` invocations of buildx
+      # (bake CLI and explicit --cache-from/--cache-to flags alike) silently
+      # skip gha cache entirely (PR #98 runs 35703111219 / 35705788390).
+      # bake-action runs in the action context and wires the cache env.
+      - name: Build images in parallel
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
         with:
-          context: .
-          file: Dockerfile.api
+          files: docker-bake.ci.hcl
+          targets: ci
           load: true
-          tags: |
-            sdm-dashboard-api:latest
-            sdm-api:test
-          cache-from: type=gha,scope=sdm-dashboard-api
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-api
 
-      - name: Build Frontend image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: Dockerfile.frontend
-          load: true
-          tags: |
-            sdm-dashboard-frontend:latest
-            sdm-frontend:test
-          cache-from: type=gha,scope=sdm-dashboard-frontend
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-frontend
+      - name: Verify loaded images
+        run: docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^sdm-(dashboard-)?(plumber|api|frontend)'
 
       - name: Start services and verify health
         run: |
@@ -337,6 +324,11 @@ jobs:
           echo "Verifying generated types compile..."
           cd ../packages/shared && pnpm run build
 
+      # NOTE: parallel trivy scans were evaluated (one warm DB + three
+      # concurrent scans) but trivy v0.74's fs-cache lock makes concurrent
+      # processes fail fast ("cache may be in use by another process" — PR #98
+      # run 35705788390); per-scan cache dirs would save only ~20-45s and add
+      # fragility. Sequential scans retained.
       - name: Scan images for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
