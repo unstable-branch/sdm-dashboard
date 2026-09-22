@@ -13,7 +13,58 @@ sdm_force_cpu_runtime_config <- function(body) {
   body
 }
 
+sdm_constant_time_equal <- function(left, right) {
+  left_raw <- charToRaw(tolower(as.character(left %||% "")[1]))
+  right_raw <- charToRaw(tolower(as.character(right %||% "")[1]))
+  if (length(left_raw) != length(right_raw) || length(left_raw) == 0L) return(FALSE)
+  difference <- 0L
+  for (index in seq_along(left_raw)) {
+    difference <- bitwOr(difference, bitwXor(as.integer(left_raw[index]), as.integer(right_raw[index])))
+  }
+  identical(difference, 0L)
+}
+
+sdm_consume_execution_nonce <- function(nonce, timestamp) {
+  if (!grepl("^[0-9a-fA-F-]{36}$", nonce %||% "")) return(FALSE)
+  nonce_root <- Sys.getenv("SDM_EXECUTION_NONCE_DIR", unset = "/app/outputs/.execution-nonces")
+  dir.create(nonce_root, recursive = TRUE, showWarnings = FALSE, mode = "0700")
+  existing <- list.dirs(nonce_root, recursive = FALSE, full.names = TRUE)
+  if (length(existing) > 0L) {
+    ages <- as.numeric(Sys.time() - file.info(existing)$mtime, units = "secs")
+    unlink(existing[is.finite(ages) & ages > 120], recursive = TRUE, force = TRUE)
+  }
+  nonce_key <- digest::digest(nonce, algo = "sha256", serialize = FALSE)
+  dir.create(file.path(nonce_root, nonce_key), recursive = FALSE, showWarnings = FALSE, mode = "0700")
+}
+
+sdm_require_canonical_execution <- function(req) {
+  execution_key <- Sys.getenv("PLUMBER_EXECUTION_KEY", unset = "")
+  signature <- get_hdr(req, "X-SDM-Execution-Signature")
+  timestamp_text <- get_hdr(req, "X-SDM-Execution-Timestamp")
+  nonce <- get_hdr(req, "X-SDM-Execution-Nonce")
+  principal <- as.character(req$user_id %||% "")[1]
+  timestamp <- suppressWarnings(as.numeric(timestamp_text))
+  if (!nzchar(execution_key) || is.null(signature) || !nzchar(signature) ||
+      is.null(nonce) || !nzchar(nonce) || !nzchar(principal) || !is.finite(timestamp) ||
+      abs(as.numeric(Sys.time()) - timestamp) > 60) {
+    return(FALSE)
+  }
+  message <- paste(timestamp_text, nonce, principal, req$postBody %||% "", sep = "\n")
+  expected <- digest::hmac(
+    key = execution_key,
+    object = message,
+    algo = "sha256",
+    serialize = FALSE
+  )
+  if (!sdm_constant_time_equal(signature, expected)) return(FALSE)
+  isTRUE(sdm_consume_execution_nonce(nonce, timestamp))
+}
+
 handle_model_run <- function(req, app_dir) {
+  if (!isTRUE(sdm_require_canonical_execution(req))) {
+    tryCatch(req$res$status <- 403L, error = function(e) NULL)
+    return(list(error = "Canonical execution attestation required", code = "FORBIDDEN"))
+  }
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody, simplifyVector = FALSE),
     error = function(e) {
@@ -587,6 +638,10 @@ sdm_validate_targets_config_csv <- function(path) {
 }
 
 handle_targets_run <- function(req, app_dir) {
+  if (!isTRUE(sdm_require_canonical_execution(req))) {
+    tryCatch(req$res$status <- 403L, error = function(e) NULL)
+    return(list(error = "Canonical execution attestation required", code = "FORBIDDEN"))
+  }
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody, simplifyVector = FALSE),
     error = function(e) {

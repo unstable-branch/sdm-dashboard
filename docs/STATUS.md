@@ -1,9 +1,8 @@
 # Project status
 
-**Snapshot date:** 2026-09-17 AEST
-**Implementation baseline for this documentation batch:** 6df341a672e15278408206c933a89ec5a551cd9f
-**Live dev baseline:** origin/dev at 27ecdac (full SHA 27ecdac02aefc24d792740e83610239f01c4d5b8)
-**Accepted local R test-fix commit:** 6df341a (full SHA 6df341a672e15278408206c933a89ec5a551cd9f)
+**Snapshot date:** 2026-09-20 AEST
+**Integration base:** origin/dev at d5167a2 (full SHA d5167a289234af5020fa491139c2f6ebc1c9685f)
+**Candidate branch:** security/phase2-canonical-inputs (local review candidate; not published)
 
 This is a dated status snapshot. SHAs, CI results, dependency availability, and test outcomes must be refreshed before relying on them. The documentation commit that contains this snapshot is reported in review evidence rather than self-referenced here. This line is not a release candidate and makes no release-readiness claim.
 
@@ -12,7 +11,8 @@ This is a dated status snapshot. SHAs, CI results, dependency availability, and 
 - Modern authenticated platform architecture: Next.js, Hono, PostgreSQL/PostGIS, Redis/BullMQ, Garage-compatible storage, and Plumber/R.
 - Legacy R/Shiny desktop workflow for private, single-user local use.
 - Current-principal session handling and authenticated Hono-to-Plumber forwarding, with focused contract coverage.
-- Canonical occurrence asset IDs through upload, cleaning, model, batch, retry, and relevant Targets paths.
+- Canonical occurrence, boundary/mask, target-group, and current/future climate collection IDs on the direct and queued model paths. Inputs are re-resolved at dispatch with kind, project, lifecycle, lineage, content-identity, and containment checks.
+- Authenticated climate discovery publishes immutable manifests, registers system-scoped collection IDs, and exposes only allowlisted metadata. Climate deletion is an administrator-only soft lifecycle transition by opaque collection ID; physical shared-file reclamation remains deferred.
 - Secret-free execution configuration and sanitized status/output paths on the recovered execution path.
 - Fixed-direction AUC and repaired reference-consistent MESS/masking behavior in the changed science paths, subject to the gates below.
 - CPU is the mandatory compute target. CUDA, ROCm, Python backends, and advanced model families remain optional or experimental unless their specific image and hardware gates pass.
@@ -21,7 +21,8 @@ This is a dated status snapshot. SHAs, CI results, dependency availability, and 
 
 ## Known limitations and blockers
 
-- Boundary, mask, target-group, and current/future climate-directory inputs still need canonical asset IDs and equivalent worker/direct-Plumber enforcement.
+- Targets/batch execution remains deliberately unavailable until durable execution ownership and the provider-supervisor/effect harness are accepted; it must not be presented as a working execution path.
+- Physical climate-file reclamation is intentionally unavailable until shared-member reference accounting is verified. Administrator deletion only marks the canonical collection unavailable.
 - Durable execution ownership, append-only attempts, accepted-response recovery, idempotent mutation, and standalone Targets run mapping are not complete.
 - SSE/WebSocket replay and delivery need current-authority checks through revocation, reconnect, and replica boundaries.
 - Fold-local VIF at the actual fit entrypoint, aligned out-of-fold ensemble metrics, script export replay, immutable worker-authored provenance, and content-based cache verification remain open.
@@ -34,6 +35,13 @@ This is a dated status snapshot. SHAs, CI results, dependency availability, and 
 The accepted recovery line is represented through the live dev baseline. Accepted local commit `6df341a` makes R quality tests resolve project root and runtime helper dependencies independently of test order. The live baseline and local stabilization line must be checked again before integration or publication.
 
 Required full gates for a release review are pnpm run check:node, pnpm run check:compose, the complete lockfile-backed R suite, R smoke, release audit, affected accelerator contracts, and git diff --check. A passing focused gate cannot substitute for a missing full gate. Exact results belong in a refreshed dated status entry, not in AGENTS.md.
+
+### Phase 2 local candidate evidence on 2026-09-20
+
+- Shared tests passed: 153 tests. API tests passed: 42 files / 424 tests. Frontend tests passed: 34 files / 219 tests.
+- Workspace typechecks and builds passed. Lint completed with existing non-fatal warning debt and no errors. `git diff --check` passed.
+- The focused canonical-input, climate, authentication, and frontend contract tests passed, including unauthenticated target-group rejection and route-to-Plumber path translation. In the pinned CPU image `sdm-dashboard-plumber:phase2-test` (`sha256:e8177f839165556cbd14626babb81c12294916df235ffb97b2bd0a5372be52ff`), the checked-in attestation invocation `docker run --name phase2-attestation-check-20260920 --entrypoint Rscript -i -v "$PWD:/app" -w /app sdm-dashboard-plumber:phase2-test --vanilla -` with stdin `testthat::test_file("tests/testthat/test-execution-attestation.R")` exited 1 because `testthat` is not installed. The manual equivalent was run with `docker run --name phase2-attestation-manual-20260920 --entrypoint Rscript -v "$PWD:/app" -w /app sdm-dashboard-plumber:phase2-test --vanilla .phase2-attestation-manual.R` using a temporary local script mirroring the checked-in assertions and printed `manual equivalent attestation assertions: 5 passed`; this is not testthat-backed evidence.
+- The seven Compose configuration invocations represented by `check:compose` passed with the corrected dummy `PLUMBER_EXECUTION_KEY`, and the pinned CPU Plumber image built successfully. The CPU image smoke gate passed. The exact image-mounted suite command `docker run --name phase2-suite-check-20260920 --entrypoint Rscript -v "$PWD:/app" -w /app sdm-dashboard-plumber:phase2-test --no-init-file tests/testthat.R` exited 1 with 81 `not ok` lines, 18 `Skipped:` lines, and a final `there is no package called ‘testthat’` error. The host `pnpm run check:node` command could not be invoked because pnpm is unavailable, although its constituent workspace checks were run directly. The Phase 2 candidate is therefore not release-accepted and must pass the complete authoritative gates.
 
 ### Phase 1 gate evidence at implementation SHA `671571c24838149c851d4b5406946afae87c31b7`
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type InputAssetDependencies,
@@ -11,6 +12,9 @@ import {
   registerInputAsset,
   registerDerivedInputAsset,
   registerSystemInputAsset,
+  registerInputAssetFromServerPath,
+  registerClimateCollectionFromServerPath,
+  registerSystemClimateCollectionFromServerPath,
   makeInputAssetLocator,
   InputAssetRegistrationError,
 } from "./input-assets.js";
@@ -22,6 +26,7 @@ const G = "00000000-0000-0000-0000-000000000003";
 const P = "00000000-0000-0000-0000-000000000010";
 const RAW = "00000000-0000-0000-0000-000000000101";
 const CHILD = "00000000-0000-0000-0000-000000000102";
+const CLIMATE = "00000000-0000-0000-0000-000000000103";
 const LEGACY = "00000000-0000-0000-0000-000000000201";
 
 type RowOverrides = Partial<InputAssetRow>;
@@ -89,6 +94,11 @@ beforeEach(async () => {
   await writeFile(join(root, "asset.csv"), "abc");
   await writeFile(join(root, "raw.csv"), "raw");
   await writeFile(join(root, "clean.csv"), "clean");
+  await writeFile(join(root, "climate.tif"), "climate");
+  await writeFile(join(root, "climate.json"), JSON.stringify({
+    version: 1, metadata: { source: "synthetic", resolution: 10 },
+    members: [{ locator: "uploads/climate.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: { variable: "bio1" } }],
+  }));
 });
 
 afterEach(async () => {
@@ -112,6 +122,127 @@ describe("canonical input asset storage containment", () => {
     }
     expect(makeInputAssetLocator("uploads", "../asset.csv", roots())).toBeNull();
     expect(makeInputAssetLocator("uploads", "/etc/passwd", roots())).toBeNull();
+  });
+});
+
+describe("canonical climate collection manifests", () => {
+  it("reuses an immutable system collection across requesting principals", async () => {
+    const climateRoot = join(root, "Worldclim");
+    await mkdir(climateRoot);
+    await writeFile(join(climateRoot, "climate.tif"), "climate");
+    await writeFile(join(climateRoot, "climate.json"), JSON.stringify({
+      version: 1, metadata: { source: "worldclim", resolution: 10 },
+      members: [{ locator: "worldclim/climate.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: { variable: "bio1" } }],
+    }));
+    const climateRoots = { ...roots(), worldclim: climateRoot };
+    const manifestContent = await readFile(join(climateRoot, "climate.json"));
+    const existing = asset(CLIMATE, {
+      creatorUserId: A,
+      scope: "system",
+      kind: "climate_collection",
+      storageLocator: "worldclim/climate.json",
+      contentSha256: createHash("sha256").update(manifestContent).digest("hex"),
+      contentSize: manifestContent.length,
+    });
+    const database = {
+      insert: () => ({ values: () => ({ onConflictDoNothing: () => ({ returning: async () => [] }) }) }),
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [existing] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+
+    await expect(registerSystemClimateCollectionFromServerPath({
+      creatorUserId: B,
+      absolutePath: join(climateRoot, "climate.json"),
+    }, { roots: climateRoots, database })).resolves.toMatchObject({ id: CLIMATE, scope: "system" });
+  });
+
+  it("never promotes manifests from user-controlled roots into system climate assets", async () => {
+    const database = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => [asset(CLIMATE, { ...value, id: CLIMATE, kind: "climate_collection" } as Partial<InputAssetRow>)] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+    await expect(registerSystemClimateCollectionFromServerPath({
+      creatorUserId: A,
+      absolutePath: join(root, "climate.json"),
+    }, { roots: roots(), database })).rejects.toThrow("climate root");
+  });
+
+  it("requires every system climate member to use the manifest's approved root", async () => {
+    const climateRoot = join(root, "Worldclim");
+    await mkdir(climateRoot);
+    const manifestPath = join(climateRoot, "climate.json");
+    await writeFile(manifestPath, JSON.stringify({
+      version: 1, metadata: { source: "worldclim" },
+      members: [{ locator: "uploads/climate.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: {} }],
+    }));
+    await expect(registerSystemClimateCollectionFromServerPath({
+      creatorUserId: A,
+      absolutePath: manifestPath,
+    }, { roots: { ...roots(), worldclim: climateRoot }, database: fakeDatabase() })).rejects.toThrow("member root");
+  });
+
+  it("rejects private climate manifests from non-climate roots", async () => {
+    const database = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => [asset(CLIMATE, { ...value, id: CLIMATE, kind: "climate_collection", storageLocator: "uploads/climate.json" } as Partial<InputAssetRow>) ] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+    await expect(registerClimateCollectionFromServerPath({
+      creatorUserId: A, scope: "private", absolutePath: join(root, "climate.json"),
+    }, { roots: roots(), database })).rejects.toThrow("climate root");
+  });
+
+  it("rechecks the manifest and every member before use", async () => {
+    const manifestContent = await readFile(join(root, "climate.json"));
+    const climate = asset(CLIMATE, { kind: "climate_collection", storageLocator: "uploads/climate.json", contentSha256: createHash("sha256").update(manifestContent).digest("hex"), contentSize: manifestContent.length });
+    const resolved = await resolveInputAsset({ assetId: CLIMATE, principal: principal(A), action: "use" }, {
+      roots: roots(), database: fakeDatabase({ assets: [climate] }),
+    });
+    expect(resolved).toMatchObject({ ok: true, absolutePath: join(root, "climate.json") });
+
+    await writeFile(join(root, "climate.tif"), "tampered");
+    const denied = await resolveInputAsset({ assetId: CLIMATE, principal: principal(A), action: "use" }, {
+      roots: roots(), database: fakeDatabase({ assets: [climate] }),
+    });
+    expect(denied).toMatchObject({ ok: false, reason: "unsafe_storage" });
+  });
+
+  it("binds climate members to exact source roots instead of a broad data root", async () => {
+    const climateRoot = join(root, "Worldclim");
+    await mkdir(climateRoot, { recursive: true });
+    await writeFile(join(climateRoot, "bio1.tif"), "climate");
+    const manifestPath = join(climateRoot, "collection.json");
+    await writeFile(manifestPath, JSON.stringify({
+      version: 1,
+      metadata: { source: "worldclim" },
+      members: [{ locator: "worldclim/bio1.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: { variable: "bio1" } }],
+    }));
+    const climateRoots = { worldclim: climateRoot, chelsa: join(root, "chelsa"), future_worldclim: join(root, "Worldclim_future") };
+    const database = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => [asset(CLIMATE, { ...value, id: CLIMATE, kind: "climate_collection" } as Partial<InputAssetRow>) ] }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+    await expect(registerClimateCollectionFromServerPath({
+      creatorUserId: A, scope: "private", absolutePath: manifestPath,
+    }, { roots: climateRoots, database })).resolves.toMatchObject({ kind: "climate_collection" });
+  });
+
+  it("rejects directory and absolute-path member locators", async () => {
+    const climateRoot = join(root, "Worldclim-invalid");
+    await mkdir(climateRoot);
+    const manifestPath = join(climateRoot, "climate.json");
+    const climateRoots = { ...roots(), worldclim: climateRoot };
+    await writeFile(manifestPath, JSON.stringify({ version: 1, metadata: {}, members: [
+      { locator: "/tmp/member.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: {} },
+    ] }));
+    await expect(registerClimateCollectionFromServerPath({
+      creatorUserId: A, scope: "private", absolutePath: manifestPath,
+    }, { roots: climateRoots, database: fakeDatabase() })).rejects.toThrow("manifest");
+
+    await writeFile(manifestPath, JSON.stringify({ version: 1, metadata: {}, members: [
+      { locator: "worldclim", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: {} },
+    ] }));
+    await expect(registerClimateCollectionFromServerPath({
+      creatorUserId: A, scope: "private", absolutePath: manifestPath,
+    }, { roots: climateRoots, database: fakeDatabase() })).rejects.toThrow("manifest");
   });
 });
 
@@ -209,6 +340,14 @@ describe("canonical input asset authorization", () => {
       roots: roots(), database: fakeDatabase({ assets: [asset(RAW, { storageLocator: "/etc/passwd" })] }),
     });
     expect(unsafe).toMatchObject({ ok: false, reason: "unsafe_storage" });
+    const misplacedBoundary = await resolveInputAsset({ assetId: RAW, principal: principal(A), action: "use", expectedKind: "custom_boundary" }, {
+      roots: roots(), database: fakeDatabase({ assets: [asset(RAW, { kind: "custom_boundary", storageLocator: "uploads/asset.csv" })] }),
+    });
+    expect(misplacedBoundary).toMatchObject({ ok: false, reason: "unsafe_storage" });
+    const missingBoundaryIdentity = await resolveInputAsset({ assetId: RAW, principal: principal(A), action: "use", expectedKind: "custom_boundary" }, {
+      roots: roots(), database: fakeDatabase({ assets: [asset(RAW, { kind: "custom_boundary", storageLocator: "boundaries/asset.csv", contentSha256: null, contentSize: null })] }),
+    });
+    expect(missingBoundaryIdentity).toMatchObject({ ok: false, reason: "unsafe_storage" });
     const unavailable = await resolveInputAsset({ assetId: RAW, principal: principal(A) }, {
       roots: roots(), database: fakeDatabase({ unavailable: true }),
     });
@@ -228,6 +367,43 @@ describe("canonical input asset authorization", () => {
 });
 
 describe("server-only registration", () => {
+  it("maps an actual producer path under the dedicated boundary root to an opaque asset locator", async () => {
+    const boundaryRoot = await mkdtemp("/tmp/sdm-boundaries-");
+    await mkdir(join(boundaryRoot, "custom"), { recursive: true });
+    const boundaryPath = join(boundaryRoot, "custom", "boundary.geojson");
+    await writeFile(boundaryPath, "{}");
+    const uploadRoot = await mkdtemp("/tmp/sdm-uploads-");
+    const systemRoot = await mkdtemp("/tmp/sdm-system-");
+    const inserted: Record<string, unknown>[] = [];
+    const database = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => { inserted.push(value); return [value]; } }) }) }),
+    } as unknown as InputAssetDependencies["database"];
+
+    try {
+      const registered = await registerInputAssetFromServerPath({
+        creatorUserId: A,
+        scope: "private",
+        kind: "custom_boundary",
+        absolutePath: boundaryPath,
+      }, { roots: { uploads: uploadRoot, boundaries: boundaryRoot, system: systemRoot }, database });
+
+      expect(registered.storageLocator).toBe("boundaries/custom/boundary.geojson");
+      expect(inserted[0]?.kind).toBe("custom_boundary");
+      await expect(registerInputAsset({
+        creatorUserId: A,
+        scope: "private",
+        kind: "custom_boundary",
+        root: "uploads",
+        relativePath: "boundary.geojson",
+      }, { roots: { uploads: uploadRoot, boundaries: boundaryRoot, system: systemRoot }, database })).rejects.toThrow("boundary root");
+    } finally {
+      await rm(boundaryRoot, { recursive: true, force: true });
+      await rm(uploadRoot, { recursive: true, force: true });
+      await rm(systemRoot, { recursive: true, force: true });
+    }
+  });
+
   it("issues a canonical locator, records content identity, and rejects system scope on generic registration", async () => {
     const inserted: Record<string, unknown>[] = [];
     const database = {
@@ -263,6 +439,12 @@ describe("server-only registration", () => {
     await expect(registerSystemInputAsset({
       creatorUserId: A, kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv",
     }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("configured system root");
+  });
+
+  it("rejects climate collections through generic registration on non-climate roots", async () => {
+    await expect(registerInputAsset({
+      creatorUserId: A, scope: "private", kind: "climate_collection", root: "uploads", relativePath: "climate.json",
+    }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("approved climate root");
   });
 
   it("returns an exact existing registration after a safe locator race", async () => {

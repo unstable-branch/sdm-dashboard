@@ -19,9 +19,9 @@ interface ClimateScenario {
 }
 
 interface BoundaryFile {
-  file_path: string;
-  file_name: string;
-  file_size: number;
+  boundaryAssetId: string;
+  contentSize: number;
+  createdAt: string;
 }
 
 interface CovariateStatus {
@@ -364,9 +364,9 @@ export function OverviewTab({
         {boundaries.length > 0 ? (
           <div className="space-y-1.5">
             {boundaries.slice(0, 5).map((b) => (
-              <div key={b.file_path} className="flex items-center gap-2 text-xs text-sdm-muted">
+              <div key={b.boundaryAssetId} className="flex items-center gap-2 text-xs text-sdm-muted">
                 <Map className="h-3 w-3 shrink-0" />
-                <span className="truncate">{b.file_name}</span>
+                <span className="truncate">Boundary {b.boundaryAssetId.slice(0, 8)}</span>
               </div>
             ))}
             {boundaries.length > 5 && <p className="text-xs text-sdm-muted">...and {boundaries.length - 5} more</p>}

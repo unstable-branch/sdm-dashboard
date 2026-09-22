@@ -51,10 +51,16 @@ services:
           memory: 512M
     environment:
       - NODE_ENV=production
+      - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
+      - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
+      - SDM_INPUT_ASSET_CHELSA_ROOT=/app/chelsa
+      - SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT=/app/Worldclim_future
       - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
       - REDIS_URL=redis://redis:6379
       - PLUMBER_URL=http://plumber:8000
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:?PLUMBER_EXECUTION_KEY is required}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - CSRF_SECRET=${CSRF_SECRET:?CSRF_SECRET is required}
       - DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY:?DATA_ENCRYPTION_KEY is required}
@@ -64,7 +70,12 @@ services:
       - GARAGE_BUCKET_RASTERS=${GARAGE_BUCKET_RASTERS:?GARAGE_BUCKET_RASTERS is required}
       - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET_EXPORTS:?GARAGE_BUCKET_EXPORTS is required}
     volumes:
+      - r-boundaries:/app/data/boundaries:ro
       - r-data:/app/outputs
+      # Read-only verification of the exact roots published by Plumber.
+      - r-climate:/app/Worldclim:ro
+      - r-chelsa:/app/chelsa:ro
+      - r-future:/app/Worldclim_future:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,14 +138,21 @@ services:
           cpus: "4"
           memory: 8G
     volumes:
+      - r-boundaries:/app/data/boundaries
       - r-data:/app/outputs
       - r-climate:/app/Worldclim
       - r-chelsa:/app/chelsa
       - r-future:/app/Worldclim_future
     environment:
+      - NODE_ENV=production
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
+      - SDM_WORLDCLIM_DIR=/app/Worldclim
+      - SDM_CHELSA_DIR=/app/chelsa
+      - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
       - DATABASE_URL=${DATABASE_URL:?Database connection string is required}
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:?PLUMBER_EXECUTION_KEY is required}
       - PLUMBER_AUTH_DISABLED=false
       # Both DATA_ENCRYPTION_KEY (preferred) and SDM_ENCRYPTION_KEY (legacy
       # fallback) are set to the same value so Plumber's crypto.R and the
@@ -233,6 +251,7 @@ volumes:
   garage-meta:
   garage-data:
   r-data:
+  r-boundaries:
   r-climate:
   r-chelsa:
   r-future:

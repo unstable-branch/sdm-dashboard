@@ -74,7 +74,6 @@ const buildRunPayloadConfig = {
   aggregationFactor: 1,
   nCores: 1,
   seed: 42,
-  worldclimDir: "Worldclim",
   worldclimRes: 10,
   source: "worldclim",
   analysisCrs: "auto",
@@ -113,6 +112,7 @@ const buildRunPayloadConfig = {
   dnnMultispeciesArchitecture: "DNN_Large",
   dnnMultispeciesNSeeds: 4,
   occurrenceAssetId: "11111111-1111-1111-1111-111111111111",
+  currentClimateAssetId: "22222222-2222-4222-8222-222222222222",
 };
 
 vi.mock("../db", () => ({
@@ -127,7 +127,10 @@ vi.mock("../services/model-payload", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../services/model-payload.js")>();
   return {
     ...actual,
-    resolveModelInputAsset: vi.fn(async () => ({ absolutePath: "/srv/inputs/authorized.csv", kind: "cleaned_occurrence" })),
+    resolveModelInputAssets: vi.fn(async () => ({
+      occurrenceFile: "/srv/inputs/authorized.csv",
+      worldclimDir: "/srv/climate/current",
+    })),
     resolveTargetsConfigs: vi.fn(async (configs: Record<string, unknown>[]) => configs.map((config) => {
       const resolved = { ...config };
       delete resolved.occurrenceAssetId;
@@ -145,6 +148,7 @@ vi.mock("../services/plumber", () => ({
     runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
     targetsRun: vi.fn(async () => ({ job_id: "targets-job-1" })),
     cancelModel: vi.fn(async () => ({ ok: true })),
+    getFutureScenarios: vi.fn(async () => ({ available_scenarios: [] })),
   },
 }));
 
@@ -153,6 +157,16 @@ vi.mock("../services/plumber-sync", () => ({
   getLastSyncError: vi.fn(() => null),
   getLastSyncAge: vi.fn(() => 0),
 }));
+
+vi.mock("../services/input-assets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/input-assets.js")>();
+  return {
+    ...actual,
+    registerSystemClimateCollectionFromServerPath: vi.fn(async () => ({
+      id: "33333333-3333-4333-8333-333333333333",
+    })),
+  };
+});
 
 vi.mock("../middleware/rate-limit", () => ({
   modelRateLimit: vi.fn(async (_c: any, next: any) => { await next(); }),
@@ -208,6 +222,44 @@ describe("SDM routes", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("redacts future climate manifest and directory paths from public listing", async () => {
+    const { plumberClient } = await import("../services/plumber");
+    (plumberClient.getFutureScenarios as any).mockResolvedValue({
+      available_scenarios: [{
+        id: "UKESM1-0-LL_SSP2-4.5_2041-2060",
+        type: "future",
+        source: "worldclim",
+        resolution: 10,
+        gcm: "UKESM1-0-LL",
+        ssp: "SSP2-4.5",
+        period: "2041-2060",
+        file_count: 19,
+        size_bytes: 123,
+        is_averaged: false,
+        manifest_path: "/app/Worldclim_future/climate_collection_v1_deadbeef.json",
+        path: "/app/Worldclim_future/UKESM1-0-LL_SSP2-4.5_2041-2060",
+      }],
+      base_directory: "/app/Worldclim_future",
+    });
+    const res = await app.request("/api/v1/sdm/future/scenarios");
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      available_scenarios: [{
+        id: "UKESM1-0-LL_SSP2-4.5_2041-2060",
+        type: "future",
+        source: "worldclim",
+        resolution: 10,
+        gcm: "UKESM1-0-LL",
+        ssp: "SSP2-4.5",
+        period: "2041-2060",
+        file_count: 19,
+        size_bytes: 123,
+        is_averaged: false,
+        climateCollectionId: "33333333-3333-4333-8333-333333333333",
+      }],
+    });
   });
 
   describe("GET /config/defaults", () => {
@@ -331,6 +383,46 @@ describe("SDM routes", () => {
     });
   });
 
+  describe("Targets durable execution deferral", () => {
+    it("rejects a valid Targets request before asset resolution, persistence, or Plumber", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+      const { resolveTargetsConfigs } = await import("../services/model-payload");
+
+      const res = await app.request("/api/v1/sdm/targets/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ configs: [buildRunPayloadConfig] }),
+      });
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        code: "TARGETS_DURABLE_EXECUTION_UNAVAILABLE",
+      });
+      expect(resolveTargetsConfigs).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+    });
+
+    it("rejects batch retry before reading or mutating historical state", async () => {
+      const { db } = await import("../db");
+      const { plumberClient } = await import("../services/plumber");
+
+      const res = await app.request("/api/v1/sdm/batch/historical/retry", {
+        method: "POST",
+      });
+
+      expect(res.status).toBe(503);
+      await expect(res.json()).resolves.toMatchObject({
+        code: "TARGETS_DURABLE_EXECUTION_UNAVAILABLE",
+      });
+      expect(db.select).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
+      expect(plumberClient.cancelModel).not.toHaveBeenCalled();
+      expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+    });
+  });
+
   describe("POST /run", () => {
     it("uses buildModelPayload for async queue run payloads", async () => {
       const { db } = await import("../db");
@@ -426,22 +518,38 @@ describe("SDM routes", () => {
       });
       expect(payload.biovars).toBe("1,4,6,12");
       expect(payload.projection_extent).toBe("-180,180,-90,90");
+      expect(payload.occurrence_file).toBe("/srv/inputs/authorized.csv");
+      expect(payload.worldclim_dir).toBe("/srv/climate/current");
+      expect(payload).not.toHaveProperty("current_climate_asset_id");
       expect(payload.dnn_l2_lambda).toBeUndefined();
+    });
+
+    it("does not persist a sync run when the final input authorization is denied", async () => {
+      const { db } = await import("../db");
+      const { resolveModelInputAssets, ModelInputAssetError } = await import("../services/model-payload");
+      (resolveModelInputAssets as any)
+        .mockResolvedValueOnce({ occurrenceFile: "/srv/inputs/authorized.csv", worldclimDir: "/srv/climate/current" })
+        .mockRejectedValueOnce(new ModelInputAssetError("not_authorized"));
+
+      const res = await app.request("/api/v1/sdm/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildRunPayloadConfig),
+      });
+
+      expect(res.status).toBe(404);
+      expect(db.insert).not.toHaveBeenCalled();
+      (resolveModelInputAssets as any).mockResolvedValue({
+        occurrenceFile: "/srv/inputs/authorized.csv",
+        worldclimDir: "/srv/climate/current",
+      });
     });
   });
 
   describe("POST /batch run queue", () => {
-    it("routes batch through targets pipeline", async () => {
+    it("defers batch computation before persistence or Targets dispatch", async () => {
       const { plumberClient } = await import("../services/plumber");
-      (plumberClient.targetsRun as any).mockResolvedValueOnce({ job_id: "targets-job-1" });
-
       const { db } = await import("../db");
-      (db.insert as any).mockImplementation(() => ({
-        values: vi.fn(() => ({
-          returning: vi.fn(async () => [{ id: "batch-1" }]),
-        })),
-        set: vi.fn(() => ({ where: vi.fn() })),
-      }));
 
       const res = await app.request("/api/v1/sdm/batch", {
         method: "POST",
@@ -452,10 +560,12 @@ describe("SDM routes", () => {
         }),
       });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(503);
       const data = await res.json();
-      expect(data.job_id).toBe("targets-job-1");
-      expect(data.batch_id).toBe("batch-1");
+      expect(data.code).toBe("TARGETS_DURABLE_EXECUTION_UNAVAILABLE");
+      expect(data.message).toContain("durable execution ownership");
+      expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
     });
   });
 
@@ -475,32 +585,21 @@ describe("SDM routes", () => {
   });
 
   describe("POST /batch/retry", () => {
-    it("returns 404 for nonexistent batch", async () => {
+    it("returns explicit unavailable before looking up a batch", async () => {
       const { db } = await import("../db");
-      (db.select as any).mockReturnValueOnce({
-        from: vi.fn(() => ({
-          where: vi.fn(() => Promise.resolve([])),
-        })),
-      });
       const res = await app.request("/api/v1/sdm/batch/nonexistent/retry", {
         method: "POST",
       });
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(503);
+      expect((await res.json()).code).toBe("TARGETS_DURABLE_EXECUTION_UNAVAILABLE");
+      expect(db.select).not.toHaveBeenCalled();
     });
   });
 
   describe("Multi-species batch operations", () => {
-    it("submits batch with 3 species configs", async () => {
+    it("defers a multi-species batch without downstream calls", async () => {
       const { plumberClient } = await import("../services/plumber");
-      (plumberClient.targetsRun as any).mockResolvedValueOnce({ job_id: "targets-3sp" });
-
       const { db } = await import("../db");
-      (db.insert as any).mockImplementation(() => ({
-        values: vi.fn(() => ({
-          returning: vi.fn(async () => [{ id: "batch-ms-1" }]),
-        })),
-        set: vi.fn(() => ({ where: vi.fn() })),
-      }));
 
       const res = await app.request("/api/v1/sdm/batch", {
         method: "POST",
@@ -515,44 +614,33 @@ describe("SDM routes", () => {
         }),
       });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(503);
       const data = await res.json();
-      expect(data.job_id).toBe("targets-3sp");
-      expect(data.batch_id).toBe("batch-ms-1");
-      expect(data.total).toBe(3);
+      expect(data.code).toBe("TARGETS_DURABLE_EXECUTION_UNAVAILABLE");
+      expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
     });
 
-    it("passes all configs to plumber targetsRun", async () => {
+    it("does not inspect or forward configs while deferred", async () => {
       const { plumberClient } = await import("../services/plumber");
       (plumberClient.targetsRun as any).mockClear();
-      (plumberClient.targetsRun as any).mockResolvedValueOnce({ job_id: "targets-check" });
 
       const { db } = await import("../db");
-      (db.insert as any).mockImplementation(() => ({
-        values: vi.fn(() => ({
-          returning: vi.fn(async () => [{ id: "batch-check" }]),
-        })),
-        set: vi.fn(() => ({ where: vi.fn() })),
-      }));
 
       const configs = [
         { ...buildRunPayloadConfig, species: "Sp1", modelId: "glm" },
         { ...buildRunPayloadConfig, species: "Sp2", modelId: "rangebag" },
       ];
 
-      await app.request("/api/v1/sdm/batch", {
+      const res = await app.request("/api/v1/sdm/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "Mixed models", configs }),
       });
 
-      expect(plumberClient.targetsRun).toHaveBeenCalledTimes(1);
-      const payload = (plumberClient.targetsRun as any).mock.calls[0][0] as Record<string, any>;
-      expect(payload.configs).toHaveLength(2);
-      expect(payload.configs[0].species).toBe("Sp1");
-      expect(payload.configs[1].species).toBe("Sp2");
-      expect(payload.configs[0].modelId).toBe("glm");
-      expect(payload.configs[1].modelId).toBe("rangebag");
+      expect(res.status).toBe(503);
+      expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
     });
   });
 
@@ -614,17 +702,9 @@ describe("SDM routes", () => {
       expect([400, 422, 500]).toContain(res.status);
     });
 
-    it("accepts batch with exactly 50 configs", async () => {
+    it("defers a batch with exactly 50 configs", async () => {
       const { plumberClient } = await import("../services/plumber");
-      (plumberClient.targetsRun as any).mockResolvedValueOnce({ job_id: "targets-50" });
-
       const { db } = await import("../db");
-      (db.insert as any).mockImplementation(() => ({
-        values: vi.fn(() => ({
-          returning: vi.fn(async () => [{ id: "batch-50" }]),
-        })),
-        set: vi.fn(() => ({ where: vi.fn() })),
-      }));
 
       const manyConfigs = new Array(50).fill(null).map((_, i) => ({
         ...buildRunPayloadConfig,
@@ -637,9 +717,11 @@ describe("SDM routes", () => {
         body: JSON.stringify({ name: "Max batch", configs: manyConfigs }),
       });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(503);
       const data = await res.json();
-      expect(data.total).toBe(50);
+      expect(data.code).toBe("TARGETS_DURABLE_EXECUTION_UNAVAILABLE");
+      expect(plumberClient.targetsRun).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
     });
   });
 
@@ -648,19 +730,15 @@ describe("SDM routes", () => {
       const { db } = await import("../db");
       const { plumberClient } = await import("../services/plumber");
       const { enqueueSdmJob } = await import("../services/queue");
-      (db.select as any)
-        .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([{ id: "batch-secret", projectId: "proj-1", jobId: "targets-old" }])) })) })
-        .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([{
-          id: "run-secret", status: "failed", config: { species: "Stored", modelId: "glm", biovars: [1, 4, 6], opentopo_api_key: "synthetic-opentopo-sentinel" },
-        }])) })) });
       (db.update as any).mockClear();
       (plumberClient.cancelModel as any).mockClear();
       (plumberClient.targetsRun as any).mockClear();
       (enqueueSdmJob as any).mockClear();
 
       const res = await app.request("/api/v1/sdm/batch/batch-secret/retry", { method: "POST" });
-      expect(res.status).toBe(409);
+      expect(res.status).toBe(503);
       expect(await res.text()).not.toContain("synthetic-opentopo-sentinel");
+      expect(db.select).not.toHaveBeenCalled();
       expect(db.update).not.toHaveBeenCalled();
       expect(plumberClient.cancelModel).not.toHaveBeenCalled();
       expect(plumberClient.targetsRun).not.toHaveBeenCalled();
@@ -730,9 +808,9 @@ describe("canonical asset execution boundary", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     const modelPayload = await import("../services/model-payload");
-    vi.mocked(modelPayload.resolveModelInputAsset).mockResolvedValue({
-      absolutePath: "/srv/inputs/authorized.csv",
-      kind: "cleaned_occurrence",
+    vi.mocked(modelPayload.resolveModelInputAssets).mockResolvedValue({
+      occurrenceFile: "/srv/inputs/authorized.csv",
+      worldclimDir: "/srv/climate/current",
     });
     vi.mocked(modelPayload.resolveTargetsConfigs).mockImplementation(async (configs) =>
       configs.map((config) => {
@@ -749,7 +827,7 @@ describe("canonical asset execution boundary", () => {
       const { db } = await import("../db");
       const { plumberClient } = await import("../services/plumber");
       const { enqueueSdmJob } = await import("../services/queue");
-      const { resolveModelInputAsset, resolveTargetsConfigs } = await import("../services/model-payload");
+      const { resolveModelInputAssets, resolveTargetsConfigs } = await import("../services/model-payload");
       for (const request of [
         { path: "/run", body: { ...buildRunPayloadConfig, [key]: "/client/escape.csv" } },
         { path: "/run", body: { ...buildRunPayloadConfig, async: true, [key]: "/client/escape.csv" } },
@@ -767,20 +845,21 @@ describe("canonical asset execution boundary", () => {
         expect(plumberClient.runModel).not.toHaveBeenCalled();
         expect(plumberClient.targetsRun).not.toHaveBeenCalled();
         expect(enqueueSdmJob).not.toHaveBeenCalled();
-        expect(resolveModelInputAsset).not.toHaveBeenCalled();
+        expect(resolveModelInputAssets).not.toHaveBeenCalled();
         expect(resolveTargetsConfigs).not.toHaveBeenCalled();
       }
     },
   );
 
   it.each([
-    ["foreign", "not_authorized"],
-    ["viewer", "not_authorized"],
-    ["revoked", "not_authorized"],
-    ["deleted", "not_found"],
-    ["quarantined", "not_authorized"],
-    ["unsafe", "unsafe_storage"],
-  ] as const)("denies %s assets before sync, async, or targets dispatch", async (_label, reason) => {
+    ["foreign", "not_authorized", 404],
+    ["viewer", "not_authorized", 404],
+    ["revoked", "not_authorized", 404],
+    ["deleted", "not_found", 404],
+    ["quarantined", "not_authorized", 404],
+    ["unsafe", "unsafe_storage", 404],
+    ["missing canonical", "invalid_request", 400],
+  ] as const)("denies %s assets before sync, async, or targets dispatch", async (_label, reason, expectedStatus) => {
     const { db } = await import("../db");
     const { plumberClient } = await import("../services/plumber");
     const { enqueueSdmJob } = await import("../services/queue");
@@ -794,14 +873,14 @@ describe("canonical asset execution boundary", () => {
       vi.clearAllMocks();
       const error = new modelPayload.ModelInputAssetError(reason);
       if (request.targets) vi.mocked(modelPayload.resolveTargetsConfigs).mockRejectedValueOnce(error);
-      else vi.mocked(modelPayload.resolveModelInputAsset).mockRejectedValueOnce(error);
+      else vi.mocked(modelPayload.resolveModelInputAssets).mockRejectedValueOnce(error);
 
       const res = await boundaryApp.request(request.path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request.body),
       });
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(request.targets ? 503 : expectedStatus);
       expect(await res.text()).not.toContain(reason);
       expect(db.insert).not.toHaveBeenCalled();
       expect(plumberClient.runModel).not.toHaveBeenCalled();
