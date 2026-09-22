@@ -186,6 +186,12 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     if (!fwd_role %in% c("admin", "editor", "viewer")) {
       return(auth_fail(res, 401L, '{"error":"Invalid forwarded principal."}'))
     }
+    # Plumber rechecks its boundary: the forwarded identity must still resolve
+    # to a current database principal before any protected handler runs.
+    principal <- sdm_validate_forwarded_principal(fwd_user, fwd_role, pool = sdm_get_db_pool(db_pool), app_dir = app_dir)
+    if (!isTRUE(principal$ok)) {
+      return(auth_fail(res, principal$status, principal$message))
+    }
     req$user_role <- fwd_role
     req$user_id <- fwd_user
     return(NULL)
@@ -208,6 +214,10 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
       }
       if (!fwd_role %in% c("admin", "editor", "viewer")) {
         return(auth_fail(res, 401L, '{"error":"Invalid forwarded principal."}'))
+      }
+      principal <- sdm_validate_forwarded_principal(fwd_user, fwd_role, pool = sdm_get_db_pool(db_pool), app_dir = app_dir)
+      if (!isTRUE(principal$ok)) {
+        return(auth_fail(res, principal$status, principal$message))
       }
       req$user_role <- fwd_role
       req$user_id <- fwd_user

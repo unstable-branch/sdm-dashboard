@@ -54,11 +54,15 @@ export const apiKeys = pgTable("api_keys", {
   keyPreview: varchar("key_preview", { length: 16 }),
   name: varchar("name", { length: 255 }).notNull(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  // Optional single-project scope: a scoped key resolves to its principal only
+  // for resources inside that project. NULL preserves principal-wide behavior.
+  scopeProjectId: uuid("scope_project_id").references(() => projects.id, { onDelete: "cascade" }),
   lastUsedAt: timestamp("last_used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at"),
 }, (t) => [
   index("idx_api_keys_user").on(t.userId),
+  index("idx_api_keys_scope").on(t.scopeProjectId),
 ]);
 
 export const species = pgTable("species", {
