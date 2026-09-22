@@ -91,7 +91,11 @@ CREATE TABLE IF NOT EXISTS execution_attempts (
   error_code TEXT,
   error_hint TEXT,
   started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  finalized_at TIMESTAMPTZ
+  finalized_at TIMESTAMPTZ,
+  -- Gapless attempt lineage: attempt_no is unique per execution across ALL
+  -- attempts, finalized or open (§2.2); the partial index below separately
+  -- keeps at most one open attempt per execution.
+  CONSTRAINT execution_attempts_attempt_no_uq UNIQUE (execution_id, attempt_no)
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS execution_attempts_open_uq

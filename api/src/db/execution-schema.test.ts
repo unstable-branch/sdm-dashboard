@@ -173,4 +173,12 @@ describe("durable execution drizzle schema", () => {
     const attemptIdx = getTableConfig(executionAttempts).indexes.map((i) => i.config.name);
     expect(attemptIdx).toContain("execution_attempts_open_uq");
   });
+
+  it("keeps (execution_id, attempt_no) unique for gapless attempt lineage (review round 1)", () => {
+    const attemptIdx = getTableConfig(executionAttempts).indexes.find((i) => i.config.name === "execution_attempts_attempt_no_uq");
+    expect(attemptIdx).toBeDefined();
+    expect(attemptIdx?.config.unique).toBe(true);
+    const cols = (attemptIdx?.config.columns ?? []).map((c) => (c && typeof c === "object" && "name" in c ? String((c as { name: unknown }).name) : String(c)));
+    expect(cols).toEqual(["execution_id", "attempt_no"]);
+  });
 });
