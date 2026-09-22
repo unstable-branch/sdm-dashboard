@@ -3,7 +3,7 @@ import { readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
-import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles, auditLogs } from "../db/schema.js";
+import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles, auditLogs, uploads, batches, inputAssets, occurrenceCleanJobs, apiKeys, projectMembers } from "../db/schema.js";
 import { eq, desc, sql, and, ilike, inArray, count } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
@@ -229,7 +229,43 @@ adminRoutes.delete("/users/:id", async (c) => {
       return c.json({ error: "User not found" }, 404);
     }
 
-    await db.delete(users).where(eq(users.id, targetId));
+    // Deletion is refused (not cascaded) while the account owns data: those
+    // records carry provenance and scientific evidence, so ownership must be
+    // transferred or the data removed through their own lifecycles first.
+    const blockingChecks = [
+      { resource: "projects", table: projects, column: projects.ownerId },
+      { resource: "species", table: species, column: species.userId },
+      { resource: "occurrences", table: occurrences, column: occurrences.userId },
+      { resource: "uploads", table: uploads, column: uploads.userId },
+      { resource: "batches", table: batches, column: batches.userId },
+      { resource: "input_assets", table: inputAssets, column: inputAssets.creatorUserId },
+      { resource: "occurrence_clean_jobs", table: occurrenceCleanJobs, column: occurrenceCleanJobs.userId },
+    ];
+    const blocking: Record<string, number> = {};
+    for (const check of blockingChecks) {
+      const [row] = await db.select({ total: count() }).from(check.table).where(eq(check.column, targetId));
+      const total = Number(row?.total ?? 0);
+      if (total > 0) blocking[check.resource] = total;
+    }
+    if (Object.keys(blocking).length > 0) {
+      return c.json(
+        {
+          error: "User still owns data. Transfer ownership or delete the listed resources before deleting the account.",
+          blocking,
+        },
+        409,
+      );
+    }
+
+    // Atomic revocation + removal: API keys and project memberships are
+    // credentials/access grants (NO ACTION foreign keys), so they are deleted
+    // with the account in one transaction. Browser sessions and personal
+    // settings are removed by ON DELETE CASCADE.
+    await db.transaction(async (tx) => {
+      await tx.delete(apiKeys).where(eq(apiKeys.userId, targetId));
+      await tx.delete(projectMembers).where(eq(projectMembers.userId, targetId));
+      await tx.delete(users).where(eq(users.id, targetId));
+    });
 
     const client = extractClientInfo(c);
     await logAction({
