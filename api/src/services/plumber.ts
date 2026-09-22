@@ -2,6 +2,7 @@ import type {
   PlumberUploadResponse,
   PlumberJobLogs,
 } from "@sdm/shared";
+import { createHmac, randomUUID } from "node:crypto";
 
 export interface PlumberJobStatus {
   [key: string]: unknown;
@@ -59,7 +60,6 @@ const PLUMBER_DEFAULT_TIMEOUT_MS = parseInt(process.env.PLUMBER_TIMEOUT_MS || "3
 const TIMEOUT_UPLOAD = parseInt(process.env.PLUMBER_UPLOAD_TIMEOUT_MS || "120000", 10);
 const TIMEOUT_MODEL_RUN = parseInt(process.env.PLUMBER_MODEL_RUN_TIMEOUT_MS || "300000", 10);
 const TIMEOUT_CLIMATE = parseInt(process.env.PLUMBER_CLIMATE_TIMEOUT_MS || "300000", 10);
-const TIMEOUT_NORMAL = PLUMBER_DEFAULT_TIMEOUT_MS;
 
 // Promise-based semaphore: resolves when a slot is available
 let plumberQueue: Array<() => void> = [];
@@ -166,7 +166,30 @@ export class PlumberClient {
     }
   }
 
-  private async _fetch(url: string, options?: RequestInit, timeoutMs?: number, protectedRequest = true): Promise<Response> {
+  private executionHeaders(body: string): Record<string, string> {
+    const executionKey = process.env.PLUMBER_EXECUTION_KEY;
+    if (!executionKey) throw new Error("PLUMBER_EXECUTION_KEY is required for model execution");
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const nonce = randomUUID();
+    const signature = createHmac("sha256", executionKey)
+      .update(`${timestamp}\n${nonce}\n${this.principal?.id}\n${body}`)
+      .digest("hex");
+    return {
+      ...this.headers(),
+      "Content-Type": "application/json",
+      "X-SDM-Execution-Timestamp": timestamp,
+      "X-SDM-Execution-Nonce": nonce,
+      "X-SDM-Execution-Signature": signature,
+    };
+  }
+
+  private async _fetch(
+    url: string,
+    options?: RequestInit,
+    timeoutMs?: number,
+    protectedRequest = true,
+    retries = 2,
+  ): Promise<Response> {
     if (protectedRequest) this.requirePrincipal();
     const ms = timeoutMs ?? PLUMBER_DEFAULT_TIMEOUT_MS;
     const opts: RequestInit = { ...options };
@@ -174,7 +197,7 @@ export class PlumberClient {
     // defaults, models, health) authenticate against the Plumber gate, which
     // requires X-Hono-Internal even with PLUMBER_AUTH_DISABLED=true.
     if (!opts.headers) opts.headers = this.headers();
-    return plumberSemaphore(() => fetchWithRetry(url, opts, 2, ms));
+    return plumberSemaphore(() => fetchWithRetry(url, opts, retries, ms));
   }
 
   async healthCheck(): Promise<{ status: string; r_version: string; timestamp: string }> {
@@ -271,11 +294,12 @@ export class PlumberClient {
   }
 
   async runModel(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const body = JSON.stringify(data);
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/run`, {
       method: "POST",
-      headers: { ...this.headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }, TIMEOUT_MODEL_RUN);
+      headers: this.executionHeaders(body),
+      body,
+    }, TIMEOUT_MODEL_RUN, true, 0);
     if (!res.ok) {
       let errorMsg = `Failed to run model: ${res.status}`;
       try {
@@ -345,26 +369,18 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; base_directory: string; message?: string }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`, undefined, undefined, false);
+  async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; message?: string }> {
+    const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`);
     if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
     return res.json();
   }
 
   async getClimateScenarios(): Promise<{ scenarios: Array<Record<string, unknown>> }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`, undefined, undefined, false);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/scenarios`);
     if (!res.ok) throw new Error(`Failed to get climate scenarios: ${res.status}`);
     return res.json();
   }
 
-  async deleteClimateScenario(scenarioId: string): Promise<{ ok: boolean; message: string }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, {
-      method: "POST",
-      headers: this.headers(),
-    }, TIMEOUT_NORMAL);
-    if (!res.ok) throw new Error(`Failed to delete scenario: ${res.status}`);
-    return res.json();
-  }
 
   async getUploads(limit?: number): Promise<{ uploads: Array<Record<string, unknown>> }> {
     const params = limit ? `?limit=${limit}` : "";
@@ -555,11 +571,12 @@ export class PlumberClient {
   // ── Targets pipeline ───────────────────────────────────────────────────
 
   async targetsRun(data: { configs: Record<string, unknown>[] }): Promise<Record<string, unknown>> {
+    const body = JSON.stringify(data);
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-run`, {
       method: "POST",
-      headers: { ...this.headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }, TIMEOUT_MODEL_RUN);
+      headers: this.executionHeaders(body),
+      body,
+    }, TIMEOUT_MODEL_RUN, true, 0);
     if (!res.ok) throw new Error(`Failed to start targets run: ${res.status}`);
     return res.json();
   }

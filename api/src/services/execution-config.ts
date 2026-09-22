@@ -17,13 +17,19 @@ function normalizedKey(key: string): string {
 }
 
 const FORBIDDEN_NORMALIZED_KEYS = new Set([...FORBIDDEN_KEY_NAMES].map(normalizedKey));
+const FORBIDDEN_CLIENT_PATH_KEYS = new Set([
+  "occurrencefile", "occurrencefilepath", "cleanedfilepath", "cleanedfileid",
+  "maskfile", "maskfilepath", "targetgroupfile", "targetgroupfilepath",
+  "worldclimdir", "futureworldclimdir", "futureworldclimdir2",
+]);
 
 function isForbiddenKey(key: string): boolean {
   return FORBIDDEN_NORMALIZED_KEYS.has(key)
     || key.endsWith("apikey")
     || key.endsWith("apitoken")
     || key.includes("secret")
-    || key.includes("credential");
+    || key.includes("credential")
+    || FORBIDDEN_CLIENT_PATH_KEYS.has(key);
 }
 
 export type ConfigPath = Array<string | number>;
@@ -58,6 +64,11 @@ export class UnsafeExecutionConfigError extends Error {
 export const CAMEL_TO_SNAKE: Record<string, string> = {
   modelId: "model_id",
   occurrenceAssetId: "occurrence_asset_id",
+  maskAssetId: "mask_asset_id",
+  targetGroupAssetId: "target_group_asset_id",
+  currentClimateAssetId: "current_climate_asset_id",
+  futureClimateAssetId: "future_climate_asset_id",
+  futureClimateAssetId2: "future_climate_asset_id2",
   threshold: "threshold",
   source: "source",
   seed: "seed",
@@ -69,7 +80,6 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   nCores: "n_cores",
   paReplicates: "pa_replicates",
   maskType: "mask_type",
-  maskFile: "mask_file",
   maskBufferDeg: "mask_buffer_deg",
   maskBoundaryType: "mask_boundary_type",
   maskResolution: "mask_resolution",
@@ -77,7 +87,6 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   restrictBackground: "restrict_background",
   biasMethod: "bias_method",
   thickeningDistanceKm: "thickening_distance_km",
-  targetGroupFile: "target_group_file",
   minSourceRecords: "min_source_records",
   mergeSmallSources: "merge_small_sources",
   thinByCell: "thin_by_cell",
@@ -87,12 +96,15 @@ export const CAMEL_TO_SNAKE: Record<string, string> = {
   climateMatchingMethod: "climate_matching_method",
   futureProjection: "future_projection",
   futureProjection2: "future_projection2",
-  futureWorldclimDir: "future_worldclim_dir",
   futureLabel: "future_label",
-  futureWorldclimDir2: "future_worldclim_dir2",
   futureLabel2: "future_label2",
+  futureGcm: "future_gcm",
+  futureSsp: "future_ssp",
+  futurePeriod: "future_period",
+  futureGcm2: "future_gcm2",
+  futureSsp2: "future_ssp2",
+  futurePeriod2: "future_period2",
   autoDownloadClimate: "auto_download_climate",
-  worldclimDir: "worldclim_dir",
   worldclimRes: "worldclim_res",
   useElevation: "use_elevation",
   elevationDemtype: "elevation_demtype",

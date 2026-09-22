@@ -83,25 +83,33 @@ services:
       context: .
       dockerfile: plumber/Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - plumber-data:/app/data
       - upload-data:/app/data/uploads
+      - boundary-data:/app/data/boundaries
       - plumber-outputs:/app/outputs
       - plumber-covariates:/app/covariates
       - plumber-worldclim:/app/Worldclim
       - plumber-chelsa:/app/chelsa
       - plumber-future:/app/Worldclim_future
     environment:
+      - NODE_ENV=production
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
+      - SDM_WORLDCLIM_DIR=/app/Worldclim
+      - SDM_CHELSA_DIR=/app/chelsa
+      - SDM_FUTURE_WORLDCLIM_DIR=/app/Worldclim_future
       - DATABASE_URL=postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:?PLUMBER_EXECUTION_KEY is required}
       - PLUMBER_AUTH_DISABLED=${PLUMBER_AUTH_DISABLED:-false}
       - GDAL_CACHEMAX=512
       - SDM_CHILD_MAX_VSIZE=6Gb
       - REDIS_HOST=redis
       - REDIS_URL=redis://redis:6379
       - SDM_MIN_GPU_VRAM_MIB=1500
+      - DATA_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
       - SDM_ENCRYPTION_KEY=${SDM_ENCRYPTION_KEY:?SDM_ENCRYPTION_KEY is required}
       - ALA_API_KEY=${ALA_API_KEY:-}
     init: true
@@ -133,6 +141,10 @@ services:
       - "127.0.0.1:4000:4000"
     environment:
       - SDM_PROJECT_ROOT=/app
+      - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
+      - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
+      - SDM_INPUT_ASSET_CHELSA_ROOT=/app/chelsa
+      - SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT=/app/Worldclim_future
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=${FRONTEND_API_URL:-}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
@@ -142,6 +154,7 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - PLUMBER_URL=${PLUMBER_URL:-http://plumber:8000}
       - PLUMBER_INTERNAL_KEY=${PLUMBER_INTERNAL_KEY:?PLUMBER_INTERNAL_KEY is required}
+      - PLUMBER_EXECUTION_KEY=${PLUMBER_EXECUTION_KEY:?PLUMBER_EXECUTION_KEY is required}
       - GARAGE_ENDPOINT=${GARAGE_ENDPOINT:-http://garage:3900}
       - GARAGE_ACCESS_KEY=${GARAGE_ACCESS_KEY:?GARAGE_ACCESS_KEY is required}
       - GARAGE_SECRET_KEY=${GARAGE_SECRET_KEY:?GARAGE_SECRET_KEY is required}
@@ -157,7 +170,14 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     volumes:
       - upload-data:/app/data/uploads
+      - boundary-data:/app/data/boundaries:ro
       - plumber-outputs:/app/outputs
+      # Read-only verification of the same climate roots Plumber publishes.
+      # Reuse Plumber's volumes so this does not introduce an empty shadow
+      # volume over image-baked climate data.
+      - plumber-worldclim:/app/Worldclim:ro
+      - plumber-chelsa:/app/chelsa:ro
+      - plumber-future:/app/Worldclim_future:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -222,6 +242,7 @@ volumes:
   plumber-chelsa:
   plumber-future:
   upload-data:
+  boundary-data:
 
 networks:
   sdm-network:

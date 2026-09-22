@@ -279,12 +279,13 @@ export interface UploadFile {
 
 export interface ClimateScenarioResponse {
   id: string;
+  climateCollectionId: string;
   type: "future" | "current";
   gcm?: string;
   ssp?: string;
   period?: string;
   source?: "worldclim" | "chelsa";
-  path?: string;
+  resolution?: number;
   file_count: number;
   size_bytes: number;
   is_averaged?: boolean;

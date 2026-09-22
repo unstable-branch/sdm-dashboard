@@ -20,16 +20,51 @@ ne_boundary_infer_scale <- function(raster_res) {
 #' @param scale "10m", "50m", or "110m"
 #' @param type "admin0" or "land"
 #' @return Full file path
+sdm_ne_boundary_root <- function() {
+  root <- tryCatch(sdm_project_root(), error = function(e) getwd())
+  configured_boundary_root <- Sys.getenv("SDM_INPUT_ASSET_BOUNDARY_ROOT", unset = "")
+  if (nzchar(configured_boundary_root)) configured_boundary_root else file.path(root, "data", "boundaries")
+}
+
+sdm_ne_boundary_path_is_safe <- function(path) {
+  root <- sdm_ne_boundary_root()
+  if (exists("sdm_boundary_path_has_symlink", mode = "function", inherits = TRUE)) {
+    return(!sdm_boundary_path_has_symlink(path, root))
+  }
+  candidates <- unique(c(root, path))
+  for (candidate in candidates) {
+    current <- if (startsWith(candidate, "/")) "/" else ""
+    for (segment in strsplit(gsub("\\\\", "/", candidate, fixed = TRUE), "/", fixed = TRUE)[[1]]) {
+      if (!nzchar(segment)) next
+      current <- file.path(current, segment)
+      link_target <- Sys.readlink(current)
+      if (length(link_target) > 0L && !is.na(link_target) && nzchar(link_target)) return(FALSE)
+    }
+  }
+  TRUE
+}
+
 get_ne_boundary_path <- function(scale = "110m", type = "admin0") {
   scale <- match.arg(scale, c("10m", "50m", "110m"))
   type <- match.arg(type, c("admin0", "land"))
-  root <- tryCatch(sdm_project_root(), error = function(e) getwd())
-  boundary_dir <- file.path(root, "data", "boundaries", "ne", scale)
+  boundary_dir <- file.path(sdm_ne_boundary_root(), "ne", scale)
   if (type == "admin0") {
     file.path(boundary_dir, "ne_10m_admin_0_countries.geojson")
   } else {
     file.path(boundary_dir, "ne_10m_land.geojson")
   }
+}
+
+sdm_ne_archive_members_safe <- function(members) {
+  for (member in members) {
+    normalized <- sub("/+$", "", gsub("\\\\", "/", member, fixed = TRUE))
+    segments <- strsplit(normalized, "/", fixed = TRUE)[[1]]
+    if (!nzchar(normalized) || grepl("[[:cntrl:]]", normalized) || startsWith(normalized, "/") ||
+        grepl("^[A-Za-z]:", normalized) || any(segments %in% c("..", ""))) {
+      return(FALSE)
+    }
+  }
+  TRUE
 }
 
 #' Download Natural Earth boundary dataset
@@ -41,9 +76,13 @@ download_ne_boundary <- function(scale = "110m", type = "admin0", force = FALSE)
   scale <- match.arg(scale, c("10m", "50m", "110m"))
   type <- match.arg(type, c("admin0", "land"))
   boundary_path <- get_ne_boundary_path(scale, type)
+  if (!sdm_ne_boundary_path_is_safe(boundary_path)) return(NULL)
   if (!force && file.exists(boundary_path))
     return(boundary_path)
-  dir.create(dirname(boundary_path), recursive = TRUE, showWarnings = FALSE)
+  boundary_dir <- dirname(boundary_path)
+  if (!sdm_ne_boundary_path_is_safe(boundary_dir)) return(NULL)
+  dir.create(boundary_dir, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(boundary_dir) || !sdm_ne_boundary_path_is_safe(boundary_dir)) return(NULL)
   if (type == "admin0") {
     url <- sprintf("https://naturalearth.s3.amazonaws.com/%s_cultural/ne_%s_admin_0_countries.zip", scale, scale)
   } else {
@@ -51,13 +90,23 @@ download_ne_boundary <- function(scale = "110m", type = "admin0", force = FALSE)
   }
   zip_path <- tempfile(fileext = ".zip")
   on.exit(unlink(zip_path), add = TRUE)
+  extract_dir <- tempfile("sdm-ne-extract-")
+  dir.create(extract_dir, recursive = TRUE, showWarnings = FALSE)
+  on.exit(unlink(extract_dir, recursive = TRUE), add = TRUE)
   tryCatch({
     utils::download.file(url, zip_path, mode = "wb", quiet = TRUE, timeout = 300)
-    utils::unzip(zip_path, exdir = dirname(boundary_path))
-    extracted <- list.files(dirname(boundary_path), pattern = "\\.(geojson|json|shp)$", full.names = TRUE, recursive = TRUE)
+    members <- utils::unzip(zip_path, list = TRUE)$Name
+    if (!sdm_ne_archive_members_safe(members)) return(NULL)
+    utils::unzip(zip_path, exdir = extract_dir)
+    extracted_all <- list.files(extract_dir, all.files = TRUE, recursive = TRUE, full.names = TRUE, no.. = TRUE)
+    if (any(vapply(extracted_all, function(path) {
+      target <- Sys.readlink(path)
+      length(target) > 0L && !is.na(target) && nzchar(target)
+    }, logical(1)))) return(NULL)
+    extracted <- extracted_all[grepl("\\.(geojson|json|shp)$", extracted_all, ignore.case = TRUE)]
     src <- grep("\\.geojson$", extracted, value = TRUE)
     if (length(src) > 0) {
-      sdm_safe_rename(src[1], boundary_path)
+      if (!isTRUE(file.copy(src[1], boundary_path, overwrite = force))) return(NULL)
     } else {
       src <- grep("\\.shp$", extracted, value = TRUE)
       if (length(src) > 0) {
@@ -67,6 +116,7 @@ download_ne_boundary <- function(scale = "110m", type = "admin0", force = FALSE)
         }, error = function(e) sdm_safe_rename(src[1], boundary_path))
       }
     }
+    if (!sdm_ne_boundary_path_is_safe(boundary_path)) return(NULL)
     if (file.exists(boundary_path)) return(boundary_path)
     NULL
   }, error = function(e) {
@@ -85,8 +135,10 @@ download_ne_boundary <- function(scale = "110m", type = "admin0", force = FALSE)
 resolve_mask_file <- function(boundary_type = "admin0", resolution = "auto",
                                country = "all", raster_res = NULL,
                                default_file = sdm_default_mask_file) {
-  if (boundary_type == "custom" && !is.null(country) && nzchar(country))
-    return(country)
+  if (boundary_type == "custom") {
+    if (is.null(default_file) || !is.character(default_file) || length(default_file) != 1L || !nzchar(default_file)) return(NULL)
+    return(default_file)
+  }
   scale <- if (identical(resolution, "auto")) ne_boundary_infer_scale(raster_res) else resolution
   path <- get_ne_boundary_path(scale, boundary_type)
   if (!file.exists(path))
@@ -159,8 +211,10 @@ restrict_raster_to_boundary <- function(raster, mask_file) {
 #' @return Character vector of country names
 get_admin0_countries <- function(scale = "110m") {
   path <- get_ne_boundary_path(scale, "admin0")
+  if (!sdm_ne_boundary_path_is_safe(path)) return(character(0))
   if (!file.exists(path)) path <- download_ne_boundary(scale, "admin0")
   if (is.null(path) || !file.exists(path)) return(character(0))
+  if (!sdm_ne_boundary_path_is_safe(path)) return(character(0))
   tryCatch({
     gj <- jsonlite::fromJSON(path, simplifyVector = FALSE)
     feats <- gj$features %||% list()

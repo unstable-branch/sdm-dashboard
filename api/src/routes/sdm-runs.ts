@@ -12,10 +12,11 @@ import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload, resolveModelInputAsset, ModelInputAssetError } from "../services/model-payload.js";
+import { buildModelPayload, resolveModelInputAssets, ModelInputAssetError } from "../services/model-payload.js";
 import { projectSafeScienceConfig, sanitizeStoredConfig, publicConfigValidationError, canonicalizeExecutionConfig } from "../services/execution-config.js";
 import { canAccessRun } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+import { registerSystemClimateCollectionFromServerPath } from "../services/input-assets.js";
 
 async function plumberJobId(runId: string): Promise<string> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
@@ -64,7 +65,7 @@ sdmRunRoutes.post("/run", async (c) => {
     const projectId = await ensureDefaultProject(user);
     // Preflight before persistence; dispatch below resolves again to avoid
     // using a path after an intervening asset state/storage change.
-    await resolveModelInputAsset(safeConfig, { id: user.id, role: user.role }, projectId);
+    await resolveModelInputAssets(safeConfig, { id: user.id, role: user.role }, projectId);
 
     if (async) {
       let speciesId: string | undefined;
@@ -155,6 +156,12 @@ sdmRunRoutes.post("/run", async (c) => {
       return c.json({ runId: insertedRun.id, queuedAt: new Date().toISOString() });
     }
 
+    // Re-authorize as close as possible to persistence so an input denial never
+    // creates a run row. The resolved paths are then used for this dispatch.
+    const latestInputs = await resolveModelInputAssets(
+      safeConfig, { id: user.id, role: user.role }, projectId,
+    );
+
     const [maxRun] = await db
       .select({ maxNum: sql<number>`COALESCE(MAX(run_number), 0)` })
       .from(runs)
@@ -176,10 +183,9 @@ sdmRunRoutes.post("/run", async (c) => {
 
     let plumberJobId: string | undefined;
     try {
-      const latestInput = await resolveModelInputAsset(
-        safeConfig, { id: user.id, role: user.role }, projectId,
+      const result = await plumberClient.withUser(user.id).withRole(user.role).runModel(
+        buildModelPayload(safeConfig, run.id, latestInputs.occurrenceFile, latestInputs),
       );
-      const result = await plumberClient.withUser(user.id).withRole(user.role).runModel(buildModelPayload(safeConfig, run.id, latestInput.absolutePath));
       plumberJobId = (result as { job_id?: string }).job_id;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Model run failed";
@@ -197,7 +203,11 @@ sdmRunRoutes.post("/run", async (c) => {
       });
       if (err instanceof ModelInputAssetError) {
         const unavailable = err.reason === "unavailable";
-        return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+        const invalid = err.reason === "invalid_request";
+        return c.json(
+          { error: unavailable ? "Input asset service unavailable" : invalid ? "Invalid model input selection" : "Input asset not found" },
+          unavailable ? 503 : invalid ? 400 : 404,
+        );
       }
       const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
       return c.json({ error: message }, isBusy ? 429 : 502);
@@ -237,7 +247,11 @@ sdmRunRoutes.post("/run", async (c) => {
   } catch (err) {
     if (err instanceof ModelInputAssetError) {
       const unavailable = err.reason === "unavailable";
-      return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+      const invalid = err.reason === "invalid_request";
+      return c.json(
+        { error: unavailable ? "Input asset service unavailable" : invalid ? "Invalid model input selection" : "Input asset not found" },
+        unavailable ? 503 : invalid ? 400 : 404,
+      );
     }
     const message = err instanceof Error ? err.message : "Model run failed";
     console.error(`[sdm] Model run failed: ${message}`);
@@ -462,10 +476,28 @@ sdmRunRoutes.get("/compare/:runId1/:runId2", authMiddleware, async (c) => {
   }
 });
 
-sdmRunRoutes.get("/future/scenarios", async (c) => {
+sdmRunRoutes.get("/future/scenarios", authMiddleware, async (c) => {
   try {
-    const scenarios = await plumberClient.getFutureScenarios();
-    return c.json(scenarios);
+    const user = c.get("user");
+    const response = await plumberClient.withUser(user.id).withRole(user.role).getFutureScenarios();
+    const allowedKeys = ["id", "type", "source", "resolution", "gcm", "ssp", "period", "file_count", "size_bytes", "is_averaged", "status"];
+    const available_scenarios = [];
+    for (const scenario of response.available_scenarios || []) {
+      if (typeof scenario.manifest_path !== "string") continue;
+      const asset = await registerSystemClimateCollectionFromServerPath({
+        creatorUserId: user.id,
+        absolutePath: scenario.manifest_path,
+      });
+      const publicScenario: Record<string, unknown> = {};
+      for (const key of allowedKeys) {
+        if (scenario[key] !== undefined && typeof scenario[key] !== "object") {
+          publicScenario[key] = scenario[key];
+        }
+      }
+      publicScenario.climateCollectionId = asset.id;
+      available_scenarios.push(publicScenario);
+    }
+    return c.json({ available_scenarios, ...(response.message ? { message: response.message } : {}) });
   } catch (err) {
     console.warn("[sdm/future/scenarios]", err instanceof Error ? err.message : String(err));
     return c.json({

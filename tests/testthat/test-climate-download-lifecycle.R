@@ -9,6 +9,82 @@ test_that("climate data paths are rooted independently of the working directory"
 })
 
 
+test_that("climate producer publishes an immutable v1 manifest with canonical members", {
+  skip_if_not(requireNamespace("digest", quietly = TRUE), "digest is required for climate manifests")
+  if (!exists("sdm_publish_climate_collection_manifest", mode = "function")) {
+    source(file.path(project_root, "plumber", "R", "helpers", "climate_helpers.R"), local = FALSE)
+  }
+
+  root <- tempfile("climate-manifest-project-")
+  dir.create(root)
+  dirs <- file.path(root, c("Worldclim", "chelsa", "Worldclim_future"))
+  lapply(dirs, dir.create, recursive = TRUE)
+  roots <- setNames(dirs, c("worldclim", "chelsa", "future_worldclim"))
+  layer <- file.path(dirs[[1]], "wc2.1_10m_bio_1.tif")
+  writeBin(as.raw(c(0x49, 0x49, 0x2A, 0x00, rep(1L, 28))), layer)
+
+  manifest <- sdm_publish_climate_collection_manifest(
+    layer, root, metadata = list(source = "worldclim", resolution = "10"), roots = roots
+  )
+  payload <- jsonlite::fromJSON(manifest, simplifyVector = FALSE)
+  expect_equal(payload$version, 1)
+  expect_equal(payload$members[[1]]$locator, "worldclim/wc2.1_10m_bio_1.tif")
+  expect_equal(payload$members[[1]]$size, 32)
+  expect_match(payload$members[[1]]$sha256, "^[0-9a-f]{64}$")
+  expect_false(grepl(root, jsonlite::toJSON(payload, auto_unbox = TRUE)))
+
+  same_manifest <- sdm_publish_climate_collection_manifest(
+    layer, root, metadata = list(source = "worldclim", resolution = "10"), roots = roots
+  )
+  expect_identical(same_manifest, manifest)
+
+  second_layer <- file.path(dirs[[1]], "wc2.1_10m_bio_4.tif")
+  writeBin(as.raw(c(0x49, 0x49, 0x2A, 0x00, rep(2L, 28))), second_layer)
+  changed_manifest <- sdm_publish_climate_collection_manifest(
+    c(layer, second_layer), root, metadata = list(source = "worldclim", resolution = "10"), roots = roots
+  )
+  expect_false(identical(changed_manifest, manifest))
+  expect_true(file.exists(manifest))
+})
+
+test_that("climate listings publish manifests and do not expose member paths", {
+  if (!exists("sdm_publish_climate_collection_manifest", mode = "function")) {
+    source(file.path(project_root, "plumber", "R", "helpers", "climate_helpers.R"), local = FALSE)
+  }
+  root <- tempfile("climate-list-project-")
+  dir.create(root)
+  for (dir_name in c("Worldclim", "chelsa", "Worldclim_future")) dir.create(file.path(root, dir_name), recursive = TRUE)
+  scenario <- file.path(root, "Worldclim_future", "UKESM1-0-LL_SSP2-4.5_2041-2060")
+  dir.create(scenario, recursive = TRUE)
+  writeBin(as.raw(c(0x49, 0x49, 0x2A, 0x00, rep(1L, 28))), file.path(scenario, "wc2.1_10m_bioc_1.tif"))
+
+  old <- list(
+    worldclim = sdm_default_worldclim_dir,
+    chelsa = sdm_default_chelsa_dir,
+    future = sdm_default_future_worldclim_dir
+  )
+  assign("sdm_default_worldclim_dir", file.path(root, "Worldclim"), envir = globalenv())
+  assign("sdm_default_chelsa_dir", file.path(root, "chelsa"), envir = globalenv())
+  assign("sdm_default_future_worldclim_dir", file.path(root, "Worldclim_future"), envir = globalenv())
+  on.exit({
+    assign("sdm_default_worldclim_dir", old$worldclim, envir = globalenv())
+    assign("sdm_default_chelsa_dir", old$chelsa, envir = globalenv())
+    assign("sdm_default_future_worldclim_dir", old$future, envir = globalenv())
+  }, add = TRUE)
+
+  listed <- handle_future_scenarios(NULL, root)$available_scenarios
+  expect_length(listed, 1)
+  expect_equal(listed[[1]]$source, "worldclim")
+  expect_equal(listed[[1]]$resolution, 10)
+  expect_true(is.character(listed[[1]]$manifest_path))
+  manifest <- jsonlite::fromJSON(listed[[1]]$manifest_path, simplifyVector = FALSE)
+  expect_equal(manifest$metadata$source, "worldclim")
+  expect_equal(manifest$metadata$resolution, 10)
+  expect_null(listed[[1]]$path)
+  expect_null(listed[[1]]$files)
+  expect_false("base_directory" %in% names(handle_future_scenarios(NULL, root)))
+})
+
 test_that("WorldClim resolution labels and cached archives are reusable", {
   expect_equal(sdm_worldclim_res_label(0.5), "30s")
   expect_equal(sdm_worldclim_res_label(2.5), "2.5m")

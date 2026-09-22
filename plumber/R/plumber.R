@@ -181,9 +181,6 @@ function(req, res, job_id) handle_climate_status(req, res, job_id, app_dir)
 #* @get /api/v1/climate/scenarios
 function(res) handle_climate_scenarios(res, app_dir)
 
-#* Delete a climate scenario
-#* @post /api/v1/climate/delete/<scenario_id>
-function(req, res, scenario_id) handle_climate_delete(req, res, scenario_id, app_dir)
 
 #* Cancel a climate download
 #* @post /api/v1/climate/cancel/<job_id>
@@ -338,9 +335,13 @@ function(req, res, run_id, lat, lng, band = NULL)
 #* @param resolution Boundary resolution
 #* @param type Boundary type (admin0, admin1)
 #* @param country Country name or code
+#* @param boundary_asset_id Opaque boundary asset ID resolved by the API
+#* @param project_id Optional destination project ID
 #* @post /api/v1/data/boundary/default
-function(res, resolution = NULL, type = NULL, country = NULL)
-  handle_boundary_default(res, app_dir, resolution, type, country)
+function(req, res, resolution = NULL, type = NULL, country = NULL, file_path = NULL,
+         boundary_asset_id = NULL, project_id = NULL)
+  handle_boundary_default(res, app_dir, resolution, type, country, file_path,
+    boundary_asset_id, project_id, req)
 
 #* Upload a custom boundary file
 #* @param file_name Name for the boundary file
@@ -348,28 +349,22 @@ function(res, resolution = NULL, type = NULL, country = NULL)
 #* @post /api/v1/data/boundary/upload
 function(req, res) handle_boundary_upload(req, res, app_dir)
 
-#* List custom boundaries
-#* @post /api/v1/data/boundary/list
-function(req, res) handle_boundary_list(req, res, app_dir)
-
-#* Delete a custom boundary
-#* @param file_path Path to the boundary file to delete
-#* @post /api/v1/data/boundary/delete
-function(req, res) handle_boundary_delete(req, res, app_dir)
-
 #* List country names
 #* @post /api/v1/data/boundary/countries
 function(res) handle_boundary_countries(res, app_dir)
 
 #* Compute bounding box extent
-#* @param file_path Path to boundary file
+#* @param boundary_asset_id Opaque boundary asset ID resolved by the API
+#* @param project_id Optional destination project ID
 #* @param type Boundary type (admin0, admin1)
 #* @param resolution Boundary resolution
 #* @param country Country name
 #* @param buffer_deg Buffer in degrees
 #* @post /api/v1/data/boundary/extent
-function(res, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2)
-  handle_boundary_extent(res, app_dir, file_path, type, resolution, country, buffer_deg)
+function(req, res, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2,
+         boundary_asset_id = NULL, project_id = NULL)
+  handle_boundary_extent(res, app_dir, file_path, type, resolution, country, buffer_deg,
+    boundary_asset_id, project_id, req)
 
 #* Download Natural Earth boundary
 #* @param type Boundary type (admin0, admin1)

@@ -35,7 +35,6 @@ interface ClimateTabProps {
   onDownloadFailed: (jobId: string) => void;
   onCancelDownload: () => void;
   onFetchScenarios: () => void;
-  onDeleteScenario: (id: string) => void;
 }
 
 export function ClimateTab({
@@ -46,7 +45,7 @@ export function ClimateTab({
   onSetClimateSource, onSetClimateRes, onToggleClimateBiovar, onClimateDownload,
   onSetCmip6Gcm, onSetCmip6Ssp, onSetCmip6Period, onCmip6Download,
   onToggleAvgGcm, onAvgDownload,
-  onDownloadComplete, onDownloadFailed, onCancelDownload, onFetchScenarios, onDeleteScenario,
+  onDownloadComplete, onDownloadFailed, onCancelDownload, onFetchScenarios,
 }: ClimateTabProps) {
   const missingCount = climateBiovars.filter(b => !availableBiovars.has(b)).length;
   const allPresent = missingCount === 0 && climateBiovars.length > 0;
@@ -165,7 +164,7 @@ export function ClimateTab({
       {activeJob && (
         <DownloadProgress jobId={activeJob} typeLabel="climate download" onComplete={() => onDownloadComplete(activeJob)} onFailed={() => onDownloadFailed(activeJob)} onCancel={onCancelDownload} />
       )}
-      <ScenarioList scenarios={scenarios} onRefresh={onFetchScenarios} onDelete={onDeleteScenario} loading={scenariosLoading} />
+      <ScenarioList scenarios={scenarios} onRefresh={onFetchScenarios} loading={scenariosLoading} />
     </div>
   );
 }

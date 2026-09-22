@@ -16,11 +16,62 @@ testthat::test_that("trusted preroute propagation fails closed", {
   testthat::expect_gte(count_literal("Forwarded user required."), 2L)
   testthat::expect_gte(count_literal("Forwarded role required."), 2L)
   testthat::expect_gte(count_literal("Invalid forwarded principal."), 2L)
+  testthat::expect_match(source_text, 'paste("apikey", api_key, sep = ":")', fixed = TRUE)
 
   # In each trusted internal branch, the role assignment is before the hook's
   # successful return, and no missing identity can reach that return.
   trusted_blocks <- strsplit(source_text, "if (is.null(fwd_user) || !nzchar(fwd_user))", fixed = TRUE)[[1]]
   testthat::expect_true(length(trusted_blocks) >= 3L)
+})
+
+testthat::test_that("manifest-publishing climate discovery requires authentication", {
+  project_root <- normalizePath(file.path(testthat::test_path(), "..", ".."), winslash = "/", mustWork = TRUE)
+  env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "auth.R"), envir = env)
+  testthat::expect_true(env$requires_auth("/api/v1/climate/scenarios"))
+  testthat::expect_true(env$requires_auth("/api/v1/future/scenarios"))
+  testthat::expect_false(env$requires_auth("/api/v1/climate/check"))
+})
+
+testthat::test_that("production startup requires an independent strong execution key", {
+  project_root <- normalizePath(file.path(testthat::test_path(), "..", ".."), winslash = "/", mustWork = TRUE)
+  run_server_source <- paste(readLines(file.path(project_root, "plumber", "R", "run_server.R"), warn = FALSE), collapse = "\n")
+  testthat::expect_match(run_server_source, "startup_validation\\.R", fixed = FALSE)
+  testthat::expect_match(run_server_source, "PLUMBER_EXECUTION_KEY", fixed = TRUE)
+  env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "startup_validation.R"), envir = env)
+
+  valid <- env$sdm_production_secret_issues(
+    node_env = "production",
+    internal_key = paste(rep("i", 32), collapse = ""),
+    execution_key = paste(rep("e", 32), collapse = ""),
+    data_encryption_key = paste(rep("d", 32), collapse = "")
+  )
+  testthat::expect_length(valid, 0L)
+
+  missing <- env$sdm_production_secret_issues(
+    node_env = "production",
+    internal_key = paste(rep("i", 32), collapse = ""),
+    execution_key = "",
+    data_encryption_key = paste(rep("d", 32), collapse = "")
+  )
+  testthat::expect_true(any(grepl("PLUMBER_EXECUTION_KEY", missing, fixed = TRUE)))
+
+  weak <- env$sdm_production_secret_issues(
+    node_env = "production",
+    internal_key = paste(rep("i", 32), collapse = ""),
+    execution_key = "short",
+    data_encryption_key = paste(rep("d", 32), collapse = "")
+  )
+  testthat::expect_true(any(grepl("PLUMBER_EXECUTION_KEY", weak, fixed = TRUE)))
+
+  same <- env$sdm_production_secret_issues(
+    node_env = "production",
+    internal_key = paste(rep("s", 32), collapse = ""),
+    execution_key = paste(rep("s", 32), collapse = ""),
+    data_encryption_key = paste(rep("d", 32), collapse = "")
+  )
+  testthat::expect_true(any(grepl("independent", same, ignore.case = TRUE)))
 })
 
 

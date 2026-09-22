@@ -3,15 +3,19 @@ import { targetsRunRequestSchema } from "@sdm/shared";
 import { plumberClient } from "../services/plumber.js";
 import { db } from "../db/index.js";
 import { runs } from "../db/schema.js";
-import { eq, desc, count, and, inArray, sql } from "drizzle-orm";
+import { eq, desc, count, and, inArray } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
-import { ensureDefaultProject, getUserProjectIds, canAccessRun } from "../services/access.js";
-import { logAction, extractClientInfo } from "../services/audit.js";
-import { projectSafeScienceConfig, publicConfigValidationError } from "../services/execution-config.js";
-import { resolveTargetsConfigs, ModelInputAssetError } from "../services/model-payload.js";
+import { getUserProjectIds, canAccessRun } from "../services/access.js";
+import { projectSafeScienceConfig, publicConfigValidationError, UnsafeExecutionConfigError } from "../services/execution-config.js";
 
 const MAX_RUNS_LIMIT = 500;
+
+export const TARGETS_DURABLE_EXECUTION_UNAVAILABLE = {
+  error: "Targets computation unavailable",
+  code: "TARGETS_DURABLE_EXECUTION_UNAVAILABLE",
+  message: "New Targets and Targets-backed batch computations are unavailable until durable execution ownership exists.",
+} as const;
 
 export const sdmTargetsRoutes = new Hono<AppEnv>();
 
@@ -26,28 +30,14 @@ sdmTargetsRoutes.post("/targets/run", async (c) => {
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
     const parsed = targetsRunRequestSchema.safeParse(body);
     if (!parsed.success) return c.json(publicConfigValidationError(), 400);
-    const safeConfigs = parsed.data.configs.map((config) => projectSafeScienceConfig(config));
-    const user = c.get("user");
-    const projectId = await ensureDefaultProject(user);
-    const configs = await resolveTargetsConfigs(safeConfigs, { id: user.id, role: user.role }, projectId);
-    const result = await plumberClient.withUser(user.id).withRole(user.role).targetsRun({ configs });
-
-    const client = extractClientInfo(c);
-    await logAction({
-      userId: user.id,
-      action: "targets_run_started",
-      entity: "runs",
-      entityId: (result as Record<string, unknown>)?.job_id as string | null ?? null,
-      ...client,
-      details: { configsCount: configs.length },
-    });
-
-    return c.json(result);
-  } catch (err) {
-    if (err instanceof ModelInputAssetError) {
-      const unavailable = err.reason === "unavailable";
-      return c.json({ error: unavailable ? "Input asset service unavailable" : "Input asset not found" }, unavailable ? 503 : 404);
+    try {
+      parsed.data.configs.forEach((config) => projectSafeScienceConfig(config));
+    } catch (err) {
+      if (err instanceof UnsafeExecutionConfigError) return c.json(publicConfigValidationError(), 400);
+      throw err;
     }
+    return c.json(TARGETS_DURABLE_EXECUTION_UNAVAILABLE, 503);
+  } catch (err) {
     const message = err instanceof Error ? err.message : "Targets run failed";
     return c.json({ error: message }, 502);
   }

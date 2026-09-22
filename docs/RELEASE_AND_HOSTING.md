@@ -72,6 +72,7 @@ Use `docker-compose.prod.yml` for private/team deployments. The application serv
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `PLUMBER_INTERNAL_KEY`
+- `PLUMBER_EXECUTION_KEY` (independent from `PLUMBER_INTERNAL_KEY`; signs resolved model payloads)
 - `GARAGE_ACCESS_KEY`
 - `GARAGE_SECRET_KEY`
 - `GARAGE_BUCKET_RASTERS`
@@ -83,6 +84,8 @@ Use `docker-compose.prod.yml` for private/team deployments. The application serv
 Operators are responsible for TLS, backups, retention, user access, and firewalling admin surfaces. Do not expose Postgres, Redis, Garage admin ports, Prometheus, or Grafana publicly without access controls.
 
 The local compose file starts Garage in single-node mode with a dev-only bucket so a fresh checkout can boot without manual object-storage setup. Production operators should provision Garage layout, keys, buckets, and backups deliberately before exposing the API. The API container applies Drizzle migrations at startup so empty self-hosted database volumes can bootstrap before workers and Plumber sync begin. Operators should still back up the database before upgrades.
+
+Phase 2 requires additive migration `0040_climate_collection_manifests.sql` before API code can register `climate_collection` assets. The API and Plumber containers must share the configured WorldClim, CHELSA, and future-climate roots at the same paths; Hono registers only manifests contained by those roots. Validate all three Compose files after any mount or migration change. Do not re-enable climate deletion until the producer and API both accept an authorized opaque collection ID rather than a scenario name or path.
 
 ## Hosted Demo Guidance
 

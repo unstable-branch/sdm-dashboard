@@ -22,6 +22,10 @@ const FORBIDDEN_NORMALIZED_EXECUTION_KEYS = new Set(
 const FORBIDDEN_CLIENT_PATH_KEYS = new Set([
   "occurrencefile", "occurrencefilepath", "occurrence_file", "occurrence_file_path",
   "cleanedfilepath", "cleaned_file_path", "cleanedfileid", "cleaned_file_id",
+  "maskfile", "maskfilepath", "mask_file", "mask_file_path",
+  "targetgroupfile", "targetgroupfilepath", "target_group_file", "target_group_file_path",
+  "worldclimdir", "worldclim_dir", "futureworldclimdir", "future_worldclim_dir",
+  "futureworldclimdir2", "future_worldclim_dir2",
 ]);
 
 function isForbiddenExecutionKey(key: string): boolean {
@@ -110,7 +114,7 @@ const modelConfigObjectSchema = z.object({
   generateTiles: z.boolean().default(true),
   generateCog: z.boolean().default(true),
   maskType: z.enum(["none", "landmass", "ocean"]).optional().default("none"),
-  maskFile: z.string().optional(),
+  maskAssetId: z.string().uuid().optional(),
   maskBufferDeg: z.number().min(0).optional(),
   maskBoundaryType: z.enum(["admin0", "land", "custom"]).optional().default("admin0"),
   maskResolution: z.enum(["auto", "10m", "50m", "110m"]).optional().default("auto"),
@@ -134,10 +138,16 @@ const modelConfigObjectSchema = z.object({
   useBioclimSeason: z.boolean().default(false),
   useDrought: z.boolean().default(false),
   futureProjection: z.boolean().default(false),
-  futureWorldclimDir: z.string().optional(),
   futureLabel: z.string().default("Future climate"),
   futureProjection2: z.boolean().default(false).optional(),
-  futureWorldclimDir2: z.string().optional(),
+  futureGcm: z.string().min(1).optional(),
+  futureSsp: z.string().min(1).optional(),
+  futurePeriod: z.string().min(1).optional(),
+  futureGcm2: z.string().min(1).optional(),
+  futureSsp2: z.string().min(1).optional(),
+  futurePeriod2: z.string().min(1).optional(),
+  futureClimateAssetId: z.string().uuid().optional(),
+  futureClimateAssetId2: z.string().uuid().optional(),
   futureLabel2: z.string().default("Future climate 2").optional(),
   vifReduction: z.boolean().default(false),
   vifThreshold: z.number().min(1).max(20).default(10),
@@ -150,7 +160,7 @@ const modelConfigObjectSchema = z.object({
   minSourceRecords: z.number().int().min(1).max(100).default(15),
   biasMethod: z.enum(["uniform", "target_group", "thickened"]).default("uniform"),
   thickeningDistanceKm: z.number().min(1).max(100).default(10),
-  targetGroupFile: z.string().optional(),
+  targetGroupAssetId: z.string().uuid().optional(),
   paReplicates: z.number().int().min(1).max(10).default(1),
   maxnetFeatures: z.enum(["l", "lq", "lqp", "lqh", "lqpht"]).default("lqp"),
   maxnetRegmult: z.number().min(0.1).max(10).default(1.0),
@@ -227,11 +237,11 @@ const modelConfigObjectSchema = z.object({
   dnnMcSamples: z.number().int().min(0).max(100).default(0),
   dnnUncertaintyMethod: z.enum(["none", "mc_dropout", "heteroscedastic", "aleatoric_epistemic"]).default("none"),
   gpuEnabled: z.enum(["auto", "off"]).default("auto"),
-  aggregationFactor: z.number().int().min(1).max(8).default(1),
+  aggregationFactor: z.number().int().min(1).max(20).default(1),
   nCores: z.number().int().min(1).max(64).default(1),
   seed: z.number().int().default(42),
   occurrenceAssetId: z.string().uuid(),
-  worldclimDir: z.string().default("Worldclim"),
+  currentClimateAssetId: z.string().uuid().optional(),
   worldclimRes: z.number().default(10),
   source: z.enum(["worldclim", "chelsa"]).default("worldclim"),
   analysisCrs: z.string().default("auto"),
@@ -254,7 +264,84 @@ const modelConfigObjectSchema = z.object({
   gllvmLvCorr: z.boolean().default(false),
 });
 
-export const modelConfigSchema = z.preprocess(rejectForbiddenExecutionKeys, modelConfigObjectSchema);
+const modelConfigValidatedSchema = modelConfigObjectSchema.superRefine((config, context) => {
+  if (!config.currentClimateAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["currentClimateAssetId"],
+      message: "Executable model runs require an opaque current-climate asset ID",
+    });
+  }
+  if (config.maskBoundaryType === "custom" && !config.maskAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["maskAssetId"],
+      message: "Custom masking requires an opaque boundary asset ID",
+    });
+  }
+  if (config.maskBoundaryType !== "custom" && config.maskAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["maskAssetId"],
+      message: "Opaque boundary asset IDs are only valid for custom masking",
+    });
+  }
+  if (config.biasMethod === "target_group" && !config.targetGroupAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["targetGroupAssetId"],
+      message: "Target-group bias requires an opaque target-group asset ID",
+    });
+  }
+  if (config.futureProjection && !config.futureClimateAssetId) {
+    context.addIssue({
+      code: "custom",
+      path: ["futureClimateAssetId"],
+      message: "Future projection requires an opaque climate collection asset ID",
+    });
+  }
+  if (config.futureProjection) {
+    for (const key of ["futureGcm", "futureSsp", "futurePeriod"] as const) {
+      if (!config[key]) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: "Future projection requires canonical GCM, SSP, and period selectors",
+        });
+      }
+    }
+  }
+  if (config.futureProjection2 && !config.futureProjection) {
+    context.addIssue({
+      code: "custom",
+      path: ["futureProjection2"],
+      message: "Second future projection requires the first future projection",
+    });
+  }
+  if (config.futureProjection2 && !config.futureClimateAssetId2) {
+    context.addIssue({
+      code: "custom",
+      path: ["futureClimateAssetId2"],
+      message: "Second future projection requires an opaque climate collection asset ID",
+    });
+  }
+  if (config.futureProjection2) {
+    for (const key of ["futureGcm2", "futureSsp2", "futurePeriod2"] as const) {
+      if (!config[key]) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: "Second future projection requires canonical GCM, SSP, and period selectors",
+        });
+      }
+    }
+  }
+});
+
+export const modelConfigSchema = z.preprocess(rejectForbiddenExecutionKeys, modelConfigValidatedSchema);
+
+/** Draft/form validation intentionally omits executable asset-resolution requirements. */
+export const modelConfigDraftSchema = z.preprocess(rejectForbiddenExecutionKeys, modelConfigObjectSchema);
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 

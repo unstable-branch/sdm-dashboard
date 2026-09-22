@@ -12,13 +12,17 @@ This roadmap is dependency-ordered. Each stage requires evidence on one exact ca
 
 ## 2. Complete security boundaries
 
-- Canonicalize boundary, mask, target-group, current-climate, future-scenario, and Targets/batch inputs.
+The current Phase 2 candidate implements source-level canonical boundary/mask, target-group, and climate collection resolution, current-principal climate discovery, fail-closed target-group authentication, and HMAC-attested model execution. Unsafe path-derived climate deletion is replaced by administrator-only opaque-ID soft deletion; physical shared-file reclamation remains deferred. These are integration-candidate contracts, not an accepted exit from this stage.
+
+- Complete built-stack acceptance for canonical boundary, mask, target-group, current-climate, and future-scenario inputs. Targets/batch remains explicitly unavailable until its durable lifecycle work lands.
 - Enforce current principal, project action scope, lifecycle, and containment at Hono, queue worker, and direct Plumber boundaries.
 - Repair remaining failed/ownerless metadata handling and role propagation without permissive fallbacks.
 - Recheck SSE/WebSocket authentication, replay, reconnect, revocation, and project-removal delivery.
 - Exercise owner, viewer, editor, project admin, system admin, removed member, deleted user, scoped/underscoped key, direct-Plumber, corrupt-resource, DB-outage, and concurrent-request cases.
 
 **Exit:** denied cases cause zero input reads, worker spawns, private event delivery, or destructive side effects.
+
+Before this stage exits, run the direct-Plumber authentication suite and all Compose variants, prove migration `0040_climate_collection_manifests.sql` on upgrade and clean bootstrap, exercise cross-user system-collection use and revocation, and independently review the exact candidate diff.
 
 ## 3. Prove the primary workflow
 

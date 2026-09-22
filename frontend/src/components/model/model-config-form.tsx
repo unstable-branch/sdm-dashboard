@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from "react";
-import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
-import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, buildFutureWorldclimPath } from "@sdm/shared";
+import { modelConfigDraftSchema, type ModelConfig } from "@sdm/shared";
+import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG } from "@sdm/shared";
 import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import { TooltipInfo } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { apiGet, fetchWithAuth } from "@/services/api";
+import { apiGet, apiUpload, fetchWithAuth } from "@/services/api";
 import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
 import { ModelConfigBiovars } from "./model-config-biovars";
@@ -74,7 +74,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [maskCountry, setMaskCountry] = useState("all");
   const [countries, setCountries] = useState<string[]>([]);
   const [countriesLoading, setCountriesLoading] = useState(false);
-  const [customBoundaries, setCustomBoundaries] = useState<Array<{ file_path: string; file_name: string }>>([]);
+  const [customBoundaries, setCustomBoundaries] = useState<Array<{ boundaryAssetId: string; contentSize: number; createdAt: string }>>([]);
   const [autoExtentFromBoundary, setAutoExtentFromBoundary] = useState(false);
   const extentBeforeAutoRef = useRef<{ preset: string; custom: [number, number, number, number] } | null>(null);
   useEffect(() => {
@@ -86,7 +86,9 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   }, [autoExtentFromBoundary]);
   const prevBoundary = useRef(boundary);
   useEffect(() => {
-    if (prevBoundary.current === "custom" && boundary !== "custom") {
+    if (boundary === "custom" && prevBoundary.current !== "custom") {
+      setMaskCountry("");
+    } else if (prevBoundary.current === "custom" && boundary !== "custom") {
       setMaskCountry("all");
     }
     prevBoundary.current = boundary;
@@ -234,7 +236,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
-  const [autoDownloadClimate, setAutoDownloadClimate] = useState(true);
+
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
   const [climateCheckLoading, setClimateCheckLoading] = useState(false);
   const [climateCheckError, setClimateCheckError] = useState<string | null>(null);
@@ -281,7 +283,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   useEffect(() => { useSettingsStore.getState().fetchSettings(); }, []);
   useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => {}); }, []);
   useEffect(() => {
-    apiGet<{ boundaries: Array<{ file_path: string; file_name: string }> }>("/api/v1/data/boundary/list")
+    apiGet<{ boundaries: Array<{ boundaryAssetId: string; contentSize: number; createdAt: string }> }>("/api/v1/data/boundary/list")
       .then((data) => setCustomBoundaries(data.boundaries || [])).catch(() => {});
   }, []);
 
@@ -305,7 +307,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       try {
         const params = new URLSearchParams();
         if (boundary === "custom") {
-          params.set("file_path", maskCountry);
+          params.set("boundaryAssetId", maskCountry);
         } else {
           params.set("type", boundary);
           params.set("resolution", maskResolution);
@@ -376,13 +378,17 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     setBiomod2Models((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a]);
   }, []);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setError(null);
     if (cleanedOccurrence && cleanedOccurrence.validRecords === 0) { setError("Cleaned data has 0 valid records. Cannot run model."); return; }
     const extent = extentPreset === "custom" ? customExtent : EXTENT_PRESETS[extentPreset]?.extent;
     if (!extent) { setError("Invalid extent preset"); return; }
     const occurrenceAssetId = cleanedAssetId || rawAssetId;
     if (!occurrenceAssetId) { setError("Select a canonical occurrence asset before running the model."); return; }
+    if (boundary === "custom" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(maskCountry)) {
+      setError("Select an uploaded custom boundary before running the model.");
+      return;
+    }
     // For multi-species models, join species names with comma
     let speciesText = multispeciesText;
     if (!speciesText.trim()) {
@@ -407,6 +413,9 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       return;
     }
 
+    const effectiveAggregationFactor = climateSource === "chelsa"
+      ? Math.max(aggregationFactor, Math.ceil(climateRes / 0.5))
+      : aggregationFactor;
     const config = {
       species: resolvedSpecies,
       speciesFilter: (modelId === "dnn_multispecies" || modelId === "gllvm") ? "" : species,
@@ -418,10 +427,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         : undefined,
       maskType: (boundary === "none" ? "none" : invertMask ? "ocean" : "landmass") as "none" | "landmass" | "ocean",
       maskBufferDeg,
-      maskFile: boundary === "custom" ? maskCountry : undefined,
+      maskAssetId: boundary === "custom" ? maskCountry : undefined,
       maskBoundaryType: boundary === "none" ? "admin0" : boundary,
       maskResolution,
-      maskCountry,
+      maskCountry: boundary === "custom" ? "all" : maskCountry,
       autoExtentFromBoundary,
       restrictBackground,
       backgroundN,
@@ -446,17 +455,21 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       useDrought,
       droughtPeriods: useDrought ? droughtPeriods : undefined,
       futureProjection,
-      futureWorldclimDir: futureProjection ? buildFutureWorldclimPath(futureGcm, futureSsp, futurePeriod) : undefined,
       futureLabel,
+      futureGcm,
+      futureSsp,
+      futurePeriod,
       futureProjection2: futureProjection && futureProjection2,
-      futureWorldclimDir2: futureProjection && futureProjection2 ? buildFutureWorldclimPath(futureGcm2, futureSsp2, futurePeriod2) : undefined,
       futureLabel2: futureProjection2 ? futureLabel2 : undefined,
+      futureGcm2,
+      futureSsp2,
+      futurePeriod2,
       vifReduction,
       vifThreshold: vifReduction ? vifThreshold : undefined,
       elevationDemtype: useElevation ? elevationDemtype : undefined,
       vegProducts: useVegetation ? [vegProduct] : undefined,
       lulcYear: useLulc ? lulcYear : undefined,
-      biasMethod: biasMethod === "target_group" ? "uniform" : biasMethod,
+      biasMethod,
       climateMatching,
       climateMatchingMethod: climateMatching ? climateMatchingMethod : undefined,
       thinByCell,
@@ -472,13 +485,13 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       enmevalSelectionMetric: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalSelectionMetric : undefined,
       enmevalTuneArgs: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalTuneArgs : undefined,
       enmevalNullIterations: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalNullIterations : undefined,
-      aggregationFactor,
+      aggregationFactor: effectiveAggregationFactor,
       nCores,
       seed,
       occurrenceAssetId,
       source: climateSource,
       worldclimRes: climateRes,
-      autoDownloadClimate,
+
       multiEnsembleModels: modelId === "multi_ensemble" ? multiEnsembleModels : undefined,
       multiEnsembleWeighting: modelId === "multi_ensemble" ? multiEnsembleWeighting : undefined,
       multiEnsemblePower: modelId === "multi_ensemble" ? multiEnsemblePower : undefined,
@@ -524,9 +537,23 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       generateCog,
     };
 
-    const parsed = modelConfigSchema.safeParse(config);
+    const parsed = modelConfigDraftSchema.safeParse(config);
     if (!parsed.success) { setError(parsed.error.errors[0].message); return; }
-    onSubmit(config as Partial<ModelConfig>);
+
+    let submittedConfig: Record<string, unknown> = config;
+    if (biasMethod === "target_group") {
+      if (!targetGroupFile) { setError("Select a target-group CSV before running the model."); return; }
+      try {
+        const uploaded = await apiUpload<{ targetGroupAssetId: string }>("/api/v1/data/target-groups/upload", targetGroupFile);
+        submittedConfig = { ...config, biasMethod: "target_group", targetGroupAssetId: uploaded.targetGroupAssetId };
+      } catch (uploadError) {
+        setError(uploadError instanceof Error ? uploadError.message : "Target-group upload failed");
+        return;
+      }
+    }
+    const finalParsed = modelConfigDraftSchema.safeParse(submittedConfig);
+    if (!finalParsed.success) { setError(finalParsed.error.errors[0].message); return; }
+    onSubmit(finalParsed.data as Partial<ModelConfig>);
   };
 
   const selectedModel = useMemo(() => availableModels.find((m) => m.id === modelId), [availableModels, modelId]);
@@ -737,8 +764,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         aggregationFactor={aggregationFactor}
         chelsaExtras={chelsaExtras}
         onChelsaExtrasChange={setChelsaExtras}
-        autoDownloadClimate={autoDownloadClimate}
-        onAutoDownloadClimateChange={setAutoDownloadClimate}
+
       />
 
       <ModelConfigExtent
@@ -1038,6 +1064,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         onVifThresholdChange={setVifThreshold}
         biasMethod={biasMethod}
         onBiasMethodChange={setBiasMethod}
+        targetGroupFile={targetGroupFile}
+        onTargetGroupFileChange={setTargetGroupFile}
         thickeningDistanceKm={thickeningDistanceKm}
         onThickeningDistanceKmChange={setThickeningDistanceKm}
         climateMatching={climateMatching}

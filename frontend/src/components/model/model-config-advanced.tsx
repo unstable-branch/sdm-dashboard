@@ -4,6 +4,7 @@ import { SOIL_VARS, SOIL_DEPTHS, UV_VARS } from "@sdm/shared";
 import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
 import { TooltipInfo } from "@/components/ui/tooltip";
+import { TargetGroupBiasInput } from "./target-group-bias-input";
 
 interface ModelConfigAdvancedProps {
   modelId: string;
@@ -171,6 +172,8 @@ interface ModelConfigAdvancedProps {
 
   biasMethod: "uniform" | "target_group" | "thickened";
   onBiasMethodChange: (val: "uniform" | "target_group" | "thickened") => void;
+  targetGroupFile: File | null;
+  onTargetGroupFileChange: (file: File | null) => void;
   thickeningDistanceKm: number;
   onThickeningDistanceKmChange: (val: number) => void;
 
@@ -208,7 +211,7 @@ export function ModelConfigAdvanced({
   useBioclimSeason, onUseBioclimSeasonChange,
   useDrought, onUseDroughtChange, droughtPeriods, onDroughtPeriodsChange,
   vifReduction, onVifReductionChange, vifThreshold, onVifThresholdChange,
-  biasMethod, onBiasMethodChange, thickeningDistanceKm, onThickeningDistanceKmChange,
+  biasMethod, onBiasMethodChange, targetGroupFile, onTargetGroupFileChange, thickeningDistanceKm, onThickeningDistanceKmChange,
   climateMatching, onClimateMatchingChange, climateMatchingMethod, onClimateMatchingMethodChange,
   generateTiles, onGenerateTilesChange, generateCog, onGenerateCogChange,
 }: ModelConfigAdvancedProps) {
@@ -867,11 +870,11 @@ export function ModelConfigAdvanced({
             </label>
             <select value={biasMethod} onChange={(e) => onBiasMethodChange(e.target.value as typeof biasMethod)} className="w-full rounded-md border border-sdm-border bg-sdm-surface-soft px-3 py-2 text-sm text-sdm-text">
               <option value="uniform">Uniform random</option>
-              <option value="target_group" disabled>Target-group (requires file upload)</option>
+              <option value="target_group">Target-group</option>
               <option value="thickened">Thickened</option>
             </select>
             {biasMethod === "target_group" && (
-              <p className="mt-1 text-xs text-amber-500">Target-group bias requires uploading a background occurrence file. Not yet available — falling back to uniform.</p>
+              <TargetGroupBiasInput file={targetGroupFile} onChange={onTargetGroupFileChange} />
             )}
           </div>
 
