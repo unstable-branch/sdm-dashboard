@@ -256,6 +256,9 @@ function validateRegistrationInput(input: RegisterInputAssetInput | RegisterSyst
   if (input.kind === "custom_boundary" && input.root !== "boundaries") {
     throw new InputAssetRegistrationError("Custom boundaries must use the configured boundary root");
   }
+  if (input.kind === "climate_collection" && !CLIMATE_COLLECTION_ROOTS.has(input.root)) {
+    throw new InputAssetRegistrationError("Climate collections must use an approved climate root");
+  }
   if (input.contentSha256 !== undefined && !HASH_RE.test(input.contentSha256)) {
     throw new InputAssetRegistrationError("Invalid content identity");
   }

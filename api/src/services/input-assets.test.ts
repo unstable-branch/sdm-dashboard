@@ -441,6 +441,12 @@ describe("server-only registration", () => {
     }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("configured system root");
   });
 
+  it("rejects climate collections through generic registration on non-climate roots", async () => {
+    await expect(registerInputAsset({
+      creatorUserId: A, scope: "private", kind: "climate_collection", root: "uploads", relativePath: "climate.json",
+    }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("approved climate root");
+  });
+
   it("returns an exact existing registration after a safe locator race", async () => {
     const existing = asset(RAW, { contentSha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", contentSize: 3 });
     const database = {
