@@ -485,6 +485,9 @@ export const executionAttempts = pgTable("execution_attempts", {
 }, (t) => [
   // Invariant 2: one non-final attempt per execution (the probe/adoption target).
   uniqueIndex("execution_attempts_open_uq").on(t.executionId).where(sql`finalized_at IS NULL`),
+  // Gapless attempt lineage: (execution_id, attempt_no) is unique across ALL
+  // attempts, finalized or open (§2.2, review round 1).
+  uniqueIndex("execution_attempts_attempt_no_uq").on(t.executionId, t.attemptNo),
 ]);
 
 /** Request-level idempotency tombstone: rows are never deleted (§2.2.2). */

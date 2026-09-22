@@ -298,6 +298,18 @@ describe.skipIf(!DATABASE_URL)("durable execution schema (migration 0043)", () =
     await insertAttempt({ executionId: exec, attemptNo: 2, attemptKey: "ik-attempts:2", kind: "reconciliation" });
   });
 
+  it("rejects a duplicate attempt_no even after the earlier attempt is finalized (review round 1)", async () => {
+    const p = await insertExecution({ idempotencyKey: "ik-attempt-no-final" });
+    const exec = await executionIdForKey(p.idempotencyKey);
+    await insertAttempt({ executionId: exec, attemptNo: 1, attemptKey: "ik-attempt-no-final:1" });
+    await pool.query("UPDATE execution_attempts SET finalized_at=now(), outcome='unknown' WHERE attempt_key='ik-attempt-no-final:1'");
+    // The open-attempt slot is free now, but (execution_id, attempt_no) stays unique:
+    // re-using attempt_no 1 after finalization must be refused (gapless lineage, design §2.2).
+    await expect(insertAttempt({ executionId: exec, attemptNo: 1, attemptKey: "ik-attempt-no-final:1b", kind: "reconciliation" })).rejects.toMatchObject({
+      code: "23505",
+    });
+  });
+
   it("keeps plumber_job_id unique across attempts while allowing many NULLs", async () => {
     const a = await insertExecution({ idempotencyKey: "ik-job-a" });
     const b = await insertExecution({ idempotencyKey: "ik-job-b" });
