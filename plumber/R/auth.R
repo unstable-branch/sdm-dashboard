@@ -51,6 +51,70 @@ validate_api_key <- function(api_key, pool = NULL, app_dir = NULL) {
   })
 }
 
+# Recheck the CURRENT database principal behind a forwarded identity.
+#
+# AGENTS.md current-principal contract: Hono establishes the database-backed
+# principal per request and forwards it as request-scoped evidence; Plumber
+# rechecks its own boundary immediately before protected handling. A forwarded
+# user id / role is therefore never authority on its own: a nonexistent or
+# deleted user, or a role that no longer matches current storage, is denied
+# here instead of reaching any route handler.
+#
+# Fail closed: a malformed identity denies (401); an unavailable or unreadable
+# principal store denies (503) rather than falling through to handlers. The
+# check itself performs exactly one primary-key lookup on users — that lookup
+# is authorization infrastructure, not a protected read.
+sdm_validate_forwarded_principal <- function(user_id, role, pool = NULL, app_dir = NULL,
+                                             query_fn = NULL) {
+  uuid_re <- "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+  if (!is.character(user_id) || length(user_id) != 1L || is.na(user_id) ||
+      !grepl(uuid_re, user_id) ||
+      !identical(as.character(role), role) || length(role) != 1L ||
+      !role %in% c("admin", "editor", "viewer")) {
+    return(list(ok = FALSE, status = 401L,
+                message = '{"error":"Invalid forwarded principal."}'))
+  }
+
+  result <- if (!is.null(query_fn)) {
+    # Injected principal lookup (regression tests); same verdict contract.
+    tryCatch(query_fn(user_id), error = function(e) NULL)
+  } else {
+    tryCatch({
+      if (!is.null(pool) && inherits(pool, "Pool")) {
+        con <- pool::poolCheckout(pool)
+        on.exit(tryCatch(pool::poolReturn(con), error = function(e) NULL), add = TRUE)
+      } else {
+        db_url <- Sys.getenv("DATABASE_URL", "")
+        if (!nzchar(db_url)) {
+          return(list(ok = FALSE, status = 503L,
+                      message = '{"error":"Principal revalidation unavailable."}'))
+        }
+        con <- sdm_db_connect(db_url)
+        # A teardown error must never mask the authorization verdict.
+        on.exit(tryCatch(DBI::dbDisconnect(con), error = function(e) NULL), add = TRUE)
+      }
+      DBI::dbGetQuery(con,
+        "SELECT role FROM users WHERE id = $1 LIMIT 1",
+        params = list(user_id))
+    }, error = function(e) NULL)
+  }
+
+  if (is.null(result)) {
+    # Unreadable principal store must never proceed to protected handling.
+    return(list(ok = FALSE, status = 503L,
+                message = '{"error":"Principal revalidation unavailable."}'))
+  }
+  if (nrow(result) == 0L) {
+    return(list(ok = FALSE, status = 401L,
+                message = '{"error":"Forwarded principal no longer exists."}'))
+  }
+  if (!identical(as.character(result$role[1]), role)) {
+    return(list(ok = FALSE, status = 401L,
+                message = '{"error":"Stale forwarded principal."}'))
+  }
+  list(ok = TRUE)
+}
+
 #' Check if request requires authentication
 #' @param path Request path
 #' @return TRUE if auth required, FALSE if open

@@ -9,6 +9,7 @@ import { db } from "../db/index.js";
 import { inputAssets } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
+import { apiKeyScopeAllows } from "../services/auth-principal.js";
 import {
   InputAssetRegistrationError,
   registerInputAssetFromServerPath,
@@ -58,6 +59,10 @@ async function handleUpload(c: Context<AppEnv>) {
   if (!file || !(file instanceof File)) return c.json({ error: "No file uploaded" }, 400);
   const scope = uploadScope(body.projectId);
   if (!scope) return c.json({ error: "Invalid projectId" }, 400);
+  // A project-scoped API key may only write inside its bound project.
+  if (!apiKeyScopeAllows(user, scope.projectId)) {
+    return c.json({ error: "API key is not valid for this project" }, 403);
+  }
 
   await mkdir(UPLOAD_DIR, { recursive: true });
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
