@@ -519,6 +519,27 @@ describe("SDM routes", () => {
       expect(payload).not.toHaveProperty("current_climate_asset_id");
       expect(payload.dnn_l2_lambda).toBeUndefined();
     });
+
+    it("does not persist a sync run when the final input authorization is denied", async () => {
+      const { db } = await import("../db");
+      const { resolveModelInputAssets, ModelInputAssetError } = await import("../services/model-payload");
+      (resolveModelInputAssets as any)
+        .mockResolvedValueOnce({ occurrenceFile: "/srv/inputs/authorized.csv", worldclimDir: "/srv/climate/current" })
+        .mockRejectedValueOnce(new ModelInputAssetError("not_authorized"));
+
+      const res = await app.request("/api/v1/sdm/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildRunPayloadConfig),
+      });
+
+      expect(res.status).toBe(404);
+      expect(db.insert).not.toHaveBeenCalled();
+      (resolveModelInputAssets as any).mockResolvedValue({
+        occurrenceFile: "/srv/inputs/authorized.csv",
+        worldclimDir: "/srv/climate/current",
+      });
+    });
   });
 
   describe("POST /batch run queue", () => {

@@ -567,7 +567,46 @@ export async function registerClimateCollectionFromServerPath(
   input: Omit<RegisterServerPathInput, "kind">,
   dependencies: InputAssetDependencies = {},
 ): Promise<InputAssetRow> {
-  return registerInputAssetFromServerPath({ ...input, kind: "climate_collection" }, dependencies);
+  if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
+    throw new InputAssetRegistrationError("Server producer returned an invalid storage path");
+  }
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  let producerPath = resolve(input.absolutePath);
+  const configuredProjectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  if (producerPath.startsWith("/app/") && configuredProjectRoot !== "/app") {
+    producerPath = resolve(configuredProjectRoot, producerPath.slice("/app/".length));
+  }
+
+  let pathParts: { root: string; relativePath: string } | null = null;
+  try {
+    const actualProducerPath = await fs.realpath(producerPath);
+    for (const [rootName, configuredRoot] of Object.entries(roots)) {
+      if (!CLIMATE_COLLECTION_ROOTS.has(rootName)) continue;
+      if (typeof configuredRoot !== "string" || configuredRoot.length === 0) continue;
+      const actualRoot = await fs.realpath(resolve(configuredRoot));
+      const rel = relative(actualRoot, actualProducerPath);
+      if (rel && !rel.startsWith("..") && !rel.includes(".." + sep) && !rel.startsWith(sep)) {
+        pathParts = { root: rootName, relativePath: rel.split(sep).join("/") };
+        break;
+      }
+    }
+  } catch {
+    // Stable fail-closed error below.
+  }
+  if (!pathParts) throw new InputAssetRegistrationError("Server producer output is outside an approved climate root");
+  const manifest = await verifyClimateCollectionManifest(producerPath, roots, fs);
+  if (!manifest) throw new InputAssetRegistrationError("Climate collection manifest is invalid or incomplete");
+  if (manifest.members.some((member) => parseLocator(member.locator)?.root !== pathParts.root)) {
+    throw new InputAssetRegistrationError("Climate collection member root does not match its approved manifest root");
+  }
+
+  return register({
+    ...input,
+    kind: "climate_collection",
+    root: pathParts.root,
+    relativePath: pathParts.relativePath,
+  }, dependencies, false, null);
 }
 
 /** Register a shared immutable climate collection under a source-specific system root. */

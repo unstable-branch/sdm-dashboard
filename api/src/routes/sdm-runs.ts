@@ -156,6 +156,12 @@ sdmRunRoutes.post("/run", async (c) => {
       return c.json({ runId: insertedRun.id, queuedAt: new Date().toISOString() });
     }
 
+    // Re-authorize as close as possible to persistence so an input denial never
+    // creates a run row. The resolved paths are then used for this dispatch.
+    const latestInputs = await resolveModelInputAssets(
+      safeConfig, { id: user.id, role: user.role }, projectId,
+    );
+
     const [maxRun] = await db
       .select({ maxNum: sql<number>`COALESCE(MAX(run_number), 0)` })
       .from(runs)
@@ -177,9 +183,6 @@ sdmRunRoutes.post("/run", async (c) => {
 
     let plumberJobId: string | undefined;
     try {
-      const latestInputs = await resolveModelInputAssets(
-        safeConfig, { id: user.id, role: user.role }, projectId,
-      );
       const result = await plumberClient.withUser(user.id).withRole(user.role).runModel(
         buildModelPayload(safeConfig, run.id, latestInputs.occurrenceFile, latestInputs),
       );

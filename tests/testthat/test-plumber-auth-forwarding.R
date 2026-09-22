@@ -16,6 +16,7 @@ testthat::test_that("trusted preroute propagation fails closed", {
   testthat::expect_gte(count_literal("Forwarded user required."), 2L)
   testthat::expect_gte(count_literal("Forwarded role required."), 2L)
   testthat::expect_gte(count_literal("Invalid forwarded principal."), 2L)
+  testthat::expect_match(source_text, 'paste("apikey", api_key, sep = ":")', fixed = TRUE)
 
   # In each trusted internal branch, the role assignment is before the hook's
   # successful return, and no missing identity can reach that return.

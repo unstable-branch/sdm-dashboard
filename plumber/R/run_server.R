@@ -221,7 +221,8 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   raw_rate_id <- api_key %||% user_info$user_id %||% fwd_user
   if (!is.null(raw_rate_id) && nzchar(raw_rate_id)) {
     rate_key <- if (!is.null(api_key) && nzchar(api_key)) {
-      substr(digest::digest(paste0("apikey:", api_key), algo = "sha256", serialize = FALSE), 1, 32)
+      rate_material <- paste("apikey", api_key, sep = ":")
+      substr(digest::digest(rate_material, algo = "sha256", serialize = FALSE), 1, 32)
     } else {
       raw_rate_id
     }
