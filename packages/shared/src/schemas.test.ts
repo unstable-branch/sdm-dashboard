@@ -7,6 +7,7 @@ const validMinimal = {
   biovars: [1, 4, 6],
   projectionExtent: [-180, 180, -90, 90],
   occurrenceAssetId: "11111111-1111-1111-1111-111111111111",
+  currentClimateAssetId: "22222222-2222-4222-8222-222222222222",
 };
 
 const validFull = {
@@ -24,9 +25,9 @@ const validFull = {
   generateTiles: true,
   generateCog: false,
   maskType: "landmass",
-  maskFile: "/data/mask.tif",
+  maskAssetId: "11111111-1111-1111-1111-111111111112",
   maskBufferDeg: 0.5,
-  maskBoundaryType: "admin0",
+  maskBoundaryType: "custom",
   maskResolution: "10m",
   maskCountry: "all",
   restrictBackground: true,
@@ -48,10 +49,16 @@ const validFull = {
   useBioclimSeason: true,
   useDrought: true,
   futureProjection: true,
-  futureWorldclimDir: "/data/future",
+  futureClimateAssetId: "11111111-1111-1111-1111-111111111113",
+  futureGcm: "ACCESS-CM2",
+  futureSsp: "SSP2-4.5",
+  futurePeriod: "2041-2060",
   futureLabel: "Future 2050",
   futureProjection2: true,
-  futureWorldclimDir2: "/data/future2",
+  futureClimateAssetId2: "11111111-1111-1111-1111-111111111114",
+  futureGcm2: "MPI-ESM1-2-HR",
+  futureSsp2: "SSP3-7.0",
+  futurePeriod2: "2061-2080",
   futureLabel2: "Future 2070",
   vifReduction: true,
   vifThreshold: 5,
@@ -64,7 +71,7 @@ const validFull = {
   minSourceRecords: 10,
   biasMethod: "target_group",
   thickeningDistanceKm: 50,
-  targetGroupFile: "/data/target.csv",
+  targetGroupAssetId: "11111111-1111-1111-1111-111111111115",
   paReplicates: 3,
   maxnetFeatures: "lqpht",
   maxnetRegmult: 2.5,
@@ -124,7 +131,7 @@ const validFull = {
   nCores: 8,
   seed: 123,
   occurrenceAssetId: "11111111-1111-1111-1111-111111111111",
-  worldclimDir: "Worldclim",
+  currentClimateAssetId: "11111111-1111-1111-1111-111111111116",
   worldclimRes: 10,
   source: "chelsa",
   analysisCrs: "EPSG:4326",
@@ -152,6 +159,16 @@ describe("modelConfigSchema", () => {
     it("accepts full config with all model backends", () => {
       const result = modelConfigSchema.safeParse(validFull);
       expect(result.success).toBe(true);
+    });
+
+    it("retains future scenario selectors for opaque collection resolution", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        futureGcm: "ACCESS-CM2", futureSsp: "SSP2-4.5", futurePeriod: "2041-2060",
+        futureGcm2: "MPI-ESM1-2-HR", futureSsp2: "SSP3-7.0", futurePeriod2: "2061-2080",
+      });
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data).toMatchObject({ futureGcm: "ACCESS-CM2", futureSsp: "SSP2-4.5", futurePeriod: "2041-2060", futureGcm2: "MPI-ESM1-2-HR", futureSsp2: "SSP3-7.0", futurePeriod2: "2061-2080" });
     });
   });
 
@@ -212,6 +229,73 @@ describe("modelConfigSchema", () => {
       const { occurrenceAssetId, ...rest } = validMinimal;
       const result = modelConfigSchema.safeParse(rest);
       expect(result.success).toBe(false);
+    });
+
+    it("requires an opaque target-group asset for target-group bias", () => {
+      const result = modelConfigSchema.safeParse({ ...validMinimal, biasMethod: "target_group" });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues[0]?.path).toEqual(["targetGroupAssetId"]);
+    });
+
+    it("requires an opaque current-climate asset for executable model configs", () => {
+      const { currentClimateAssetId, ...draft } = validMinimal;
+      const result = modelConfigSchema.safeParse(draft);
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.some((issue: { path: (string | number)[] }) => issue.path[0] === "currentClimateAssetId")).toBe(true);
+      void currentClimateAssetId;
+    });
+
+    it("requires an opaque custom-boundary asset when custom masking is enabled", () => {
+      const result = modelConfigSchema.safeParse({ ...validMinimal, currentClimateAssetId: "22222222-2222-4222-8222-222222222222", maskBoundaryType: "custom", maskAssetId: "all" });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.some((issue: { path: (string | number)[] }) => issue.path[0] === "maskAssetId")).toBe(true);
+    });
+
+    it("rejects an opaque boundary asset outside custom masking", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        currentClimateAssetId: "22222222-2222-4222-8222-222222222222",
+        maskBoundaryType: "admin0",
+        maskAssetId: "11111111-1111-4111-8111-111111111112",
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.some((issue: { path: (string | number)[] }) => issue.path[0] === "maskAssetId")).toBe(true);
+    });
+
+    it("requires enabled future climate assets for each selected scenario", () => {
+      const result = modelConfigSchema.safeParse({ ...validMinimal, currentClimateAssetId: "22222222-2222-4222-8222-222222222222", futureProjection: true, futureProjection2: true });
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.issues.map((issue: { path: (string | number)[] }) => issue.path[0])).toEqual(expect.arrayContaining(["futureClimateAssetId", "futureClimateAssetId2"]));
+    });
+
+    it("requires canonical selectors for each enabled future projection", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        currentClimateAssetId: "22222222-2222-4222-8222-222222222222",
+        futureProjection: true,
+        futureClimateAssetId: "33333333-3333-4333-8333-333333333333",
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.map((issue: { path: (string | number)[] }) => issue.path[0]))
+          .toEqual(expect.arrayContaining(["futureGcm", "futureSsp", "futurePeriod"]));
+      }
+    });
+
+    it("rejects a second future projection without the first", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        currentClimateAssetId: "22222222-2222-4222-8222-222222222222",
+        futureProjection2: true,
+        futureClimateAssetId2: "44444444-4444-4444-8444-444444444444",
+        futureGcm2: "MPI-ESM1-2-HR",
+        futureSsp2: "SSP3-7.0",
+        futurePeriod2: "2061-2080",
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue: { path: (string | number)[] }) => issue.path[0] === "futureProjection2")).toBe(true);
+      }
     });
   });
 
@@ -764,11 +848,6 @@ describe("modelConfigSchema", () => {
       expect(result.seed).toBe(42);
     });
 
-    it("applies default worldclimDir (Worldclim)", () => {
-      const result = modelConfigSchema.parse(validMinimal);
-      expect(result.worldclimDir).toBe("Worldclim");
-    });
-
     it("applies default worldclimRes (10)", () => {
       const result = modelConfigSchema.parse(validMinimal);
       expect(result.worldclimRes).toBe(10);
@@ -805,6 +884,25 @@ describe("modelConfigSchema", () => {
       for (const key of ["occurrenceFile", "cleanedFilePath", "cleanedFileId", "occurrence_file"]) {
         const result = modelConfigSchema.safeParse({ ...validMinimal, [key]: "/client/path.csv" });
         expect(result.success).toBe(false);
+      }
+    });
+
+    it("accepts opaque asset IDs and rejects all climate, mask, and target path aliases", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        maskBoundaryType: "custom",
+        maskAssetId: "11111111-1111-1111-1111-111111111112",
+        targetGroupAssetId: "11111111-1111-1111-1111-111111111113",
+        currentClimateAssetId: "11111111-1111-1111-1111-111111111114",
+        futureClimateAssetId: "11111111-1111-1111-1111-111111111115",
+        futureClimateAssetId2: "11111111-1111-1111-1111-111111111116",
+      });
+      expect(result.success).toBe(true);
+      for (const key of ["maskFile", "targetGroupFile", "worldclimDir", "futureWorldclimDir", "futureWorldclimDir2", "occurrenceFile"]) {
+        expect(modelConfigSchema.safeParse({ ...validMinimal, [key]: "/client/path" }).success).toBe(false);
+      }
+      for (const key of ["maskAssetId", "targetGroupAssetId", "currentClimateAssetId", "futureClimateAssetId", "futureClimateAssetId2"]) {
+        expect(modelConfigSchema.safeParse({ ...validMinimal, [key]: "/client/path" }).success).toBe(false);
       }
     });
 

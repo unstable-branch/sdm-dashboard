@@ -7,12 +7,31 @@ import { db } from "../db/index.js";
 import { auditLogs, inputAssetLegacyMappings, inputAssets, projectMembers, uploadedFiles, uploads } from "../db/schema.js";
 
 export const INPUT_ASSET_SCOPES = ["private", "project", "system"] as const;
-export const INPUT_ASSET_KINDS = ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group"] as const;
+export const INPUT_ASSET_KINDS = ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group", "climate_collection"] as const;
 export const INPUT_ASSET_STATES = ["ready", "deleted", "quarantined"] as const;
 export type InputAssetScope = (typeof INPUT_ASSET_SCOPES)[number];
 export type InputAssetKind = (typeof INPUT_ASSET_KINDS)[number];
 export type InputAssetState = (typeof INPUT_ASSET_STATES)[number];
 export type InputAssetAction = "read" | "use";
+
+export const CLIMATE_COLLECTION_MANIFEST_VERSION = 1 as const;
+
+/** A v1 climate collection is an immutable JSON manifest, not a directory alias. */
+export interface ClimateCollectionManifestMember {
+  locator: string;
+  sha256: string;
+  size: number;
+  metadata: Record<string, string | number | boolean | null>;
+}
+
+export interface ClimateCollectionManifestV1 {
+  version: typeof CLIMATE_COLLECTION_MANIFEST_VERSION;
+  metadata: Record<string, string | number | boolean | null>;
+  members: ClimateCollectionManifestMember[];
+}
+
+export type ClimateCollectionManifest = ClimateCollectionManifestV1;
+export type ClimateManifestMember = ClimateCollectionManifestMember;
 
 export interface InputAssetPrincipal {
   id: string;
@@ -39,6 +58,9 @@ const ASSET_SCOPES = new Set<string>(INPUT_ASSET_SCOPES);
 const ASSET_STATES = new Set<string>(INPUT_ASSET_STATES);
 const PRINCIPAL_ROLES = new Set(["admin", "editor", "viewer"]);
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const MAX_CLIMATE_MANIFEST_BYTES = 1024 * 1024;
+const MAX_CLIMATE_MANIFEST_MEMBERS = 512;
+const CLIMATE_COLLECTION_ROOTS = new Set(["worldclim", "chelsa", "future_worldclim"]);
 
 export type InputAssetRow = typeof inputAssets.$inferSelect;
 
@@ -74,7 +96,7 @@ export type InputAssetResolution =
   | { ok: false; reason: InputAssetDenialReason };
 
 export class InputAssetRegistrationError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly reason: "deleted" | "conflict" | "invalid" = "invalid") {
     super(message);
     this.name = "InputAssetRegistrationError";
   }
@@ -138,10 +160,21 @@ function isOneOf<T extends string>(value: unknown, values: readonly T[]): value 
 
 function defaultRoots(): InputAssetRootMap {
   const projectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  const configuredClimateRoot = (environmentName: string, defaultRelative: string): string => {
+    const configured = process.env[environmentName];
+    return resolve(projectRoot, configured || defaultRelative);
+  };
   return {
     uploads: process.env.SDM_INPUT_ASSET_UPLOAD_ROOT || join(projectRoot, "data", "uploads"),
-    boundaries: process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT || join(projectRoot, "data", "uploads"),
+    boundaries: process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT || join(projectRoot, "data", "boundaries"),
     system: process.env.SDM_INPUT_ASSET_SYSTEM_ROOT || join(projectRoot, "data", "system"),
+    // Climate collections are rooted by source/scenario, not by a broad
+    // project/data directory. These names are shared with the Plumber
+    // producer's manifest locators and may be overridden for a colocated
+    // volume layout without changing client-visible contracts.
+    worldclim: configuredClimateRoot("SDM_INPUT_ASSET_WORLDCLIM_ROOT", process.env.SDM_WORLDCLIM_DIR || "Worldclim"),
+    chelsa: configuredClimateRoot("SDM_INPUT_ASSET_CHELSA_ROOT", process.env.SDM_CHELSA_DIR || "chelsa"),
+    future_worldclim: configuredClimateRoot("SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT", process.env.SDM_FUTURE_WORLDCLIM_DIR || "Worldclim_future"),
   };
 }
 
@@ -220,6 +253,12 @@ function validateRegistrationInput(input: RegisterInputAssetInput | RegisterSyst
   if (!ROOT_NAME_RE.test(input.root) || typeof input.relativePath !== "string") {
     throw new InputAssetRegistrationError("Invalid server-owned storage locator");
   }
+  if (input.kind === "custom_boundary" && input.root !== "boundaries") {
+    throw new InputAssetRegistrationError("Custom boundaries must use the configured boundary root");
+  }
+  if (input.kind === "climate_collection" && !CLIMATE_COLLECTION_ROOTS.has(input.root)) {
+    throw new InputAssetRegistrationError("Climate collections must use an approved climate root");
+  }
   if (input.contentSha256 !== undefined && !HASH_RE.test(input.contentSha256)) {
     throw new InputAssetRegistrationError("Invalid content identity");
   }
@@ -231,10 +270,124 @@ async function computeIdentity(path: string, fs: AssetFileSystem): Promise<{ con
 }
 
 async function matchesContentIdentity(asset: InputAssetRow, path: string, fs: AssetFileSystem): Promise<boolean> {
+  if (asset.kind === "custom_boundary" && (asset.contentSize == null || asset.contentSha256 == null)) return false;
   if (asset.contentSize == null && asset.contentSha256 == null) return true;
   const identity = await computeIdentity(path, fs);
   if (asset.contentSize != null && identity.contentSize !== asset.contentSize) return false;
   return asset.contentSha256 == null || identity.contentSha256 === asset.contentSha256.toLowerCase();
+}
+
+function isSafeManifestMetadata(value: unknown): value is Record<string, string | number | boolean | null> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value);
+  if (entries.length > 64) return false;
+  return entries.every(([key, child]) =>
+    key.length > 0 && key.length <= 128 && /^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(key)
+    && (child === null || (typeof child === "string" && child.length <= 1024) || typeof child === "boolean"
+      || (typeof child === "number" && Number.isFinite(child))),
+  );
+}
+
+function parseClimateCollectionManifest(value: unknown): ClimateCollectionManifestV1 | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const manifest = value as Record<string, unknown>;
+  if (manifest.version !== CLIMATE_COLLECTION_MANIFEST_VERSION
+    || !Array.isArray(manifest.members)
+    || manifest.members.length === 0
+    || manifest.members.length > MAX_CLIMATE_MANIFEST_MEMBERS) return null;
+  const manifestMetadata = manifest.metadata === undefined ? {} : manifest.metadata;
+  if (!isSafeManifestMetadata(manifestMetadata)) return null;
+  const members: ClimateCollectionManifestMember[] = [];
+  const seenLocators = new Set<string>();
+  let memberRoot: string | null = null;
+  for (const memberValue of manifest.members) {
+    if (!memberValue || typeof memberValue !== "object" || Array.isArray(memberValue)) return null;
+    const member = memberValue as Record<string, unknown>;
+    const locator = typeof member.locator === "string" ? member.locator : member.storageLocator;
+    const sha256 = typeof member.sha256 === "string" ? member.sha256 : member.contentSha256;
+    const size = typeof member.size === "number" ? member.size : member.contentSize;
+    if (typeof locator !== "string" || locator.length === 0 || locator.length > 2048
+      || !HASH_RE.test(typeof sha256 === "string" ? sha256 : "")
+      || typeof size !== "number" || !Number.isSafeInteger(size) || size < 0
+      || !isSafeManifestMetadata(member.metadata)) return null;
+    const parsedLocator = parseLocator(locator);
+    if (!parsedLocator || seenLocators.has(locator) || (memberRoot !== null && parsedLocator.root !== memberRoot)) return null;
+    seenLocators.add(locator);
+    memberRoot = parsedLocator.root;
+    members.push({
+      locator,
+      sha256: sha256 as string,
+      size,
+      metadata: member.metadata,
+    });
+  }
+  return { version: CLIMATE_COLLECTION_MANIFEST_VERSION, metadata: manifestMetadata, members };
+}
+
+async function verifyClimateCollectionManifest(
+  manifestPath: string,
+  roots: InputAssetRootMap,
+  fs: AssetFileSystem,
+): Promise<ClimateCollectionManifestV1 | null> {
+  let manifest: ClimateCollectionManifestV1 | null;
+  try {
+    const raw = await fs.readFile(manifestPath);
+    if (raw.length > MAX_CLIMATE_MANIFEST_BYTES) return null;
+    manifest = parseClimateCollectionManifest(JSON.parse(raw.toString("utf8")));
+  } catch {
+    return null;
+  }
+  if (!manifest) return null;
+
+  for (const member of manifest.members) {
+    const storage = await resolveInputAssetStorage(member.locator, roots, fs);
+    if (!storage) return null;
+    try {
+      const stat = await fs.lstat(storage.absolutePath);
+      if (stat.isSymbolicLink() || !stat.isFile()) return null;
+      const identity = await computeIdentity(storage.absolutePath, fs);
+      if (identity.contentSize !== member.size || identity.contentSha256 !== member.sha256.toLowerCase()) return null;
+    } catch {
+      return null;
+    }
+  }
+  return manifest;
+}
+
+/** Validate a server-owned manifest file and all of its referenced members. */
+export async function validateClimateCollectionManifest(
+  manifestPath: string,
+  roots: InputAssetRootMap = defaultRoots(),
+  fs: AssetFileSystem = fileSystem,
+): Promise<boolean> {
+  return Boolean(await verifyClimateCollectionManifest(manifestPath, roots, fs));
+}
+
+/** Resolve a verified collection to the narrowest directory containing every immutable member. */
+export async function resolveClimateCollectionDirectory(
+  manifestPath: string,
+  dependencies: Pick<InputAssetDependencies, "roots" | "fs"> = {},
+): Promise<string | null> {
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  const manifest = await verifyClimateCollectionManifest(manifestPath, roots, fs);
+  if (!manifest) return null;
+  const memberPaths: string[] = [];
+  for (const member of manifest.members) {
+    const storage = await resolveInputAssetStorage(member.locator, roots, fs);
+    if (!storage) return null;
+    memberPaths.push(storage.absolutePath);
+  }
+  if (memberPaths.length === 0) return null;
+  let common = dirname(memberPaths[0]);
+  for (const memberPath of memberPaths.slice(1)) {
+    while (!isContained(common, memberPath)) {
+      const parent = dirname(common);
+      if (parent === common) return null;
+      common = parent;
+    }
+  }
+  return common;
 }
 
 async function assertRegistrationParent(
@@ -273,8 +426,8 @@ async function register(
   if (scope !== "project" && scopedInput.projectId != null) throw new InputAssetRegistrationError("Private/system assets cannot name a project");
 
   const roots = dependencies.roots || defaultRoots();
-  if (scope === "system" && input.root !== "system") {
-    throw new InputAssetRegistrationError("System assets must use the configured system root");
+  if (scope === "system" && input.root !== "system" && input.kind !== "climate_collection") {
+    throw new InputAssetRegistrationError("System assets must use the configured system root; only climate collections may use a source-specific root");
   }
   const locator = makeInputAssetLocator(input.root, input.relativePath, roots);
   if (!locator) throw new InputAssetRegistrationError("Invalid server-owned storage locator");
@@ -290,6 +443,10 @@ async function register(
   }
   if (input.contentSha256 && input.contentSha256.toLowerCase() !== identity.contentSha256) {
     throw new InputAssetRegistrationError("Input asset content identity mismatch");
+  }
+  if (input.kind === "climate_collection"
+    && !(await verifyClimateCollectionManifest(resolved.absolutePath, roots, fs))) {
+    throw new InputAssetRegistrationError("Climate collection manifest is invalid or its members are unavailable");
   }
 
   const database = dependencies.database || db;
@@ -333,16 +490,19 @@ async function register(
 
     const [existing] = await database.select().from(inputAssets)
       .where(eq(inputAssets.storageLocator, locator)).limit(1);
+    if (existing?.state === "deleted") {
+      throw new InputAssetRegistrationError("Input asset was deleted", "deleted");
+    }
     if (!existing
       || existing.state !== "ready"
-      || existing.creatorUserId !== values.creatorUserId
+      || (values.scope !== "system" && existing.creatorUserId !== values.creatorUserId)
       || existing.scope !== values.scope
       || existing.kind !== values.kind
       || existing.projectId !== values.projectId
       || existing.parentAssetId !== values.parentAssetId
       || existing.contentSha256 !== values.contentSha256
       || existing.contentSize !== values.contentSize) {
-      throw new InputAssetRegistrationError("Input asset locator is already registered with different identity");
+      throw new InputAssetRegistrationError("Input asset locator is already registered with different identity", "conflict");
     }
     return existing;
   } catch (error) {
@@ -405,6 +565,104 @@ export async function registerInputAssetFromServerPath(
   return register({ ...input, root: pathParts.root, relativePath: pathParts.relativePath }, dependencies, false, null);
 }
 
+/** Register a server-generated v1 climate manifest as the canonical collection ID. */
+export async function registerClimateCollectionFromServerPath(
+  input: Omit<RegisterServerPathInput, "kind">,
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetRow> {
+  if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
+    throw new InputAssetRegistrationError("Server producer returned an invalid storage path");
+  }
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  let producerPath = resolve(input.absolutePath);
+  const configuredProjectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  if (producerPath.startsWith("/app/") && configuredProjectRoot !== "/app") {
+    producerPath = resolve(configuredProjectRoot, producerPath.slice("/app/".length));
+  }
+
+  let pathParts: { root: string; relativePath: string } | null = null;
+  try {
+    const actualProducerPath = await fs.realpath(producerPath);
+    for (const [rootName, configuredRoot] of Object.entries(roots)) {
+      if (!CLIMATE_COLLECTION_ROOTS.has(rootName)) continue;
+      if (typeof configuredRoot !== "string" || configuredRoot.length === 0) continue;
+      const actualRoot = await fs.realpath(resolve(configuredRoot));
+      const rel = relative(actualRoot, actualProducerPath);
+      if (rel && !rel.startsWith("..") && !rel.includes(".." + sep) && !rel.startsWith(sep)) {
+        pathParts = { root: rootName, relativePath: rel.split(sep).join("/") };
+        break;
+      }
+    }
+  } catch {
+    // Stable fail-closed error below.
+  }
+  if (!pathParts) throw new InputAssetRegistrationError("Server producer output is outside an approved climate root");
+  const manifest = await verifyClimateCollectionManifest(producerPath, roots, fs);
+  if (!manifest) throw new InputAssetRegistrationError("Climate collection manifest is invalid or incomplete");
+  if (manifest.members.some((member) => parseLocator(member.locator)?.root !== pathParts.root)) {
+    throw new InputAssetRegistrationError("Climate collection member root does not match its approved manifest root");
+  }
+
+  return register({
+    ...input,
+    kind: "climate_collection",
+    root: pathParts.root,
+    relativePath: pathParts.relativePath,
+  }, dependencies, false, null);
+}
+
+/** Register a shared immutable climate collection under a source-specific system root. */
+export async function registerSystemClimateCollectionFromServerPath(
+  input: { creatorUserId: string; absolutePath: string; contentSha256?: string },
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetRow> {
+  if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
+    throw new InputAssetRegistrationError("Server producer returned an invalid storage path");
+  }
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  let producerPath = resolve(input.absolutePath);
+  const configuredProjectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  if (producerPath.startsWith("/app/") && configuredProjectRoot !== "/app") {
+    producerPath = resolve(configuredProjectRoot, producerPath.slice("/app/".length));
+  }
+
+  let pathParts: { root: string; relativePath: string } | null = null;
+  try {
+    const actualProducerPath = await fs.realpath(producerPath);
+    for (const [rootName, configuredRoot] of Object.entries(roots)) {
+      if (!CLIMATE_COLLECTION_ROOTS.has(rootName)) continue;
+      if (typeof configuredRoot !== "string" || configuredRoot.length === 0) continue;
+      const actualRoot = await fs.realpath(resolve(configuredRoot));
+      const rel = relative(actualRoot, actualProducerPath);
+      if (rel && !rel.startsWith("..") && !rel.includes(".." + sep) && !rel.startsWith(sep)) {
+        pathParts = { root: rootName, relativePath: rel.split(sep).join("/") };
+        break;
+      }
+    }
+  } catch {
+    // Stable fail-closed error below.
+  }
+  if (!pathParts) throw new InputAssetRegistrationError("Server producer output is outside an approved climate root");
+  const manifest = await verifyClimateCollectionManifest(producerPath, roots, fs);
+  if (!manifest) throw new InputAssetRegistrationError("Climate collection manifest is invalid or incomplete");
+  if (manifest.members.some((member) => parseLocator(member.locator)?.root !== pathParts.root)) {
+    throw new InputAssetRegistrationError("Climate collection member root does not match its approved manifest root");
+  }
+
+  return register({
+    creatorUserId: input.creatorUserId,
+    kind: "climate_collection",
+    root: pathParts.root,
+    relativePath: pathParts.relativePath,
+    contentSha256: input.contentSha256,
+  }, dependencies, true, null);
+}
+
+/** Descriptive alias for callers that name the server-produced JSON artifact. */
+export const registerClimateCollectionManifest = registerClimateCollectionFromServerPath;
+
 /** Register a cleaner output while enforcing immutable raw-parent lineage. */
 export async function registerDerivedInputAssetFromServerPath(
   input: RegisterDerivedServerPathInput,
@@ -445,14 +703,41 @@ export async function registerSystemInputAsset(input: RegisterSystemInputAssetIn
 }
 
 /** Only lifecycle state can be changed after registration; ownership and locator are immutable. */
+export interface InputAssetStateAuthorization {
+  principal: InputAssetPrincipal;
+  expectedKind?: InputAssetKind;
+}
+
 export async function updateInputAssetState(
   assetId: string,
   state: Exclude<InputAssetState, "ready">,
   dependencies: InputAssetDependencies = {},
+  authorization?: InputAssetStateAuthorization,
 ): Promise<boolean> {
   if (!isUuid(assetId) || !isOneOf(state, ["deleted", "quarantined"] as const)) return false;
   const database = dependencies.database || db;
   try {
+    if (authorization) {
+      if (typeof database.transaction !== "function") return false;
+      return await database.transaction(async (tx) => {
+        const txDependencies = { ...dependencies, database: tx as unknown as Database };
+        const resolved = await resolveInputAsset({
+          assetId,
+          principal: authorization.principal,
+          action: "use",
+          expectedKind: authorization.expectedKind,
+        }, txDependencies);
+        if (!resolved.ok) return false;
+        const now = new Date();
+        const [updated] = await tx.update(inputAssets).set({
+          state,
+          deletedAt: state === "deleted" ? now : null,
+          quarantinedAt: state === "quarantined" ? now : null,
+          updatedAt: now,
+        }).where(and(eq(inputAssets.id, assetId), eq(inputAssets.state, "ready"))).returning({ id: inputAssets.id });
+        return Boolean(updated);
+      });
+    }
     const now = new Date();
     const [updated] = await database.update(inputAssets).set({
       state,
@@ -591,6 +876,9 @@ async function resolveInternal(
     if (!asset) return { ok: false, reason: "not_found" };
     if (options.expectedKind && asset.kind !== options.expectedKind) return { ok: false, reason: "invalid_asset" };
     if (options.allowedKinds && !options.allowedKinds.includes(asset.kind)) return { ok: false, reason: "invalid_asset" };
+    if (asset.kind === "custom_boundary" && parseLocator(asset.storageLocator)?.root !== "boundaries") {
+      return { ok: false, reason: "unsafe_storage" };
+    }
     if (options.expectedParentAssetId !== undefined && (asset.parentAssetId || null) !== (options.expectedParentAssetId || null)) {
       return { ok: false, reason: "invalid_lineage" };
     }
@@ -616,7 +904,14 @@ async function resolveInternal(
 
     const storage = await resolveInputAssetStorage(asset.storageLocator, dependencies.roots || defaultRoots(), dependencies.fs || fileSystem);
     if (!storage) return { ok: false, reason: "unsafe_storage" };
+    if (asset.kind === "climate_collection" && (asset.contentSha256 == null || asset.contentSize == null)) {
+      return { ok: false, reason: "unsafe_storage" };
+    }
     if (!(await matchesContentIdentity(asset, storage.absolutePath, dependencies.fs || fileSystem))) return { ok: false, reason: "unsafe_storage" };
+    if (asset.kind === "climate_collection"
+      && !(await verifyClimateCollectionManifest(storage.absolutePath, dependencies.roots || defaultRoots(), dependencies.fs || fileSystem))) {
+      return { ok: false, reason: "unsafe_storage" };
+    }
 
     if (auth.adminAccess) {
       try {
