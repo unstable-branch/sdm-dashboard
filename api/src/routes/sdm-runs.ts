@@ -480,7 +480,7 @@ sdmRunRoutes.get("/future/scenarios", authMiddleware, async (c) => {
   try {
     const user = c.get("user");
     const response = await plumberClient.withUser(user.id).withRole(user.role).getFutureScenarios();
-    const allowedKeys = ["id", "type", "gcm", "ssp", "period", "file_count", "size_bytes", "is_averaged", "status"];
+    const allowedKeys = ["id", "type", "source", "resolution", "gcm", "ssp", "period", "file_count", "size_bytes", "is_averaged", "status"];
     const available_scenarios = [];
     for (const scenario of response.available_scenarios || []) {
       if (typeof scenario.manifest_path !== "string") continue;

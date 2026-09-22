@@ -230,6 +230,8 @@ describe("SDM routes", () => {
       available_scenarios: [{
         id: "UKESM1-0-LL_SSP2-4.5_2041-2060",
         type: "future",
+        source: "worldclim",
+        resolution: 10,
         gcm: "UKESM1-0-LL",
         ssp: "SSP2-4.5",
         period: "2041-2060",
@@ -247,6 +249,8 @@ describe("SDM routes", () => {
       available_scenarios: [{
         id: "UKESM1-0-LL_SSP2-4.5_2041-2060",
         type: "future",
+        source: "worldclim",
+        resolution: 10,
         gcm: "UKESM1-0-LL",
         ssp: "SSP2-4.5",
         period: "2041-2060",
