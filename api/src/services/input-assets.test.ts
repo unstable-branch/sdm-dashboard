@@ -180,19 +180,14 @@ describe("canonical climate collection manifests", () => {
     }, { roots: { ...roots(), worldclim: climateRoot }, database: fakeDatabase() })).rejects.toThrow("member root");
   });
 
-  it("registers a server-produced v1 manifest only when every member identity is valid", async () => {
+  it("rejects private climate manifests from non-climate roots", async () => {
     const database = {
       select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
       insert: () => ({ values: (value: Record<string, unknown>) => ({ onConflictDoNothing: () => ({ returning: async () => [asset(CLIMATE, { ...value, id: CLIMATE, kind: "climate_collection", storageLocator: "uploads/climate.json" } as Partial<InputAssetRow>) ] }) }) }),
     } as unknown as InputAssetDependencies["database"];
     await expect(registerClimateCollectionFromServerPath({
       creatorUserId: A, scope: "private", absolutePath: join(root, "climate.json"),
-    }, { roots: roots(), database })).resolves.toMatchObject({ kind: "climate_collection" });
-
-    await writeFile(join(root, "climate.tif"), "tampered");
-    await expect(registerClimateCollectionFromServerPath({
-      creatorUserId: A, scope: "private", absolutePath: join(root, "climate.json"),
-    }, { roots: roots(), database })).rejects.toThrow("manifest");
+    }, { roots: roots(), database })).rejects.toThrow("climate root");
   });
 
   it("rechecks the manifest and every member before use", async () => {
@@ -231,19 +226,23 @@ describe("canonical climate collection manifests", () => {
   });
 
   it("rejects directory and absolute-path member locators", async () => {
-    await writeFile(join(root, "climate.json"), JSON.stringify({ version: 1, metadata: {}, members: [
+    const climateRoot = join(root, "Worldclim-invalid");
+    await mkdir(climateRoot);
+    const manifestPath = join(climateRoot, "climate.json");
+    const climateRoots = { ...roots(), worldclim: climateRoot };
+    await writeFile(manifestPath, JSON.stringify({ version: 1, metadata: {}, members: [
       { locator: "/tmp/member.tif", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: {} },
     ] }));
     await expect(registerClimateCollectionFromServerPath({
-      creatorUserId: A, scope: "private", absolutePath: join(root, "climate.json"),
-    }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("manifest");
+      creatorUserId: A, scope: "private", absolutePath: manifestPath,
+    }, { roots: climateRoots, database: fakeDatabase() })).rejects.toThrow("manifest");
 
-    await writeFile(join(root, "climate.json"), JSON.stringify({ version: 1, metadata: {}, members: [
-      { locator: "uploads", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: {} },
+    await writeFile(manifestPath, JSON.stringify({ version: 1, metadata: {}, members: [
+      { locator: "worldclim", sha256: "10db699812d02cc570ad3bdef91138092088ff2718c1ef1d4ee308a89defe62a", size: 7, metadata: {} },
     ] }));
     await expect(registerClimateCollectionFromServerPath({
-      creatorUserId: A, scope: "private", absolutePath: join(root, "climate.json"),
-    }, { roots: roots(), database: fakeDatabase() })).rejects.toThrow("manifest");
+      creatorUserId: A, scope: "private", absolutePath: manifestPath,
+    }, { roots: climateRoots, database: fakeDatabase() })).rejects.toThrow("manifest");
   });
 });
 
