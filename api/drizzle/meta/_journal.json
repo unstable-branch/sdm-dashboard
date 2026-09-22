@@ -288,6 +288,13 @@
       "when": 1789580000000,
       "tag": "0040_climate_collection_manifests",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789980000000,
+      "tag": "0041_add_upload_cleaning_columns",
+      "breakpoints": true
     }
   ]
 }
