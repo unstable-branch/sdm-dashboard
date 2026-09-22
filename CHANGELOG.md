@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Durable execution ownership — S1 schema slice (inert)
+
+- Migration `0041_durable_executions` adds the durable-execution schema from `docs/DESIGN_DURABLE_EXECUTION_OWNERSHIP.md` §2.2: `executions`, `execution_attempts`, `idempotency_requests`, `plumber_instances`, `plumber_instance_boots`, and `execution_events` plus the `execution_status` / `execution_attempt_kind` enums. Inert by design (Phase A of the §5 rollout): no existing table or column is touched and no behavior changes until later slices wire the execution state machine in behind `SDM_DURABLE_EXECUTION`.
+- Key schema invariants: at most one non-terminal execution per run and one open attempt per execution (partial unique indexes); external `plumber_job_id` and the owner `(instance, boot)` snapshot live on attempts only; `idempotency_requests` PK is `(principal, key)` with a unique `run_id` and a `DEFERRABLE INITIALLY DEFERRED` FK to `runs` so the reservation can be inserted before the run row and checked at commit; idempotency rows are permanent tombstones (never deleted, only `response_body` pruned) and restrict run deletion; `plumber_instance_boots` is append-only with `pid_chain_verified` defaulting to false.
+- Rollback for the slice: `api/drizzle/rollback/0041_durable_executions.down.sql` (drops the six tables and two enums; exercised in `api/src/db/execution-migration.test.ts`).
+
 ### GPU acceleration hardening (Groups Ph1–Ph4)
 
 #### Phase 1 — ABI contract, session cache, hybrid ROCm detection
