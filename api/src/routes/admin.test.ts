@@ -43,7 +43,7 @@ vi.mock("../db", () => ({
 
 function mockDb() {
   let selectIndex = 0;
-  return {
+  const dbObj: Record<string, any> = {
     select: vi.fn(() => {
       const next = () => mockSelectResults[selectIndex++] || [];
       const mkThenable = (obj: Record<string, any>) => ({ ...obj, then: vi.fn((resolve: any) => resolve(next())) });
@@ -78,7 +78,9 @@ function mockDb() {
       where: vi.fn(() => Promise.resolve()),
     })),
     execute: vi.fn(() => Promise.resolve(mockExecuteResult)),
+    transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => cb(dbObj)),
   };
+  return dbObj;
 }
 
 describe("Admin Routes", () => {
@@ -147,6 +149,47 @@ describe("Admin Routes", () => {
       const { app } = await setupApp();
       const res = await app.request("/api/v1/admin/users/user-1", { method: "DELETE" });
       expect(res.status).toBe(400);
+    });
+
+    it("DELETE /users/:id returns 409 with blocking counts while the user owns data", async () => {
+      // Sequence: [target user select] then 7 blocking-resource count selects.
+      mockSelectResults = [
+        [{ id: "u2", email: "[EMAIL]", role: "viewer" }],
+        [{ total: 2 }], // projects
+        [{ total: 0 }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+      ];
+      const { app } = await setupApp();
+      const res = await app.request("/api/v1/admin/users/target-2", { method: "DELETE" });
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.blocking).toEqual({ projects: 2 });
+    });
+
+    it("DELETE /users/:id deletes the account with API keys and memberships when it owns no data", async () => {
+      // Sequence: [target user select] then 7 zero counts, then the transaction.
+      mockSelectResults = [
+        [{ id: "target-3", email: "[EMAIL]", role: "viewer" }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+        [{ total: 0 }],
+      ];
+      const { app, db } = await setupApp();
+      const res = await app.request("/api/v1/admin/users/target-3", { method: "DELETE" });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+      // API keys and memberships must be revoked with the account inside the
+      // transaction (their FKs are NO ACTION), users deleted last.
+      expect((db.transaction as any).mock.calls.length).toBe(1);
     });
 
     it("reset-password returns 400 for short password", async () => {
