@@ -188,6 +188,7 @@ jobs:
           version: 10.30.3
 
       - name: Set up Docker Buildx
+        id: buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       - name: Validate release and image contracts
@@ -199,47 +200,21 @@ jobs:
           docker compose -f docker-compose.dev.yml config
           docker compose -f docker-compose.prod.yml config
 
-      - name: Build Plumber image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: plumber/Dockerfile
-          load: true
-          tags: |
-            sdm-dashboard-plumber:latest
-            sdm-plumber:test
-          cache-from: type=gha,scope=sdm-dashboard-plumber
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-plumber
-
+      # Shared dist must be present before the bake step: the API and
+      # frontend Dockerfiles consume it and skip the shared-package rebuild.
       - name: Download shared package artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: shared-dist
           path: packages/shared/dist
 
-      - name: Build API image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: Dockerfile.api
-          load: true
-          tags: |
-            sdm-dashboard-api:latest
-            sdm-api:test
-          cache-from: type=gha,scope=sdm-dashboard-api
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-api
-
-      - name: Build Frontend image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: Dockerfile.frontend
-          load: true
-          tags: |
-            sdm-dashboard-frontend:latest
-            sdm-frontend:test
-          cache-from: type=gha,scope=sdm-dashboard-frontend
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-frontend
+      # Builds plumber, api and frontend images concurrently (buildx bake).
+      # Contexts, Dockerfiles, tags and gha cache scopes are defined in
+      # docker-bake.ci.hcl and mirror the sequential build-push-action steps
+      # this replaces; all three images are loaded into the local docker
+      # daemon for the compose integration, e2e, type-contract and scan steps.
+      - name: Build images in parallel (buildx bake)
+        run: docker buildx bake --file docker-bake.ci.hcl --builder "${{ steps.buildx.outputs.name }}" --load ci
 
       - name: Start services and verify health
         run: |
@@ -337,32 +312,36 @@ jobs:
           echo "Verifying generated types compile..."
           cd ../packages/shared && pnpm run build
 
+      # Same installer the previous trivy-action steps used internally
+      # (aquasecurity/setup-trivy@3fb12ec, same default 'latest' version).
+      - name: Install Trivy CLI
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+
+      # Scan all three images concurrently. The DB is warmed once first so the
+      # three processes share it instead of racing to download it; severity,
+      # exit-code and SARIF outputs are identical to the sequential
+      # trivy-action scans this replaces.
       - name: Scan images for vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: sdm-plumber:test
-          format: sarif
-          output: trivy-plumber.sarif
-          severity: CRITICAL,HIGH
-          exit-code: 0
-
-      - name: Scan API image
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: sdm-api:test
-          format: sarif
-          output: trivy-api.sarif
-          severity: CRITICAL,HIGH
-          exit-code: 0
-
-      - name: Scan frontend image
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: sdm-frontend:test
-          format: sarif
-          output: trivy-frontend.sarif
-          severity: CRITICAL,HIGH
-          exit-code: 0
+        run: |
+          trivy image --download db-only
+          scan() {
+            trivy image \
+              --format sarif \
+              --output "trivy-$1.sarif" \
+              --severity CRITICAL,HIGH \
+              --exit-code 0 \
+              "$2"
+          }
+          pids=()
+          scan plumber sdm-plumber:test & pids+=($!)
+          scan api sdm-api:test & pids+=($!)
+          scan frontend sdm-frontend:test & pids+=($!)
+          fail=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || fail=1
+          done
+          ls -la trivy-*.sarif
+          exit "$fail"
 
       - name: Teardown
         if: always()
