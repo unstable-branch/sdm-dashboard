@@ -90,7 +90,7 @@ describe("climate routes — Plumber unavailability propagation", () => {
     it("registers future manifests and returns opaque collection IDs", async () => {
       mocks.getClimateScenarios.mockResolvedValue({ scenarios: [{
         id: "future-1", type: "future", source: "worldclim", gcm: "ACCESS-CM2",
-        ssp: "ssp245", period: "2041-2060", manifest_path: "/safe/future.json",
+        ssp: "ssp245", period: "2041-2060", resolution: 10, manifest_path: "/safe/future.json",
         file_count: 19, size_bytes: 4096,
       }] });
       mocks.registerSystemClimateCollectionFromServerPath.mockResolvedValueOnce({
@@ -102,7 +102,7 @@ describe("climate routes — Plumber unavailability propagation", () => {
       expect(res.status).toBe(200);
       await expect(res.json()).resolves.toEqual({ scenarios: [{
         id: "future-1", type: "future", source: "worldclim", gcm: "ACCESS-CM2",
-        ssp: "ssp245", period: "2041-2060", file_count: 19, size_bytes: 4096,
+        ssp: "ssp245", period: "2041-2060", resolution: 10, file_count: 19, size_bytes: 4096,
         climateCollectionId: "33333333-3333-4333-8333-333333333333",
       }] });
     });

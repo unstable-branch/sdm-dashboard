@@ -159,6 +159,17 @@ sdm_climate_verified_files <- function(directory) {
   files[vapply(files, sdm_climate_valid_output, logical(1))]
 }
 
+sdm_worldclim_resolution_from_files <- function(files) {
+  names <- basename(files %||% character())
+  matches <- regexec("^wc2[.]1_([0-9]+(?:[.][0-9]+)?)m_bioc?_", names, perl = TRUE)
+  values <- vapply(regmatches(names, matches), function(parts) {
+    if (length(parts) < 2L) return(NA_real_)
+    suppressWarnings(as.numeric(parts[[2]]))
+  }, numeric(1))
+  values <- unique(values[is.finite(values)])
+  if (length(values) == 1L) values[[1]] else NA_real_
+}
+
 sdm_publish_climate_directory_manifest <- function(directory, app_dir, source, metadata = list(), roots = sdm_climate_asset_roots(app_dir)) {
   files <- sdm_climate_verified_files(directory)
   if (length(files) == 0L) stop("Climate output is incomplete or has no verified members", call. = FALSE)
@@ -177,6 +188,7 @@ handle_future_scenarios <- function(res, app_dir) {
     sd <- file.path(base_dir, sd_name)
     tif_files <- list.files(sd, pattern = "\\.tif$", full.names = TRUE)
     if (length(tif_files) == 0) next
+    resolution <- sdm_worldclim_resolution_from_files(tif_files)
 
     is_averaged <- startsWith(sd_name, "averaged_")
     if (is_averaged) {
@@ -198,8 +210,8 @@ handle_future_scenarios <- function(res, app_dir) {
 
     manifest_path <- tryCatch(
       sdm_publish_climate_directory_manifest(
-        sd, app_dir, source = "cmip6",
-        metadata = list(gcm = gcm, ssp = ssp, period = period, is_averaged = is_averaged)
+        sd, app_dir, source = "worldclim",
+        metadata = list(gcm = gcm, ssp = ssp, period = period, resolution = resolution, is_averaged = is_averaged)
       ),
       error = function(e) NULL
     )
@@ -208,6 +220,8 @@ handle_future_scenarios <- function(res, app_dir) {
       gcm = gcm,
       ssp = ssp,
       period = period,
+      source = "worldclim",
+      resolution = resolution,
       file_count = length(tif_files),
       manifest_path = manifest_path,
       status = "completed",
@@ -411,6 +425,7 @@ handle_climate_scenarios <- function(res, app_dir) {
       tif_files <- list.files(sd, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
       total_size <- sum(file.info(tif_files)$size, na.rm = TRUE)
       is_averaged <- startsWith(sd_name, "averaged_")
+      resolution <- sdm_worldclim_resolution_from_files(tif_files)
 
       gcm <- ""
       ssp <- ""
@@ -436,6 +451,8 @@ handle_climate_scenarios <- function(res, app_dir) {
       scenarios <- c(scenarios, list(list(
         id = sd_name,
         type = "future",
+        source = "worldclim",
+        resolution = resolution,
         gcm = gcm,
         ssp = ssp,
         period = period,
@@ -444,8 +461,8 @@ handle_climate_scenarios <- function(res, app_dir) {
         is_averaged = is_averaged,
         manifest_path = tryCatch(
           sdm_publish_climate_directory_manifest(
-            sd, app_dir, source = "cmip6",
-            metadata = list(gcm = gcm, ssp = ssp, period = period, is_averaged = is_averaged)
+            sd, app_dir, source = "worldclim",
+            metadata = list(gcm = gcm, ssp = ssp, period = period, resolution = resolution, is_averaged = is_averaged)
           ),
           error = function(e) NULL
         )

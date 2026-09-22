@@ -74,7 +74,12 @@ test_that("climate listings publish manifests and do not expose member paths", {
 
   listed <- handle_future_scenarios(NULL, root)$available_scenarios
   expect_length(listed, 1)
+  expect_equal(listed[[1]]$source, "worldclim")
+  expect_equal(listed[[1]]$resolution, 10)
   expect_true(is.character(listed[[1]]$manifest_path))
+  manifest <- jsonlite::fromJSON(listed[[1]]$manifest_path, simplifyVector = FALSE)
+  expect_equal(manifest$metadata$source, "worldclim")
+  expect_equal(manifest$metadata$resolution, 10)
   expect_null(listed[[1]]$path)
   expect_null(listed[[1]]$files)
   expect_false("base_directory" %in% names(handle_future_scenarios(NULL, root)))
