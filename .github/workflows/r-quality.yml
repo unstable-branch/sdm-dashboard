@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   quality-checks:
-    name: R source, test, determinism and release validation
+    name: R source, test and release validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -93,24 +93,12 @@ jobs:
       - name: Run lightweight test suite
         run: Rscript tests/testthat.R
 
-      - name: Run backend determinism tests
-        run: |
-          # R's $ column syntax must remain literal inside the shell string.
-          # shellcheck disable=SC2016
-          Rscript -e '
-            library(testthat)
-            source("R/core/bootstrap.R")
-            source("R/load.R")
-            source("tests/testthat/helper-fixtures.R")
-            source("tests/testthat/helper-load.R")
-            results <- test_file("tests/testthat/test-determinism.R", reporter = "summary", stop_on_failure = FALSE)
-            failed <- sum(as.data.frame(results)$failed)
-            errored <- sum(as.data.frame(results)$error)
-            if (failed > 0 || errored > 0) {
-              stop(sprintf("Determinism validation failed: %d failures, %d errors", failed, errored))
-            }
-            message("All determinism tests passed.")
-          '
+      # NOTE: determinism validation runs inside tests/testthat.R —
+      # test_dir() executes tests/testthat/test-determinism.R along with every
+      # other test file (confirmed in CI logs of the suite step). The previous
+      # standalone "Run backend determinism tests" step re-ran the identical
+      # file (+73s) and was removed; tests/testthat.R now checks failures
+      # explicitly so failure detection is at least as strict as that step's.
 
       - name: Build sdmtorch C++ extensions
         run: |

@@ -1,6 +1,11 @@
 if (requireNamespace("testthat", quietly = TRUE)) {
   library(testthat)
-  test_dir(file.path("tests", "testthat"), reporter = "summary")
+  # stop_on_failure = TRUE (explicit): a failing or erroring test must fail
+  # the CI step regardless of the installed testthat's default. This includes
+  # tests/testthat/test-determinism.R, which test_dir() runs like every
+  # other test file — determinism validation lives here, not in a separate
+  # CI step.
+  test_dir(file.path("tests", "testthat"), reporter = "summary", stop_on_failure = TRUE)
 } else {
   passed <- 0L
   failed <- 0L
