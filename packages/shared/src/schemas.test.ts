@@ -50,9 +50,15 @@ const validFull = {
   useDrought: true,
   futureProjection: true,
   futureClimateAssetId: "11111111-1111-1111-1111-111111111113",
+  futureGcm: "ACCESS-CM2",
+  futureSsp: "SSP2-4.5",
+  futurePeriod: "2041-2060",
   futureLabel: "Future 2050",
   futureProjection2: true,
   futureClimateAssetId2: "11111111-1111-1111-1111-111111111114",
+  futureGcm2: "MPI-ESM1-2-HR",
+  futureSsp2: "SSP3-7.0",
+  futurePeriod2: "2061-2080",
   futureLabel2: "Future 2070",
   vifReduction: true,
   vifThreshold: 5,
@@ -260,6 +266,36 @@ describe("modelConfigSchema", () => {
       const result = modelConfigSchema.safeParse({ ...validMinimal, currentClimateAssetId: "22222222-2222-4222-8222-222222222222", futureProjection: true, futureProjection2: true });
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error.issues.map((issue: { path: (string | number)[] }) => issue.path[0])).toEqual(expect.arrayContaining(["futureClimateAssetId", "futureClimateAssetId2"]));
+    });
+
+    it("requires canonical selectors for each enabled future projection", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        currentClimateAssetId: "22222222-2222-4222-8222-222222222222",
+        futureProjection: true,
+        futureClimateAssetId: "33333333-3333-4333-8333-333333333333",
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.map((issue: { path: (string | number)[] }) => issue.path[0]))
+          .toEqual(expect.arrayContaining(["futureGcm", "futureSsp", "futurePeriod"]));
+      }
+    });
+
+    it("rejects a second future projection without the first", () => {
+      const result = modelConfigSchema.safeParse({
+        ...validMinimal,
+        currentClimateAssetId: "22222222-2222-4222-8222-222222222222",
+        futureProjection2: true,
+        futureClimateAssetId2: "44444444-4444-4444-8444-444444444444",
+        futureGcm2: "MPI-ESM1-2-HR",
+        futureSsp2: "SSP3-7.0",
+        futurePeriod2: "2061-2080",
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue: { path: (string | number)[] }) => issue.path[0] === "futureProjection2")).toBe(true);
+      }
     });
   });
 
