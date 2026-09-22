@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex, check, AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex, primaryKey, check, AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { relations } from "drizzle-orm";
 
@@ -407,3 +407,138 @@ export const refreshTokens = pgTable("refresh_tokens", {
 export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
   user: one(users, { fields: [refreshTokens.userId], references: [users.id] }),
 }));
+
+// ---------------------------------------------------------------------------
+// Durable execution ownership (docs/DESIGN_DURABLE_EXECUTION_OWNERSHIP.md §2.2,
+// migration 0043). Runs remain the scientific lineage; executions own dispatch
+// authorization, attempts are append-only invocation identity, and the compute
+// owner is the Plumber instance boot. These tables are inert until the durable
+// execution flag rolls out (§5 Phase A/B).
+// ---------------------------------------------------------------------------
+
+export const executionStatusEnum = pgEnum("execution_status", [
+  "reserved",
+  "dispatching",
+  "cancel_requested",
+  "accepted",
+  "lost_response",
+  "adopted",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+]);
+
+export const executionAttemptKindEnum = pgEnum("execution_attempt_kind", ["initial", "reconciliation"]);
+
+/** Dispatch authorization aggregate: one authorized dispatch lineage per run. */
+export const executions = pgTable("executions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id")
+    .references(() => runs.id, { onDelete: "cascade" })
+    .notNull(),
+  // Gapless per run, allocated under the runs-row lock (§2.2.3).
+  runSeq: integer("run_seq").notNull(),
+  status: executionStatusEnum("status").default("reserved").notNull(),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  // Durable cancel intent, orthogonal to status; never cleared once set (§2.4).
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  // Dispatch-replay identity within this execution.
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  // One-time 128-bit random hex value generated in the reserve transaction.
+  nonce128: varchar("nonce128", { length: 32 }).notNull(),
+  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+  // Set only by authorized retry (§2.1); terminal executions are never reopened.
+  retryOfExecutionId: uuid("retry_of_execution_id").references((): AnyPgColumn => executions.id, { onDelete: "cascade" }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  reservedByPrincipal: uuid("reserved_by_principal").notNull(),
+  // Authorization scope for every downstream owner check (§2.2.4).
+  projectId: uuid("project_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("executions_open_per_run_uq").on(t.runId).where(sql`finalized_at IS NULL`),
+  index("executions_run_id_idx").on(t.runId),
+  index("executions_open_status_idx").on(t.status).where(sql`finalized_at IS NULL`),
+  uniqueIndex("executions_run_seq_unique").on(t.runId, t.runSeq),
+]);
+
+/** Append-only invocation identity; external job identity and owner snapshot live here. */
+export const executionAttempts = pgTable("execution_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  executionId: uuid("execution_id")
+    .references(() => executions.id, { onDelete: "cascade" })
+    .notNull(),
+  attemptNo: integer("attempt_no").notNull(),
+  attemptKey: text("attempt_key").notNull().unique(),
+  kind: executionAttemptKindEnum("kind").notNull(),
+  // External Plumber identity: written at most once per attempt (invariant 3).
+  plumberJobId: varchar("plumber_job_id", { length: 100 }).unique(),
+  // Owner snapshot of the Plumber instance boot that accepted this attempt.
+  ownerInstanceId: uuid("owner_instance_id"),
+  ownerBootId: uuid("owner_boot_id"),
+  outcome: text("outcome"),
+  errorCode: text("error_code"),
+  errorHint: text("error_hint"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+}, (t) => [
+  // Invariant 2: one non-final attempt per execution (the probe/adoption target).
+  uniqueIndex("execution_attempts_open_uq").on(t.executionId).where(sql`finalized_at IS NULL`),
+]);
+
+/** Request-level idempotency tombstone: rows are never deleted (§2.2.2). */
+export const idempotencyRequests = pgTable("idempotency_requests", {
+  principal: uuid("principal").notNull(),
+  key: text("key").notNull(),
+  projectId: uuid("project_id").notNull(),
+  requestHash: text("request_hash").notNull(),
+  runId: uuid("run_id").notNull().unique(),
+  responseStatus: integer("response_status"),
+  responseBody: jsonb("response_body"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.principal, t.key], name: "idempotency_requests_pk" }),
+  index("idempotency_requests_expires_idx").on(t.expiresAt),
+]);
+
+/** Stable Plumber deployment identity (SDM_PLUMBER_INSTANCE). */
+export const plumberInstances = pgTable("plumber_instances", {
+  id: uuid("id").primaryKey(),
+  apiBaseUrl: text("api_base_url").notNull(),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Append-only boot registry: one row per Plumber process start; prior boots are
+ * never overwritten except last_seen_at heartbeats (§2.3, invariant 12).
+ */
+export const plumberInstanceBoots = pgTable("plumber_instance_boots", {
+  bootId: uuid("boot_id").primaryKey(),
+  instanceId: uuid("instance_id")
+    .references(() => plumberInstances.id, { onDelete: "restrict" })
+    .notNull(),
+  announcedAt: timestamp("announced_at", { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+  // Self-verified /proc container-lifetime chain (§2.2.4, invariant 14).
+  pidChainVerified: boolean("pid_chain_verified").default(false).notNull(),
+}, (t) => [
+  index("plumber_instance_boots_instance_idx").on(t.instanceId, t.announcedAt),
+]);
+
+/** Durable transition log; progress stays ephemeral (§2.6). */
+export const executionEvents = pgTable("execution_events", {
+  id: bigint("id", { mode: "number" }).generatedAlwaysAsIdentity().primaryKey(),
+  executionId: uuid("execution_id")
+    .references(() => executions.id, { onDelete: "cascade" })
+    .notNull(),
+  attemptNo: integer("attempt_no"),
+  seq: integer("seq").notNull(),
+  event: text("event").notNull(),
+  observed: jsonb("observed"),
+  emittedAt: timestamp("emitted_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("execution_events_execution_seq_unique").on(t.executionId, t.seq),
+]);
