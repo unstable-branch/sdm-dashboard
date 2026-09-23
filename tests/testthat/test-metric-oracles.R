@@ -10,11 +10,14 @@
 # separately in test-binary-metrics.R.
 
 pairwise_auc_oracle <- function(obs, score) {
-  ok <- is.finite(obs) & is.finite(score)
-  obs <- as.integer(obs[ok])
+  # Strict domain: fractional (e.g. soft 0.5), negative, and out-of-range
+  # labels are not binary and must be excluded from both pairing and the
+  # score pool — matching auc_rank's filter without integer truncation.
+  ok <- is.finite(obs) & is.finite(score) & (obs %in% c(0, 1))
+  obs <- obs[ok]
   score <- as.numeric(score[ok])
-  pres <- score[obs == 1L]
-  bg <- score[obs == 0L]
+  pres <- score[obs == 1]
+  bg <- score[obs == 0]
   if (length(pres) == 0L || length(bg) == 0L) return(NA_real_)
   gt <- 0
   tie <- 0
@@ -55,6 +58,24 @@ test_that("auc_rank ignores labels outside {0,1} when ranking", {
   expect_equal(as.numeric(auc_rank(c(1, 0, 2), c(1, 0, 0.5))), 1)
   # Same fixture with a poison score on the stray label: still 1.0.
   expect_equal(as.numeric(auc_rank(c(1, 0, 2), c(1, 0, 1e9))), 1)
+})
+
+test_that("auc_rank excludes fractional soft labels instead of truncating them", {
+  # as.integer(0.5) == 0, so pre-fix code counted the 0.5 label as background
+  # and scored 0.5; the strict domain omits it entirely -> 1.0.
+  expect_equal(as.numeric(auc_rank(c(1, 0, 0.5), c(0.9, 0.1, 1))), 1)
+  # as.integer(-0.5) == 0 truncates a negative soft label to background too.
+  expect_equal(as.numeric(auc_rank(c(1, 0, -0.5), c(0.9, 0.1, 1))), 1)
+  # as.integer(1.9) == 1 promoted an out-of-range label to presence; with its
+  # low poison score the truncated run scores 0.5 vs the strict-domain 1.0.
+  expect_equal(as.numeric(auc_rank(c(1, 0, 1.9), c(0.9, 0.1, 0.05))), 1)
+  # Oracle agreement on the same non-binary fixtures (strict-domain oracle).
+  expect_equal(as.numeric(auc_rank(c(1, 0, 0.5), c(0.9, 0.1, 1))),
+               pairwise_auc_oracle(c(1, 0, 0.5), c(0.9, 0.1, 1)))
+  expect_equal(as.numeric(auc_rank(c(1, 0, 1.9), c(0.9, 0.1, 0.05))),
+               pairwise_auc_oracle(c(1, 0, 1.9), c(0.9, 0.1, 0.05)))
+  # Binary integer callers are unaffected by the stricter filter.
+  expect_equal(as.numeric(auc_rank(c(1, 0, 1, 0), c(0.9, 0.1, 0.8, 0.2))), 1)
 })
 
 test_that("auc_rank scores all-tied predictions at 0.5 regardless of class mix", {
@@ -114,6 +135,24 @@ test_that("multi-ensemble TSS weights use raw skill, not a 0.5 floor", {
                   b = list(tss_mean = 0.2, auc_mean = 0.6))
   w <- compute_multi_ensemble_weights(cv_list, "tss", power = 2)
   expect_equal(unname(w), c(0.36 / 0.40, 0.04 / 0.40), tolerance = 1e-8)
+})
+
+test_that("multi-ensemble TSS weights give a component with missing TSS zero weight", {
+  # A component without any tss_mean entry carries no measured skill; its
+  # fallback is the TSS no-information level 0, not the AUC random level 0.5.
+  cv_list <- list(good = list(tss_mean = 0.6), missing = list())
+  w <- compute_multi_ensemble_weights(cv_list, "tss", power = 2)
+  expect_equal(unname(w), c(1, 0), tolerance = 1e-8)
+})
+
+test_that("multi-ensemble TSS weights give an NA-TSS component zero weight", {
+  cv_list <- list(good = list(tss_mean = 0.6), bad = list(tss_mean = NA_real_))
+  w <- compute_multi_ensemble_weights(cv_list, "tss", power = 2)
+  expect_equal(unname(w), c(1, 0), tolerance = 1e-8)
+  # All components unmeasured: no evidence, equal fallback weights.
+  w_all <- compute_multi_ensemble_weights(
+    list(x = list(tss_mean = NA_real_), y = list(auc_mean = 0.7)), "tss", power = 2)
+  expect_equal(unname(w_all), c(0.5, 0.5), tolerance = 1e-8)
 })
 
 test_that("multi-ensemble AUC weights are equal when no component beats random", {
