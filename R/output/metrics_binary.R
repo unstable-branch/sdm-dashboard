@@ -1,7 +1,11 @@
 # Shared binary classification metrics for SDM evaluation.
 
 auc_rank <- function(obs, score) {
-  ok <- is.finite(obs) & is.finite(score)
+  # Strict binary-label domain: labels outside {0,1} are neither presence nor
+  # background. They must not pair against anything and their scores must not
+  # enter the rank pool, or the AUC can exceed 1 (e.g. a stray label scoring
+  # highest pushes every presence rank up by one full group size).
+  ok <- is.finite(obs) & is.finite(score) & (as.integer(obs) %in% c(0L, 1L))
   obs <- as.integer(obs[ok])
   score <- as.numeric(score[ok])
   n1 <- sum(obs == 1)

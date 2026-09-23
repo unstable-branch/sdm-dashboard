@@ -24,15 +24,22 @@ compute_multi_ensemble_weights <- function(cv_list, weighting = "auc", power = 2
   metric <- if (identical(weighting, "auc")) "auc_mean" else "tss_mean"
   vals <- vapply(cv_list, function(x) {
     v <- suppressWarnings(as.numeric(x[[metric]][1]))
-    if (is.finite(v)) v else 0.5
+    # A component without the metric (missing or empty) is treated as
+    # random-skill fallback, never as an indexing error.
+    if (length(v) == 1L && is.finite(v)) v else 0.5
   }, numeric(1))
-  # AUC has a fixed model direction. Only discrimination above random may
-  # contribute to AUC weights; in particular, an inverted component (AUC <
-  # 0.5, including AUC = 0) must never be promoted by taking 1 - AUC.
-  vals <- pmin(pmax(vals, 0), 1)
-  vals[vals < 0.5] <- 0.5
+  # Each metric has its own no-information level, applied before the
+  # power normalization. AUC has a fixed model direction: only discrimination
+  # above random (0.5) may contribute to AUC weights; in particular, an
+  # inverted component (AUC < 0.5, including AUC = 0) must never be promoted
+  # by taking 1 - AUC. TSS has no-information level 0: raw skill contributes
+  # directly and negative skill contributes nothing.
   if (identical(weighting, "auc")) {
+    vals <- pmin(pmax(vals, 0), 1)
+    vals[vals < 0.5] <- 0.5
     vals <- vals - 0.5
+  } else {
+    vals <- pmin(pmax(vals, 0), 1)
   }
   vals[vals < 0] <- 0
   powered <- vals^power
