@@ -22,11 +22,15 @@ compute_multi_ensemble_weights <- function(cv_list, weighting = "auc", power = 2
     return(w / sum(w))
   }
   metric <- if (identical(weighting, "auc")) "auc_mean" else "tss_mean"
+  # No-information fallback for a component whose metric is missing, empty,
+  # or NA. Each metric falls back to its own no-information level: AUC -> 0.5
+  # (random discrimination), TSS -> 0 (no skill). A hard-coded 0.5 for TSS
+  # would credit an unmeasured component with more skill than a measured
+  # no-skill (TSS = 0) component and take weight away from real performers.
+  no_info_level <- if (identical(weighting, "auc")) 0.5 else 0
   vals <- vapply(cv_list, function(x) {
     v <- suppressWarnings(as.numeric(x[[metric]][1]))
-    # A component without the metric (missing or empty) is treated as
-    # random-skill fallback, never as an indexing error.
-    if (length(v) == 1L && is.finite(v)) v else 0.5
+    if (length(v) == 1L && is.finite(v)) v else no_info_level
   }, numeric(1))
   # Each metric has its own no-information level, applied before the
   # power normalization. AUC has a fixed model direction: only discrimination
