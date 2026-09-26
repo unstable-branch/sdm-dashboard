@@ -157,9 +157,38 @@ sdm_boundary_is_json_format <- function(path) {
   tryCatch(tolower(tools::file_ext(path)) %in% c("geojson", "json"), error = function(e) FALSE)
 }
 
+# RFC 7946 top-level GeoJSON types.  A document that declares any other type,
+# or omits the member its type requires, is demonstrably not a GeoJSON document
+# and therefore a client content denial rather than a server fault.
+sdm_boundary_geojson_types <- c(
+  "FeatureCollection", "Feature", "GeometryCollection",
+  "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"
+)
+
+# Deterministic structure/type validation for a parsed JSON document.
+sdm_boundary_geojson_is_valid <- function(parsed) {
+  if (!is.list(parsed) || is.null(names(parsed))) return(FALSE)
+  type <- parsed$type
+  if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
+  if (!type %in% sdm_boundary_geojson_types) return(FALSE)
+  members <- names(parsed)
+  if (identical(type, "FeatureCollection")) {
+    return("features" %in% members && is.list(parsed$features))
+  }
+  if (identical(type, "GeometryCollection")) {
+    return("geometries" %in% members && is.list(parsed$geometries))
+  }
+  if (identical(type, "Feature")) {
+    # RFC 7946 allows a Feature with a null geometry; only a missing member is
+    # structurally invalid.
+    return("geometry" %in% members)
+  }
+  "coordinates" %in% members
+}
+
 # Reads a resolved custom asset and classifies it without asserting geometry.
 # Returns list(state = ...) where state is one of:
-#   "parsed"             readable JSON GeoJSON document (geojson attached)
+#   "parsed"             readable, valid GeoJSON document (geojson attached)
 #   "unvalidated"        readable, but not a JSON-family boundary format
 #   "invalid_content"    demonstrably invalid client content
 #   "read_failure"       server-side read/I/O failure
@@ -173,10 +202,7 @@ sdm_boundary_classify_asset <- function(path) {
     jsonlite::fromJSON(rawToChar(raw_content), simplifyVector = FALSE),
     error = function(e) NULL
   )
-  if (is.null(parsed) || !is.list(parsed) || is.null(parsed$type) ||
-      !is.character(parsed$type) || length(parsed$type) != 1L || !nzchar(parsed$type)) {
-    return(list(state = "invalid_content"))
-  }
+  if (!sdm_boundary_geojson_is_valid(parsed)) return(list(state = "invalid_content"))
   list(state = "parsed", geojson = parsed)
 }
 
@@ -404,6 +430,17 @@ handle_boundary_countries <- function(res, app_dir) {
   list(countries = countries)
 }
 
+# Geometry extent via the geometry runtime.  Kept as its own function so the
+# read/processing fault path is separable from the content classification: the
+# callers pass only an already-classified, server-resolved canonical path.
+sdm_boundary_compute_extent <- function(file_path, buffer_deg = 2) {
+  vec <- terra::vect(file_path)
+  e <- terra::ext(vec)
+  xmin <- e[1]; xmax <- e[2]; ymin <- e[3]; ymax <- e[4]
+  buf <- as.numeric(buffer_deg) %||% 2
+  list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
+}
+
 handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2,
                                    boundary_asset_id = NULL, project_id = NULL, req = NULL) {
   boundary_root <- sdm_boundary_storage_root(app_dir)
@@ -477,19 +514,16 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     res$status <- 500L
     return(list(error = "Boundary processing is unavailable"))
   }
-  tryCatch({
-    vec <- terra::vect(file_path)
-    e <- terra::ext(vec)
-    xmin <- e[1]; xmax <- e[2]; ymin <- e[3]; ymax <- e[4]
-    buf <- as.numeric(buffer_deg) %||% 2
-    list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
-  }, error = function(e) {
-    # Any remaining failure is an unexpected read/processing fault, not a
-    # demonstrable content denial: keep it an upstream 5xx.
-    warning("Boundary extent failed: ", conditionMessage(e), call. = FALSE)
-    res$status <- 500L
-    list(error = "Boundary extent failed")
-  })
+  tryCatch(
+    sdm_boundary_compute_extent(file_path, buffer_deg),
+    error = function(e) {
+      # Any remaining failure is an unexpected read/processing fault, not a
+      # demonstrable content denial: keep it an upstream 5xx.
+      warning("Boundary extent failed: ", conditionMessage(e), call. = FALSE)
+      res$status <- 500L
+      list(error = "Boundary extent failed")
+    }
+  )
 }
 
 sdm_boundary_download_filename <- function(type, resolution, country) {
