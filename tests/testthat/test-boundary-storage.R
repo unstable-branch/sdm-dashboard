@@ -408,7 +408,25 @@ test_that("clearly invalid GeoJSON content is a typed client denial from both re
     # Structurally invalid FeatureCollection: the required member is absent.
     missing_features = '{"type":"FeatureCollection"}',
     # Geometry type without the required coordinates member.
-    polygon_without_coordinates = '{"type":"Polygon"}'
+    polygon_without_coordinates = '{"type":"Polygon"}',
+    # Coordinates that are not an array at all (reviewer round-3 case A).
+    point_coordinates_not_array = '{"type":"Point","coordinates":"not-an-array"}',
+    # Coordinates that are an array but whose ordinals are not numbers.
+    point_coordinates_not_numbers = '{"type":"Point","coordinates":["a","b"]}',
+    # Nesting shape does not match the declared geometry type.
+    polygon_coordinates_not_rings = '{"type":"Polygon","coordinates":[1,2]}',
+    # A Feature whose nested geometry declares an unsupported type
+    # (reviewer round-3 case B).
+    feature_with_unsupported_geometry =
+      '{"type":"Feature","geometry":{"type":"BogusGeometry","coordinates":[]},"properties":{}}',
+    # A Feature whose nested geometry has a malformed coordinate shape.
+    feature_with_malformed_geometry =
+      '{"type":"Feature","geometry":{"type":"LineString","coordinates":[1,2]},"properties":{}}',
+    # A FeatureCollection whose single feature carries malformed nested content.
+    collection_with_invalid_feature = paste0(
+      '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},',
+      '"geometry":{"type":"MultiPolygon","coordinates":"nope"}}]}'
+    )
   )
 
   for (fixture in invalid_documents) {
@@ -433,6 +451,44 @@ test_that("clearly invalid GeoJSON content is a typed client denial from both re
     expect_equal(extent_response$status, 422L)
     expect_equal(extent_result$error, "Boundary content is not a usable geometry")
     expect_false(grepl(app_dir, extent_result$error, fixed = TRUE))
+  }
+})
+
+test_that("structurally valid GeoJSON documents are not over-rejected", {
+  env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "helpers", "boundary_helpers.R"), envir = env)
+
+  valid_documents <- list(
+    point = '{"type":"Point","coordinates":[1.0,2.0]}',
+    point_3d = '{"type":"Point","coordinates":[1.0,2.0,3.0]}',
+    multipoint = '{"type":"MultiPoint","coordinates":[[1.0,2.0],[3.0,4.0]]}',
+    linestring = '{"type":"LineString","coordinates":[[1.0,2.0],[3.0,4.0]]}',
+    polygon_with_hole = paste0(
+      '{"type":"Polygon","coordinates":[',
+      '[[0.0,0.0],[4.0,0.0],[4.0,4.0],[0.0,4.0],[0.0,0.0]],',
+      '[[1.0,1.0],[2.0,1.0],[2.0,2.0],[1.0,2.0],[1.0,1.0]]]}'
+    ),
+    multipolygon = paste0(
+      '{"type":"MultiPolygon","coordinates":[[',
+      '[[0.0,0.0],[1.0,0.0],[1.0,1.0],[0.0,1.0],[0.0,0.0]]]]}'
+    ),
+    geometry_collection = paste0(
+      '{"type":"GeometryCollection","geometries":[',
+      '{"type":"Point","coordinates":[1.0,2.0]},',
+      '{"type":"LineString","coordinates":[[1.0,2.0],[3.0,4.0]]}]}'
+    ),
+    # RFC 7946 permits a Feature with a null geometry.
+    feature_null_geometry = '{"type":"Feature","geometry":null,"properties":{}}',
+    feature_collection = paste0(
+      '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"x"},',
+      '"geometry":{"type":"Point","coordinates":[1.0,2.0]}}]}'
+    ),
+    empty_feature_collection = '{"type":"FeatureCollection","features":[]}'
+  )
+
+  for (fixture in valid_documents) {
+    parsed <- jsonlite::fromJSON(fixture, simplifyVector = FALSE)
+    expect_true(env$sdm_boundary_geojson_is_valid(parsed))
   }
 })
 

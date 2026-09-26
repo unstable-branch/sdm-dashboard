@@ -157,13 +157,94 @@ sdm_boundary_is_json_format <- function(path) {
   tryCatch(tolower(tools::file_ext(path)) %in% c("geojson", "json"), error = function(e) FALSE)
 }
 
-# RFC 7946 top-level GeoJSON types.  A document that declares any other type,
-# or omits the member its type requires, is demonstrably not a GeoJSON document
-# and therefore a client content denial rather than a server fault.
-sdm_boundary_geojson_types <- c(
-  "FeatureCollection", "Feature", "GeometryCollection",
+# RFC 7946 GeoJSON types.  A document that declares any other type, or whose
+# nested member shapes do not match the type it declares, is demonstrably not a
+# GeoJSON document and therefore a client content denial rather than a server
+# fault.
+sdm_boundary_geometry_types <- c(
+  "GeometryCollection",
   "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"
 )
+sdm_boundary_geojson_types <- c("FeatureCollection", "Feature", sdm_boundary_geometry_types)
+
+# jsonlite parses both JSON arrays and JSON objects as unnamed or named lists;
+# a GeoJSON array member is therefore a list without names.
+sdm_boundary_is_json_array <- function(value) is.list(value) && is.null(names(value))
+
+# RFC 7946 Position: an array of two or more numbers.
+sdm_boundary_position_is_valid <- function(position) {
+  if (!sdm_boundary_is_json_array(position) || length(position) < 2L) return(FALSE)
+  for (ordinal in position) {
+    if (!is.numeric(ordinal) || length(ordinal) != 1L || !is.finite(ordinal)) return(FALSE)
+  }
+  TRUE
+}
+
+# An array of Position values; `minimum` is the RFC 7946 minimum count for the
+# enclosing member (2 for a LineString, 4 for a Polygon linear ring, 1 otherwise).
+sdm_boundary_positions_are_valid <- function(positions, minimum) {
+  if (!sdm_boundary_is_json_array(positions) || length(positions) < minimum) return(FALSE)
+  for (position in positions) {
+    if (!sdm_boundary_position_is_valid(position)) return(FALSE)
+  }
+  TRUE
+}
+
+sdm_boundary_rings_are_valid <- function(rings) {
+  if (!sdm_boundary_is_json_array(rings) || length(rings) < 1L) return(FALSE)
+  for (ring in rings) {
+    if (!sdm_boundary_positions_are_valid(ring, 4L)) return(FALSE)
+  }
+  TRUE
+}
+
+# Recursive validation of a GeoJSON Geometry object.
+sdm_boundary_geometry_is_valid <- function(geometry) {
+  if (!is.list(geometry) || is.null(names(geometry))) return(FALSE)
+  type <- geometry$type
+  if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
+  if (!type %in% sdm_boundary_geometry_types) return(FALSE)
+  members <- names(geometry)
+  if (identical(type, "GeometryCollection")) {
+    geometries <- geometry$geometries
+    if (!("geometries" %in% members) || !sdm_boundary_is_json_array(geometries)) return(FALSE)
+    for (nested in geometries) {
+      if (!sdm_boundary_geometry_is_valid(nested)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  if (!("coordinates" %in% members)) return(FALSE)
+  coordinates <- geometry$coordinates
+  if (identical(type, "Point")) return(sdm_boundary_position_is_valid(coordinates))
+  if (identical(type, "MultiPoint")) return(sdm_boundary_positions_are_valid(coordinates, 1L))
+  if (identical(type, "LineString")) return(sdm_boundary_positions_are_valid(coordinates, 2L))
+  if (identical(type, "MultiLineString")) {
+    if (!sdm_boundary_is_json_array(coordinates) || length(coordinates) < 1L) return(FALSE)
+    for (line in coordinates) {
+      if (!sdm_boundary_positions_are_valid(line, 2L)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  if (identical(type, "Polygon")) return(sdm_boundary_rings_are_valid(coordinates))
+  if (identical(type, "MultiPolygon")) {
+    if (!sdm_boundary_is_json_array(coordinates) || length(coordinates) < 1L) return(FALSE)
+    for (polygon in coordinates) {
+      if (!sdm_boundary_rings_are_valid(polygon)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  FALSE
+}
+
+# Recursive validation of a GeoJSON Feature object.  RFC 7946 allows a Feature
+# with a null geometry; only a missing member is structurally invalid.
+sdm_boundary_feature_is_valid <- function(feature) {
+  if (!is.list(feature) || is.null(names(feature))) return(FALSE)
+  if (!identical(feature$type, "Feature")) return(FALSE)
+  if (!("geometry" %in% names(feature))) return(FALSE)
+  if (is.null(feature$geometry)) return(TRUE)
+  sdm_boundary_geometry_is_valid(feature$geometry)
+}
 
 # Deterministic structure/type validation for a parsed JSON document.
 sdm_boundary_geojson_is_valid <- function(parsed) {
@@ -173,17 +254,15 @@ sdm_boundary_geojson_is_valid <- function(parsed) {
   if (!type %in% sdm_boundary_geojson_types) return(FALSE)
   members <- names(parsed)
   if (identical(type, "FeatureCollection")) {
-    return("features" %in% members && is.list(parsed$features))
+    features <- parsed$features
+    if (!("features" %in% members) || !sdm_boundary_is_json_array(features)) return(FALSE)
+    for (feature in features) {
+      if (!sdm_boundary_feature_is_valid(feature)) return(FALSE)
+    }
+    return(TRUE)
   }
-  if (identical(type, "GeometryCollection")) {
-    return("geometries" %in% members && is.list(parsed$geometries))
-  }
-  if (identical(type, "Feature")) {
-    # RFC 7946 allows a Feature with a null geometry; only a missing member is
-    # structurally invalid.
-    return("geometry" %in% members)
-  }
-  "coordinates" %in% members
+  if (identical(type, "Feature")) return(sdm_boundary_feature_is_valid(parsed))
+  sdm_boundary_geometry_is_valid(parsed)
 }
 
 # Reads a resolved custom asset and classifies it without asserting geometry.
