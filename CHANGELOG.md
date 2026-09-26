@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Boundary/target-group producer status typing and fresh-volume boundary root
+
+- `plumber/docker-entrypoint.sh` now normalizes `/app/data/boundaries` with the same shared-permission pass as `/app/data/uploads` and `/app/outputs`. A fresh named boundary volume is root-owned, so the unprivileged Plumber process could not create `custom/` and the first custom-boundary upload on a clean deployment failed closed (previously surfaced as a 502).
+- `api/src/routes/target-groups.ts`: a project-membership denial during target-group registration now returns a typed 403 (`Project membership does not permit target-group upload`) instead of a 502 upstream-style failure. The denial is tagged `not_authorized` by `register()` in `api/src/services/input-assets.ts`, and the same mapping was applied to the boundary upload/download registration catches.
+- `api/src/routes/boundary.ts` + `plumber/R/helpers/boundary_helpers.R`: a hash-verified but unparseable custom boundary asset (corrupt content) is now a typed 422 content denial from both the default reader and the extent reader, and the API translates the producer's 400/404/422 statuses instead of collapsing every upstream reply into 502 `Boundary fetch failed`. Genuine producer 5xx and transport failures remain 502, and no producer body (which can name internal storage paths) is echoed.
+- New `PlumberClient.post()` failures carry the upstream status via `PlumberUpstreamError` (`api/src/services/plumber-errors.ts`); the thrown message is unchanged for existing callers.
+- Regression coverage: `scripts/verify_fresh_volume_boundary_upload.py` runs in the platform CI docker job against the freshly created stack volumes (upload + resolve), plus focused route/service/R tests for the positive, denied-viewer, corrupt-asset, foreign-principal, and genuine-upstream-failure cases.
+
 ### Durable execution ownership — S1 schema slice (inert)
 
 - Migration `0041_durable_executions` adds the durable-execution schema from `docs/DESIGN_DURABLE_EXECUTION_OWNERSHIP.md` §2.2: `executions`, `execution_attempts`, `idempotency_requests`, `plumber_instances`, `plumber_instance_boots`, and `execution_events` plus the `execution_status` / `execution_attempt_kind` enums. Inert by design (Phase A of the §5 rollout): no existing table or column is touched and no behavior changes until later slices wire the execution state machine in behind `SDM_DURABLE_EXECUTION`.

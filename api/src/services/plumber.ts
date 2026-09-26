@@ -3,6 +3,7 @@ import type {
   PlumberJobLogs,
 } from "@sdm/shared";
 import { createHmac, randomUUID } from "node:crypto";
+import { PlumberUpstreamError } from "./plumber-errors.js";
 
 export interface PlumberJobStatus {
   [key: string]: unknown;
@@ -554,7 +555,7 @@ export class PlumberClient {
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+    if (!res.ok) throw new PlumberUpstreamError(res.status, path);
     return res.json();
   }
 

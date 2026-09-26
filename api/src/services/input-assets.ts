@@ -96,7 +96,10 @@ export type InputAssetResolution =
   | { ok: false; reason: InputAssetDenialReason };
 
 export class InputAssetRegistrationError extends Error {
-  constructor(message: string, readonly reason: "deleted" | "conflict" | "invalid" = "invalid") {
+  constructor(
+    message: string,
+    readonly reason: "deleted" | "conflict" | "invalid" | "not_authorized" = "invalid",
+  ) {
     super(message);
     this.name = "InputAssetRegistrationError";
   }
@@ -463,7 +466,7 @@ async function register(
         .where(and(eq(projectMembers.projectId, projectId as string), eq(projectMembers.userId, authorizationUserId)))
         .limit(1);
       if (!membership || !["editor", "admin"].includes(membership.role)) {
-        throw new InputAssetRegistrationError("Asset creator cannot add project inputs");
+        throw new InputAssetRegistrationError("Asset creator cannot add project inputs", "not_authorized");
       }
     }
   } catch (error) {

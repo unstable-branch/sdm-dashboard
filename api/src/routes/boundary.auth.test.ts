@@ -1,12 +1,18 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { Hono } from "hono";
 import { boundaryRoutes } from "./boundary.js";
+import { InputAssetRegistrationError } from "../services/input-assets.js";
+import { PlumberUpstreamError } from "../services/plumber-errors.js";
 
 const mocks = vi.hoisted(() => ({
   plumberPost: vi.fn(),
   plumberPostRaw: vi.fn(),
   register: vi.fn(async () => ({ id: "11111111-1111-4111-8111-111111111111" })),
-  resolve: vi.fn(async () => ({ ok: true, absolutePath: "/safe/boundary.geojson", asset: {} })),
+  resolve: vi.fn(async (): Promise<{ ok: boolean; reason?: string; absolutePath?: string; asset?: unknown }> => ({
+    ok: true,
+    absolutePath: "/safe/boundary.geojson",
+    asset: {},
+  })),
   update: vi.fn(async () => true),
   dbSelect: vi.fn(),
 }));
@@ -23,7 +29,9 @@ vi.mock("../services/plumber.js", () => ({
   },
 }));
 vi.mock("../services/input-assets.js", () => ({
-  InputAssetRegistrationError: class InputAssetRegistrationError extends Error {},
+  InputAssetRegistrationError: class InputAssetRegistrationError extends Error {
+    constructor(message: string, public readonly reason: string = "invalid") { super(message); }
+  },
   registerInputAssetFromServerPath: mocks.register,
   resolveInputAsset: mocks.resolve,
   updateInputAssetState: mocks.update,
@@ -222,6 +230,58 @@ describe("canonical boundary route input", () => {
     });
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toEqual({ error: "Boundary download failed" });
+  });
+
+  it("types unparseable custom boundary content as a 422 denial without echoing the producer body", async () => {
+    mocks.plumberPost.mockRejectedValueOnce(new PlumberUpstreamError(422, "/api/v1/data/boundary/default"));
+    const res = await app().request("/api/v1/data/boundary/default?type=custom&boundaryAssetId=11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toEqual({ error: "Boundary content is not a usable geometry" });
+  });
+
+  it("types unparseable custom boundary content as a 422 for extent as well", async () => {
+    mocks.plumberPost.mockRejectedValueOnce(new PlumberUpstreamError(422, "/api/v1/data/boundary/extent"));
+    const res = await app().request("/api/v1/data/boundary/extent?boundaryAssetId=11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(422);
+    await expect(res.json()).resolves.toEqual({ error: "Boundary content is not a usable geometry" });
+  });
+
+  it("keeps a genuine upstream producer failure a 502", async () => {
+    mocks.plumberPost.mockRejectedValueOnce(new PlumberUpstreamError(500, "/api/v1/data/boundary/default"));
+    const res = await app().request("/api/v1/data/boundary/default?type=custom&boundaryAssetId=11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({ error: "Boundary fetch failed" });
+  });
+
+  it("keeps a producer transport failure a 502", async () => {
+    mocks.plumberPost.mockRejectedValueOnce(new Error("fetch failed"));
+    const res = await app().request("/api/v1/data/boundary/default?type=custom&boundaryAssetId=11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({ error: "Boundary fetch failed" });
+  });
+
+  it("does not disclose a denied resolve for a foreign principal", async () => {
+    mocks.resolve.mockResolvedValueOnce({ ok: false, reason: "not_authorized" });
+    const res = await app().request("/api/v1/data/boundary/default?type=custom&boundaryAssetId=11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({ error: "Boundary not found" });
+    expect(mocks.plumberPost).not.toHaveBeenCalled();
+  });
+
+  it("maps a project membership denial on upload to a typed 403", async () => {
+    mocks.dbSelect.mockReturnValue({
+      from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [{ role: "editor" }]) })) })),
+    });
+    mocks.plumberPost.mockResolvedValueOnce({ file_path: "/app/data/boundaries/custom/project-boundary.geojson" });
+    mocks.register.mockRejectedValueOnce(
+      new InputAssetRegistrationError("Asset creator cannot add project inputs", "not_authorized"),
+    );
+    const form = new FormData();
+    form.append("file", new File(["{ }"], "boundary.geojson", { type: "application/geo+json" }));
+    form.append("projectId", "33333333-3333-4333-8333-333333333333");
+    const res = await app().request("/api/v1/data/boundary/upload", { method: "POST", body: form });
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({ error: "Project membership does not permit boundary creation" });
   });
 
   it("lists a registered boundary by opaque ID and resolves that ID for extent", async () => {

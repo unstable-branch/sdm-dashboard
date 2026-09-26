@@ -203,7 +203,21 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
     return(list(error = "Boundary path is unsafe"))
   }
 
-  geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
+  geojson <- tryCatch(
+    jsonlite::fromJSON(boundary_path, simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(geojson)) {
+    if (identical(dataset_type, "custom")) {
+      # The asset is the requester's own canonical, hash-verified file.  An
+      # unreadable body is a content-integrity denial of client data, not an
+      # upstream server fault, and must not be reported as a 5xx.
+      res$status <- 422L
+      return(list(error = "Boundary content is not valid GeoJSON"))
+    }
+    res$status <- 500L
+    return(list(error = "Boundary read failed"))
+  }
   geojson
 }
 
@@ -347,6 +361,7 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     res$status <- 400L
     return(list(error = "Invalid boundary type or resolution"))
   }
+  from_canonical_asset <- FALSE
   if (!is.null(file_path) || identical(type, "custom") || !is.null(boundary_asset_id)) {
     if (is.null(boundary_asset_id) || is.null(req) || !is.null(file_path) || !identical(type %||% "custom", "custom")) {
       res$status <- 400L
@@ -357,6 +372,7 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
       res$status <- 404L
       return(list(error = "Boundary file not found"))
     }
+    from_canonical_asset <- TRUE
   } else if (!is.null(type)) {
     res_type <- type %||% "admin0"
     res_scale <- resolution %||% "110m"
@@ -395,8 +411,16 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
   }, error = function(e) {
     warning("Boundary extent failed: ", conditionMessage(e), call. = FALSE)
-    res$status <- 500L
-    list(error = "Boundary extent failed")
+    if (from_canonical_asset) {
+      # Same content-integrity denial as the default reader: the file is the
+      # requester's own hash-verified asset but its body is not usable
+      # geometry.  Natural Earth sources stay a genuine upstream failure.
+      res$status <- 422L
+      list(error = "Boundary content is not a usable geometry")
+    } else {
+      res$status <- 500L
+      list(error = "Boundary extent failed")
+    }
   })
 }
 
