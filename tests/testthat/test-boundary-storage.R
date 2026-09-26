@@ -371,13 +371,18 @@ test_that("an unexpected geometry processing failure for a canonical asset stays
   app_dir <- tempfile("sdm-boundary-processing-failure-")
   custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
   dir.create(custom_dir, recursive = TRUE)
-  # Parseable JSON with a declared type, so it is not a demonstrable content
-  # denial, but the geometry runtime cannot open it.
-  unusable <- file.path(custom_dir, "unusable.geojson")
-  writeLines('{"type":"BogusCollection","features":[]}', unusable)
+  # A structurally valid GeoJSON document, so content classification passes; the
+  # geometry runtime then fails for a server-side reason.  That must stay 5xx.
+  valid <- file.path(custom_dir, "valid.geojson")
+  writeLines(
+    paste0('{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},',
+           '"geometry":{"type":"Point","coordinates":[1.0,2.0]}}]}'),
+    valid
+  )
   on.exit(unlink(app_dir, recursive = TRUE, force = TRUE), add = TRUE)
 
-  env$sdm_boundary_asset_path <- function(...) unusable
+  env$sdm_boundary_asset_path <- function(...) valid
+  env$sdm_boundary_compute_extent <- function(...) stop("injected geometry runtime failure")
   response <- new.env()
   result <- suppressWarnings(env$handle_boundary_extent(
     response, app_dir, type = "custom",
@@ -386,6 +391,49 @@ test_that("an unexpected geometry processing failure for a canonical asset stays
   ))
   expect_equal(response$status, 500L)
   expect_equal(result$error, "Boundary extent failed")
+})
+
+test_that("clearly invalid GeoJSON content is a typed client denial from both readers", {
+  env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "helpers", "boundary_helpers.R"), envir = env)
+  app_dir <- tempfile("sdm-boundary-invalid-geojson-")
+  custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  dir.create(custom_dir, recursive = TRUE)
+  on.exit(unlink(app_dir, recursive = TRUE, force = TRUE), add = TRUE)
+  request <- list(user_id = "22222222-2222-4222-8222-222222222222", user_role = "editor")
+
+  invalid_documents <- list(
+    # Unsupported top-level type: demonstrably not a GeoJSON document.
+    bogus_type = '{"type":"BogusCollection","features":[]}',
+    # Structurally invalid FeatureCollection: the required member is absent.
+    missing_features = '{"type":"FeatureCollection"}',
+    # Geometry type without the required coordinates member.
+    polygon_without_coordinates = '{"type":"Polygon"}'
+  )
+
+  for (fixture in invalid_documents) {
+    target <- file.path(custom_dir, "invalid.geojson")
+    writeLines(fixture, target)
+    env$sdm_boundary_asset_path <- function(...) target
+
+    default_response <- new.env()
+    default_result <- env$handle_boundary_default(
+      default_response, app_dir, type = "custom",
+      boundary_asset_id = "11111111-1111-4111-8111-111111111111", req = request
+    )
+    expect_equal(default_response$status, 422L)
+    expect_equal(default_result$error, "Boundary content is not valid GeoJSON")
+    expect_false(grepl(app_dir, default_result$error, fixed = TRUE))
+
+    extent_response <- new.env()
+    extent_result <- suppressWarnings(env$handle_boundary_extent(
+      extent_response, app_dir, type = "custom",
+      boundary_asset_id = "11111111-1111-4111-8111-111111111111", req = request
+    ))
+    expect_equal(extent_response$status, 422L)
+    expect_equal(extent_result$error, "Boundary content is not a usable geometry")
+    expect_false(grepl(app_dir, extent_result$error, fixed = TRUE))
+  }
 })
 
 test_that("download filenames are unique even for the same Natural Earth request", {
