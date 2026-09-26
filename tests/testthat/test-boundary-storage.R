@@ -152,6 +152,68 @@ test_that("custom producer reads require a canonical boundary asset ID", {
   expect_equal(extent_result$error, "Custom boundaries require a canonical asset ID")
 })
 
+test_that("custom boundary default types unparseable content as a client content denial", {
+  env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "helpers", "boundary_helpers.R"), envir = env)
+  app_dir <- tempfile("sdm-boundary-corrupt-")
+  custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  dir.create(custom_dir, recursive = TRUE)
+  corrupt <- file.path(custom_dir, "corrupt.geojson")
+  writeBin(as.raw(c(0x00, 0x01, 0xff, 0x7b, 0x80, 0x20)), corrupt)
+  on.exit(unlink(app_dir, recursive = TRUE, force = TRUE), add = TRUE)
+
+  env$sdm_boundary_asset_path <- function(...) corrupt
+  response <- new.env()
+  result <- env$handle_boundary_default(
+    response, app_dir, type = "custom",
+    boundary_asset_id = "11111111-1111-4111-8111-111111111111",
+    req = list(user_id = "22222222-2222-4222-8222-222222222222", user_role = "editor")
+  )
+  # A hash-verified but unparseable own asset is a content-integrity denial,
+  # not an upstream server fault, and the body must not carry the path.
+  expect_equal(response$status, 422L)
+  expect_equal(result$error, "Boundary content is not valid GeoJSON")
+  expect_false(grepl(app_dir, result$error, fixed = TRUE))
+})
+
+test_that("a readable custom boundary asset still resolves its GeoJSON body", {
+  env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "helpers", "boundary_helpers.R"), envir = env)
+  app_dir <- tempfile("sdm-boundary-valid-")
+  custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  dir.create(custom_dir, recursive = TRUE)
+  valid <- file.path(custom_dir, "valid.geojson")
+  writeLines('{"type":"FeatureCollection","features":[]}', valid)
+  on.exit(unlink(app_dir, recursive = TRUE, force = TRUE), add = TRUE)
+
+  env$sdm_boundary_asset_path <- function(...) valid
+  response <- new.env()
+  result <- env$handle_boundary_default(
+    response, app_dir, type = "custom",
+    boundary_asset_id = "11111111-1111-4111-8111-111111111111",
+    req = list(user_id = "22222222-2222-4222-8222-222222222222", user_role = "editor")
+  )
+  expect_null(response$status)
+  expect_equal(result$type, "FeatureCollection")
+})
+
+test_that("unreadable Natural Earth boundary data stays an upstream failure", {
+  env <- new.env(parent = globalenv())
+  sys.source(file.path(project_root, "plumber", "R", "helpers", "boundary_helpers.R"), envir = env)
+  app_dir <- tempfile("sdm-boundary-ne-corrupt-")
+  custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  dir.create(custom_dir, recursive = TRUE)
+  corrupt <- file.path(custom_dir, "ne_corrupt.geojson")
+  writeBin(as.raw(c(0x00, 0x01, 0xff, 0x80)), corrupt)
+  on.exit(unlink(app_dir, recursive = TRUE, force = TRUE), add = TRUE)
+
+  env$resolve_mask_file <- function(...) corrupt
+  response <- new.env()
+  result <- env$handle_boundary_default(response, app_dir, type = "admin0", resolution = "110m")
+  expect_equal(response$status, 500L)
+  expect_equal(result$error, "Boundary read failed")
+})
+
 test_that("download filenames are unique even for the same Natural Earth request", {
   first <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")
   second <- boundary_env$sdm_boundary_download_filename("admin0", "110m", "all")
