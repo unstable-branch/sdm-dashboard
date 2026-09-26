@@ -466,6 +466,13 @@ describe("server-only registration", () => {
     await expect(registerInputAsset({ creatorUserId: A, scope: "project", projectId: P, kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv" }, {
       roots: roots(), database: makeRegistrationDatabase("viewer"),
     })).rejects.toThrow("cannot add project inputs");
+    // The denial is typed so HTTP producers can answer 403 instead of
+    // reporting an upstream failure for an authorization decision.
+    const denial = await registerInputAsset({ creatorUserId: A, scope: "project", projectId: P, kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv" }, {
+      roots: roots(), database: makeRegistrationDatabase("viewer"),
+    }).catch((error: unknown) => error);
+    expect(denial).toBeInstanceOf(InputAssetRegistrationError);
+    expect((denial as InputAssetRegistrationError).reason).toBe("not_authorized");
     await expect(registerInputAsset({ creatorUserId: A, scope: "project", projectId: P, kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv" }, {
       roots: roots(), database: makeRegistrationDatabase("editor"),
     })).resolves.toMatchObject({ scope: "project", projectId: P });

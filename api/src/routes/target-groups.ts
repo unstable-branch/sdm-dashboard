@@ -75,6 +75,12 @@ async function handleUpload(c: Context<AppEnv>) {
     return c.json({ targetGroupAssetId: asset.id });
   } catch (error) {
     try { await unlink(outputPath); } catch { /* best-effort cleanup of this request file */ }
+    // A project-membership denial is an authorization decision by this
+    // service, not an upstream producer failure.  Report it as a typed 403
+    // with a message that does not disclose whether the project exists.
+    if (error instanceof InputAssetRegistrationError && error.reason === "not_authorized") {
+      return c.json({ error: "Project membership does not permit target-group upload" }, 403);
+    }
     const message = error instanceof InputAssetRegistrationError ? error.message : "Target-group registration failed";
     return c.json({ error: message }, 502);
   }

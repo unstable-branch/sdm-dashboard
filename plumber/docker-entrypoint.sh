@@ -37,6 +37,7 @@ prepare_runtime_dir() {
 }
 
 prepare_shared_dir /app/data/uploads
+prepare_shared_dir /app/data/boundaries
 prepare_shared_dir /app/outputs
 prepare_runtime_dir /app/covariates
 prepare_runtime_dir /app/Worldclim
