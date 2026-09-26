@@ -133,6 +133,53 @@ sdm_resolve_boundary_path <- function(path, root = NULL, app_dir = NULL) {
   candidate
 }
 
+# Custom-boundary content classification.
+#
+# A canonical custom boundary asset is the requester's own hash-verified file.
+# Demonstrably invalid content (unparseable JSON, a body that is not a GeoJSON
+# document) is a client content-integrity denial and must not surface as a 5xx.
+# Server-side I/O failures, unavailable runtime dependencies and unexpected
+# processing faults must keep their genuine 5xx status.  The two are therefore
+# classified explicitly instead of collapsing every caught exception into one
+# status.
+
+sdm_boundary_read_asset_bytes <- function(path) {
+  size <- suppressWarnings(as.numeric(file.info(path)$size))
+  if (length(size) != 1L || !is.finite(size) || size < 0) stop("boundary asset is not readable")
+  readBin(path, what = "raw", n = size)
+}
+
+sdm_boundary_parser_available <- function() requireNamespace("jsonlite", quietly = TRUE)
+
+sdm_boundary_terra_available <- function() requireNamespace("terra", quietly = TRUE)
+
+sdm_boundary_is_json_format <- function(path) {
+  tryCatch(tolower(tools::file_ext(path)) %in% c("geojson", "json"), error = function(e) FALSE)
+}
+
+# Reads a resolved custom asset and classifies it without asserting geometry.
+# Returns list(state = ...) where state is one of:
+#   "parsed"             readable JSON GeoJSON document (geojson attached)
+#   "unvalidated"        readable, but not a JSON-family boundary format
+#   "invalid_content"    demonstrably invalid client content
+#   "read_failure"       server-side read/I/O failure
+#   "parser_unavailable" missing JSON parser dependency (server fault)
+sdm_boundary_classify_asset <- function(path) {
+  raw_content <- tryCatch(sdm_boundary_read_asset_bytes(path), error = function(e) NULL)
+  if (is.null(raw_content)) return(list(state = "read_failure"))
+  if (!sdm_boundary_is_json_format(path)) return(list(state = "unvalidated"))
+  if (!sdm_boundary_parser_available()) return(list(state = "parser_unavailable"))
+  parsed <- tryCatch(
+    jsonlite::fromJSON(rawToChar(raw_content), simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(parsed) || !is.list(parsed) || is.null(parsed$type) ||
+      !is.character(parsed$type) || length(parsed$type) != 1L || !nzchar(parsed$type)) {
+    return(list(state = "invalid_content"))
+  }
+  list(state = "parsed", geojson = parsed)
+}
+
 handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL, file_path = NULL,
                                     boundary_asset_id = NULL, project_id = NULL, req = NULL) {
   boundary_root <- sdm_boundary_storage_root(app_dir)
@@ -203,18 +250,26 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
     return(list(error = "Boundary path is unsafe"))
   }
 
+  if (identical(dataset_type, "custom")) {
+    inspection <- sdm_boundary_classify_asset(boundary_path)
+    if (identical(inspection$state, "invalid_content")) {
+      # The asset is the requester's own canonical, hash-verified file and its
+      # bytes are demonstrably not a GeoJSON document: a content-integrity
+      # denial of client data, not an upstream server fault.
+      res$status <- 422L
+      return(list(error = "Boundary content is not valid GeoJSON"))
+    }
+    if (identical(inspection$state, "read_failure") || identical(inspection$state, "parser_unavailable")) {
+      res$status <- 500L
+      return(list(error = "Boundary read failed"))
+    }
+    if (identical(inspection$state, "parsed")) return(inspection$geojson)
+  }
   geojson <- tryCatch(
     jsonlite::fromJSON(boundary_path, simplifyVector = FALSE),
     error = function(e) NULL
   )
   if (is.null(geojson)) {
-    if (identical(dataset_type, "custom")) {
-      # The asset is the requester's own canonical, hash-verified file.  An
-      # unreadable body is a content-integrity denial of client data, not an
-      # upstream server fault, and must not be reported as a 5xx.
-      res$status <- 422L
-      return(list(error = "Boundary content is not valid GeoJSON"))
-    }
     res$status <- 500L
     return(list(error = "Boundary read failed"))
   }
@@ -403,6 +458,25 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     res$status <- 500L
     return(list(error = "Boundary path is unsafe"))
   }
+  if (from_canonical_asset) {
+    # Classify the requester's own canonical asset before reading it with the
+    # geometry runtime, so a demonstrable content denial stays 422 while I/O and
+    # parser/dependency faults stay genuine server failures.
+    inspection <- sdm_boundary_classify_asset(file_path)
+    if (identical(inspection$state, "invalid_content")) {
+      res$status <- 422L
+      return(list(error = "Boundary content is not a usable geometry"))
+    }
+    if (identical(inspection$state, "read_failure") || identical(inspection$state, "parser_unavailable")) {
+      res$status <- 500L
+      return(list(error = "Boundary read failed"))
+    }
+  }
+  if (!sdm_boundary_terra_available()) {
+    # A missing geometry runtime is a server fault, never a client denial.
+    res$status <- 500L
+    return(list(error = "Boundary processing is unavailable"))
+  }
   tryCatch({
     vec <- terra::vect(file_path)
     e <- terra::ext(vec)
@@ -410,17 +484,11 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     buf <- as.numeric(buffer_deg) %||% 2
     list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
   }, error = function(e) {
+    # Any remaining failure is an unexpected read/processing fault, not a
+    # demonstrable content denial: keep it an upstream 5xx.
     warning("Boundary extent failed: ", conditionMessage(e), call. = FALSE)
-    if (from_canonical_asset) {
-      # Same content-integrity denial as the default reader: the file is the
-      # requester's own hash-verified asset but its body is not usable
-      # geometry.  Natural Earth sources stay a genuine upstream failure.
-      res$status <- 422L
-      list(error = "Boundary content is not a usable geometry")
-    } else {
-      res$status <- 500L
-      list(error = "Boundary extent failed")
-    }
+    res$status <- 500L
+    list(error = "Boundary extent failed")
   })
 }
 
