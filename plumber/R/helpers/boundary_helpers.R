@@ -157,15 +157,15 @@ sdm_boundary_is_json_format <- function(path) {
   tryCatch(tolower(tools::file_ext(path)) %in% c("geojson", "json"), error = function(e) FALSE)
 }
 
-# RFC 7946 GeoJSON types.  A document that declares any other type, omits a
-# required member of the type it declares (FeatureCollection.features,
-# Feature.geometry, Feature.properties, Geometry.coordinates or
-# GeometryCollection.geometries), carries a defining member of another type
-# (RFC 7946 section 7.1), has a nested member of the wrong JSON kind, or whose
-# coordinate structure does not match the declared geometry type (including a
-# linear ring that is not closed) is demonstrably not a GeoJSON document and
-# therefore a client content denial rather than a server fault.
-# Foreign members are allowed and are not rejected.
+# RFC 7946 GeoJSON types.  A document that declares any other type, omits the
+# exact "type" member or a required member of the type it declares
+# (FeatureCollection.features, Feature.geometry, Feature.properties,
+# Geometry.coordinates or GeometryCollection.geometries), carries a defining
+# member of another type (RFC 7946 section 7.1), has a nested member of the
+# wrong JSON kind, or whose coordinate structure does not match the declared
+# geometry type (including a linear ring that is not closed) is demonstrably not
+# a GeoJSON document and therefore a client content denial rather than a server
+# fault.  Foreign members are allowed and are not rejected.
 sdm_boundary_geometry_types <- c(
   "GeometryCollection",
   "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"
@@ -210,6 +210,17 @@ sdm_boundary_members_are_valid <- function(object, type) {
 sdm_boundary_is_json_object <- function(value) is.list(value) && !is.null(names(value))
 sdm_boundary_is_json_array <- function(value) is.list(value) && is.null(names(value))
 
+# Reads the exact "type" member of a parsed JSON object.  R's `$` on a named
+# list performs partial matching, so `object$type` would read a member such as
+# "typex" when the exact "type" member is absent, and an ambiguous pair such as
+# "typex"/"typey" would read NULL.  `[[` matches the member name exactly; a
+# document without an exact "type" member is not a GeoJSON object.
+sdm_boundary_object_type <- function(object) {
+  if (!sdm_boundary_is_json_object(object)) return(NULL)
+  if (!("type" %in% names(object))) return(NULL)
+  object[["type"]]
+}
+
 # RFC 7946 Position: an array of two or more numbers.
 sdm_boundary_position_is_valid <- function(position) {
   if (!sdm_boundary_is_json_array(position) || length(position) < 2L) return(FALSE)
@@ -253,7 +264,7 @@ sdm_boundary_rings_are_valid <- function(rings) {
 # Recursive validation of a GeoJSON Geometry object.
 sdm_boundary_geometry_is_valid <- function(geometry) {
   if (!sdm_boundary_is_json_object(geometry)) return(FALSE)
-  type <- geometry$type
+  type <- sdm_boundary_object_type(geometry)
   if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
   if (!type %in% sdm_boundary_geometry_types) return(FALSE)
   if (!sdm_boundary_members_are_valid(geometry, type)) return(FALSE)
@@ -297,7 +308,7 @@ sdm_boundary_geometry_is_valid <- function(geometry) {
 # optional members (bbox) and foreign members remain permitted.
 sdm_boundary_feature_is_valid <- function(feature) {
   if (!sdm_boundary_is_json_object(feature)) return(FALSE)
-  if (!identical(feature$type, "Feature")) return(FALSE)
+  if (!identical(sdm_boundary_object_type(feature), "Feature")) return(FALSE)
   if (!sdm_boundary_members_are_valid(feature, "Feature")) return(FALSE)
   members <- names(feature)
   if (!("geometry" %in% members) || !("properties" %in% members)) return(FALSE)
@@ -315,7 +326,7 @@ sdm_boundary_feature_is_valid <- function(feature) {
 # Deterministic structure/type validation for a parsed JSON document.
 sdm_boundary_geojson_is_valid <- function(parsed) {
   if (!sdm_boundary_is_json_object(parsed)) return(FALSE)
-  type <- parsed$type
+  type <- sdm_boundary_object_type(parsed)
   if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
   if (!type %in% sdm_boundary_geojson_types) return(FALSE)
   members <- names(parsed)
