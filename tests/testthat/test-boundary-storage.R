@@ -359,6 +359,8 @@ test_that("an unavailable geometry runtime stays an upstream failure", {
   writeLines('{"type":"FeatureCollection","features":[]}', ne_file)
   ne_env <- env
   sys.source(file.path(project_root, "R", "covariates", "ne_boundary.R"), envir = ne_env)
+  # Natural Earth resolves from its configured root, not the handler's app_dir.
+  ne_env$sdm_ne_boundary_root <- function() file.path(app_dir, "data", "boundaries")
   ne_response <- new.env()
   ne_result <- ne_env$handle_boundary_extent(ne_response, app_dir, type = "admin0", resolution = "110m")
   expect_equal(ne_response$status, 500L)
@@ -422,6 +424,8 @@ test_that("clearly invalid GeoJSON content is a typed client denial from both re
     # A Feature whose nested geometry has a malformed coordinate shape.
     feature_with_malformed_geometry =
       '{"type":"Feature","geometry":{"type":"LineString","coordinates":[1,2]},"properties":{}}',
+    feature_geometry_not_object = '{"type":"Feature","geometry":"bad","properties":{}}',
+    collection_feature_not_object = '{"type":"FeatureCollection","features":["bad"]}',
     # A FeatureCollection whose single feature carries malformed nested content.
     collection_with_invalid_feature = paste0(
       '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},',
@@ -508,6 +512,23 @@ test_that("clearly invalid GeoJSON content is a typed client denial from both re
     ),
     # Two members that both start with "type" are an ambiguous partial match.
     ambiguous_type_members = '{"typex":"Point","typey":"Point","coordinates":[1.0,2.0]}',
+    # A present bbox is a defined GeoJSON member, not an unchecked foreign member.
+    point_bbox_null = '{"type":"Point","coordinates":[1,2],"bbox":null}',
+    point_bbox_object = '{"type":"Point","coordinates":[1,2],"bbox":{"west":1}}',
+    point_bbox_string = '{"type":"Point","coordinates":[1,2],"bbox":"1,2,1,2"}',
+    point_bbox_short = '{"type":"Point","coordinates":[1,2],"bbox":[1,2,1]}',
+    point_bbox_non_numeric = '{"type":"Point","coordinates":[1,2],"bbox":[1,2,true,2]}',
+    point_bbox_wrong_dimension = '{"type":"Point","coordinates":[1,2,3],"bbox":[1,2,1,2]}',
+    point_bbox_reversed_latitude = '{"type":"Point","coordinates":[1,2],"bbox":[1,3,1,2]}',
+    point_bbox_latitude_above_pole = '{"type":"Point","coordinates":[1,2],"bbox":[0,91,1,92]}',
+    point_bbox_latitude_below_pole = '{"type":"Point","coordinates":[1,2],"bbox":[0,-92,1,-91]}',
+    point_bbox_reversed_height = '{"type":"Point","coordinates":[1,2,3],"bbox":[1,2,4,1,2,3]}',
+    collection_bbox_invalid = '{"type":"FeatureCollection","features":[],"bbox":[]}',
+    feature_bbox_invalid = '{"type":"Feature","geometry":null,"properties":{},"bbox":[0,0,0]}',
+    nested_geometry_bbox_invalid = paste0(
+      '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},',
+      '"geometry":{"type":"Point","coordinates":[1,2],"bbox":[1,2,null,2]}}]}'
+    ),
     # A present but JSON-null "type" member is not a declared type.
     type_null = '{"type":null,"coordinates":[1.0,2.0]}'
   )
@@ -593,6 +614,19 @@ test_that("structurally valid GeoJSON documents are not over-rejected", {
     # "bbox" is an optional member of every GeoJSON object (RFC 7946 §5), and a
     # Feature may combine it with an id and foreign members.
     point_with_bbox = '{"type":"Point","coordinates":[1.0,2.0],"bbox":[1.0,2.0,1.0,2.0]}',
+    point_with_3d_bbox = '{"type":"Point","coordinates":[1,2,3],"bbox":[1,2,3,1,2,3]}',
+    antimeridian_bbox = '{"type":"Point","coordinates":[179,-18],"bbox":[177,-20,-178,-16]}',
+    north_pole_bbox = '{"type":"Point","coordinates":[0,90],"bbox":[-180,80,180,90]}',
+    south_pole_bbox = '{"type":"Point","coordinates":[0,-90],"bbox":[-180,-90,180,-80]}',
+    empty_collection_with_bbox = '{"type":"FeatureCollection","features":[],"bbox":[0,0,0,0]}',
+    nested_valid_bboxes = paste0(
+      '{"type":"FeatureCollection","bbox":[1,2,1,2],"features":[',
+      '{"type":"Feature","bbox":[1,2,1,2],"properties":{},',
+      '"geometry":{"type":"Point","coordinates":[1,2],"bbox":[1,2,1,2]}}]}'
+    ),
+    foreign_member_named_bbox = paste0(
+      '{"type":"Point","coordinates":[1,2],"metadata":{"bbox":"not a GeoJSON bbox"}}'
+    ),
     feature_with_id_bbox_and_foreign_member =
       '{"type":"Feature","id":"abc","geometry":null,"properties":{},"bbox":[0.0,0.0,0.0,0.0],"name":"file"}',
     feature_collection_with_bbox_and_foreign_members = paste0(
