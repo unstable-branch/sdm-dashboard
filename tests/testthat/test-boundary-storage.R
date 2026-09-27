@@ -490,7 +490,26 @@ test_that("clearly invalid GeoJSON content is a typed client denial from both re
     # A present Feature id must be a JSON string or number (RFC 7946 §3.2).
     feature_id_null = '{"type":"Feature","id":null,"geometry":null,"properties":{}}',
     feature_id_boolean = '{"type":"Feature","id":true,"geometry":null,"properties":{}}',
-    feature_id_array = '{"type":"Feature","id":[1],"geometry":null,"properties":{}}'
+    feature_id_array = '{"type":"Feature","id":[1],"geometry":null,"properties":{}}',
+    # The "type" member must be present under its exact name.  R's `$` performs
+    # partial matching on named lists, so a misnamed member such as "typex" was
+    # read as the declared type (reviewer round-7 case).
+    top_level_type_misnamed = '{"typex":"Point","coordinates":[1.0,2.0]}',
+    top_level_feature_type_misnamed = '{"typex":"Feature","geometry":null,"properties":{}}',
+    # ... and the same rule applies to the nested Feature/geometry validators.
+    nested_feature_type_misnamed = paste0(
+      '{"type":"FeatureCollection","features":[{"typex":"Feature","geometry":null,"properties":{}}]}'
+    ),
+    nested_geometry_type_misnamed = paste0(
+      '{"type":"Feature","geometry":{"typex":"Point","coordinates":[1.0,2.0]},"properties":{}}'
+    ),
+    nested_geometry_collection_member_type_misnamed = paste0(
+      '{"type":"GeometryCollection","geometries":[{"typex":"Point","coordinates":[1.0,2.0]}]}'
+    ),
+    # Two members that both start with "type" are an ambiguous partial match.
+    ambiguous_type_members = '{"typex":"Point","typey":"Point","coordinates":[1.0,2.0]}',
+    # A present but JSON-null "type" member is not a declared type.
+    type_null = '{"type":null,"coordinates":[1.0,2.0]}'
   )
 
   for (fixture in invalid_documents) {
