@@ -181,8 +181,9 @@ sdm_boundary_geojson_types <- c("FeatureCollection", "Feature", sdm_boundary_geo
 # below list the members RFC 7946 defines for each object type; "bbox" is an
 # optional member of every GeoJSON object (section 5).  Anything outside those
 # members (for example the sf/GDAL "name" and legacy "crs" members) is a foreign
-# member: it stays permitted and its value is not interpreted here.  The
-# structural content of "bbox" itself is not validated.
+# member: it stays permitted and its value is not interpreted here. A present
+# "bbox" is defined by RFC 7946 section 5, so its structure is checked; the
+# geometry's actual envelope is left to the geometry runtime.
 sdm_boundary_feature_collection_members <- c("type", "features", "bbox")
 sdm_boundary_feature_members <- c("type", "geometry", "properties", "id", "bbox")
 sdm_boundary_geometry_collection_members <- c("type", "geometries", "bbox")
@@ -219,6 +220,45 @@ sdm_boundary_object_type <- function(object) {
   if (!sdm_boundary_is_json_object(object)) return(NULL)
   if (!("type" %in% names(object))) return(NULL)
   object[["type"]]
+}
+
+# Only GeoJSON geometry/feature members contribute dimensions. Foreign members
+# can contain arbitrary objects named "coordinates" or "bbox" and are ignored.
+sdm_boundary_coordinate_dimensions <- function(value) {
+  if (sdm_boundary_position_is_valid(value)) return(length(value))
+  if (!sdm_boundary_is_json_array(value)) return(integer(0))
+  unlist(lapply(value, sdm_boundary_coordinate_dimensions), use.names = FALSE)
+}
+
+sdm_boundary_geometry_dimensions <- function(geometry) {
+  if (!sdm_boundary_is_json_object(geometry)) return(integer(0))
+  if (identical(sdm_boundary_object_type(geometry), "GeometryCollection")) {
+    return(unlist(lapply(geometry[["geometries"]], sdm_boundary_geometry_dimensions), use.names = FALSE))
+  }
+  sdm_boundary_coordinate_dimensions(geometry[["coordinates"]])
+}
+
+sdm_boundary_feature_dimensions <- function(feature) {
+  if (!sdm_boundary_is_json_object(feature)) return(integer(0))
+  sdm_boundary_geometry_dimensions(feature[["geometry"]])
+}
+
+# RFC 7946 section 5: 2*n numeric ordinates, minimum axes then maximum axes.
+# For an empty collection or a null geometry, no dimensions are represented;
+# accept the usual 2D/3D shapes without claiming that a box encloses content.
+# In mixed-dimensional content, n is the highest represented dimension.
+sdm_boundary_bbox_is_valid <- function(object, dimensions = integer(0)) {
+  if (!("bbox" %in% names(object))) return(TRUE)
+  bbox <- object[["bbox"]]
+  if (!sdm_boundary_is_json_array(bbox)) return(FALSE)
+  n <- if (length(dimensions)) max(dimensions) else length(bbox) / 2L
+  if (n < 2L || length(bbox) != 2L * n || (length(dimensions) == 0L && !n %in% c(2L, 3L))) return(FALSE)
+  if (!all(vapply(bbox, function(value) is.numeric(value) && length(value) == 1L && is.finite(value), logical(1)))) return(FALSE)
+  values <- unlist(bbox, use.names = FALSE)
+  # RFC 7946 section 5.3 caps latitude at the poles; longitude alone can
+  # descend across the antimeridian.
+  if (values[2L] < -90 || values[n + 2L] > 90) return(FALSE)
+  all(values[2:n] <= values[n + (2:n)])
 }
 
 # RFC 7946 Position: an array of two or more numbers.
@@ -268,6 +308,7 @@ sdm_boundary_geometry_is_valid <- function(geometry) {
   if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
   if (!type %in% sdm_boundary_geometry_types) return(FALSE)
   if (!sdm_boundary_members_are_valid(geometry, type)) return(FALSE)
+  if (!sdm_boundary_bbox_is_valid(geometry, sdm_boundary_geometry_dimensions(geometry))) return(FALSE)
   members <- names(geometry)
   if (identical(type, "GeometryCollection")) {
     geometries <- geometry$geometries
@@ -310,6 +351,7 @@ sdm_boundary_feature_is_valid <- function(feature) {
   if (!sdm_boundary_is_json_object(feature)) return(FALSE)
   if (!identical(sdm_boundary_object_type(feature), "Feature")) return(FALSE)
   if (!sdm_boundary_members_are_valid(feature, "Feature")) return(FALSE)
+  if (!sdm_boundary_bbox_is_valid(feature, sdm_boundary_feature_dimensions(feature))) return(FALSE)
   members <- names(feature)
   if (!("geometry" %in% members) || !("properties" %in% members)) return(FALSE)
   if (!is.null(feature$properties) && !sdm_boundary_is_json_object(feature$properties)) return(FALSE)
@@ -334,6 +376,8 @@ sdm_boundary_geojson_is_valid <- function(parsed) {
     if (!sdm_boundary_members_are_valid(parsed, "FeatureCollection")) return(FALSE)
     features <- parsed$features
     if (!("features" %in% members) || !sdm_boundary_is_json_array(features)) return(FALSE)
+    dimensions <- unlist(lapply(features, sdm_boundary_feature_dimensions), use.names = FALSE)
+    if (!sdm_boundary_bbox_is_valid(parsed, dimensions)) return(FALSE)
     for (feature in features) {
       if (!sdm_boundary_feature_is_valid(feature)) return(FALSE)
     }
