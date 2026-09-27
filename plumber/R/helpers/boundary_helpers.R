@@ -133,6 +133,280 @@ sdm_resolve_boundary_path <- function(path, root = NULL, app_dir = NULL) {
   candidate
 }
 
+# Custom-boundary content classification.
+#
+# A canonical custom boundary asset is the requester's own hash-verified file.
+# Demonstrably invalid content (unparseable JSON, a body that is not a GeoJSON
+# document) is a client content-integrity denial and must not surface as a 5xx.
+# Server-side I/O failures, unavailable runtime dependencies and unexpected
+# processing faults must keep their genuine 5xx status.  The two are therefore
+# classified explicitly instead of collapsing every caught exception into one
+# status.
+
+sdm_boundary_read_asset_bytes <- function(path) {
+  size <- suppressWarnings(as.numeric(file.info(path)$size))
+  if (length(size) != 1L || !is.finite(size) || size < 0) stop("boundary asset is not readable")
+  readBin(path, what = "raw", n = size)
+}
+
+sdm_boundary_parser_available <- function() requireNamespace("jsonlite", quietly = TRUE)
+
+sdm_boundary_terra_available <- function() requireNamespace("terra", quietly = TRUE)
+
+sdm_boundary_is_json_format <- function(path) {
+  tryCatch(tolower(tools::file_ext(path)) %in% c("geojson", "json"), error = function(e) FALSE)
+}
+
+# RFC 7946 GeoJSON types.  A document that declares any other type, omits the
+# exact "type" member or a required member of the type it declares
+# (FeatureCollection.features, Feature.geometry, Feature.properties,
+# Geometry.coordinates or GeometryCollection.geometries), carries a defining
+# member of another type (RFC 7946 section 7.1), has a nested member of the
+# wrong JSON kind, or whose coordinate structure does not match the declared
+# geometry type (including a linear ring that is not closed) is demonstrably not
+# a GeoJSON document and therefore a client content denial rather than a server
+# fault.  Foreign members are allowed and are not rejected.
+sdm_boundary_geometry_types <- c(
+  "GeometryCollection",
+  "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"
+)
+sdm_boundary_geojson_types <- c("FeatureCollection", "Feature", sdm_boundary_geometry_types)
+
+# RFC 7946 section 7.1 ("Semantics of GeoJSON Members and Types Are Not
+# Changeable") keeps the meaning of the defined members fixed, so an object MUST
+# NOT carry the defining member of another GeoJSON type: a FeatureCollection or
+# Feature must not carry "coordinates"/"geometries", a FeatureCollection or
+# Geometry must not carry "geometry"/"properties", and a Feature or Geometry
+# must not carry "features".  "id" is defined for a Feature only.  The tables
+# below list the members RFC 7946 defines for each object type; "bbox" is an
+# optional member of every GeoJSON object (section 5).  Anything outside those
+# members (for example the sf/GDAL "name" and legacy "crs" members) is a foreign
+# member: it stays permitted and its value is not interpreted here. A present
+# "bbox" is defined by RFC 7946 section 5, so its structure is checked; the
+# geometry's actual envelope is left to the geometry runtime.
+sdm_boundary_feature_collection_members <- c("type", "features", "bbox")
+sdm_boundary_feature_members <- c("type", "geometry", "properties", "id", "bbox")
+sdm_boundary_geometry_collection_members <- c("type", "geometries", "bbox")
+sdm_boundary_geometry_members <- c("type", "coordinates", "bbox")
+sdm_boundary_defined_members <- c(
+  "type", "features", "geometry", "properties", "coordinates", "geometries", "id"
+)
+
+sdm_boundary_allowed_members <- function(type) {
+  if (identical(type, "FeatureCollection")) return(sdm_boundary_feature_collection_members)
+  if (identical(type, "Feature")) return(sdm_boundary_feature_members)
+  if (identical(type, "GeometryCollection")) return(sdm_boundary_geometry_collection_members)
+  sdm_boundary_geometry_members
+}
+
+# TRUE when the object carries no defining member of another GeoJSON type.
+sdm_boundary_members_are_valid <- function(object, type) {
+  members <- names(object)
+  length(setdiff(intersect(members, sdm_boundary_defined_members), sdm_boundary_allowed_members(type))) == 0L
+}
+
+# jsonlite parses both JSON arrays and JSON objects as lists.  A GeoJSON
+# object is therefore a named list (an empty JSON object keeps an empty name
+# vector) and a GeoJSON array, including an empty one, is a list without names.
+sdm_boundary_is_json_object <- function(value) is.list(value) && !is.null(names(value))
+sdm_boundary_is_json_array <- function(value) is.list(value) && is.null(names(value))
+
+# Reads the exact "type" member of a parsed JSON object.  R's `$` on a named
+# list performs partial matching, so `object$type` would read a member such as
+# "typex" when the exact "type" member is absent, and an ambiguous pair such as
+# "typex"/"typey" would read NULL.  `[[` matches the member name exactly; a
+# document without an exact "type" member is not a GeoJSON object.
+sdm_boundary_object_type <- function(object) {
+  if (!sdm_boundary_is_json_object(object)) return(NULL)
+  if (!("type" %in% names(object))) return(NULL)
+  object[["type"]]
+}
+
+# Only GeoJSON geometry/feature members contribute dimensions. Foreign members
+# can contain arbitrary objects named "coordinates" or "bbox" and are ignored.
+sdm_boundary_coordinate_dimensions <- function(value) {
+  if (sdm_boundary_position_is_valid(value)) return(length(value))
+  if (!sdm_boundary_is_json_array(value)) return(integer(0))
+  unlist(lapply(value, sdm_boundary_coordinate_dimensions), use.names = FALSE)
+}
+
+sdm_boundary_geometry_dimensions <- function(geometry) {
+  if (!sdm_boundary_is_json_object(geometry)) return(integer(0))
+  if (identical(sdm_boundary_object_type(geometry), "GeometryCollection")) {
+    return(unlist(lapply(geometry[["geometries"]], sdm_boundary_geometry_dimensions), use.names = FALSE))
+  }
+  sdm_boundary_coordinate_dimensions(geometry[["coordinates"]])
+}
+
+sdm_boundary_feature_dimensions <- function(feature) {
+  if (!sdm_boundary_is_json_object(feature)) return(integer(0))
+  sdm_boundary_geometry_dimensions(feature[["geometry"]])
+}
+
+# RFC 7946 section 5: 2*n numeric ordinates, minimum axes then maximum axes.
+# For an empty collection or a null geometry, no dimensions are represented;
+# accept the usual 2D/3D shapes without claiming that a box encloses content.
+# In mixed-dimensional content, n is the highest represented dimension.
+sdm_boundary_bbox_is_valid <- function(object, dimensions = integer(0)) {
+  if (!("bbox" %in% names(object))) return(TRUE)
+  bbox <- object[["bbox"]]
+  if (!sdm_boundary_is_json_array(bbox)) return(FALSE)
+  n <- if (length(dimensions)) max(dimensions) else length(bbox) / 2L
+  if (n < 2L || length(bbox) != 2L * n || (length(dimensions) == 0L && !n %in% c(2L, 3L))) return(FALSE)
+  if (!all(vapply(bbox, function(value) is.numeric(value) && length(value) == 1L && is.finite(value), logical(1)))) return(FALSE)
+  values <- unlist(bbox, use.names = FALSE)
+  # RFC 7946 section 5.3 caps latitude at the poles; longitude alone can
+  # descend across the antimeridian.
+  if (values[2L] < -90 || values[n + 2L] > 90) return(FALSE)
+  all(values[2:n] <= values[n + (2:n)])
+}
+
+# RFC 7946 Position: an array of two or more numbers.
+sdm_boundary_position_is_valid <- function(position) {
+  if (!sdm_boundary_is_json_array(position) || length(position) < 2L) return(FALSE)
+  for (ordinal in position) {
+    if (!is.numeric(ordinal) || length(ordinal) != 1L || !is.finite(ordinal)) return(FALSE)
+  }
+  TRUE
+}
+
+# An array of Position values; `minimum` is the RFC 7946 minimum count for the
+# enclosing member (2 for a LineString, 4 for a Polygon linear ring, 1 otherwise).
+sdm_boundary_positions_are_valid <- function(positions, minimum) {
+  if (!sdm_boundary_is_json_array(positions) || length(positions) < minimum) return(FALSE)
+  for (position in positions) {
+    if (!sdm_boundary_position_is_valid(position)) return(FALSE)
+  }
+  TRUE
+}
+
+# RFC 7946: a linear ring is closed — its first and last positions must contain
+# identical values (ordinal count included).
+sdm_boundary_ring_is_closed <- function(ring) {
+  if (!sdm_boundary_is_json_array(ring) || length(ring) < 2L) return(FALSE)
+  first <- ring[[1L]]
+  last <- ring[[length(ring)]]
+  if (!sdm_boundary_position_is_valid(first) || !sdm_boundary_position_is_valid(last)) return(FALSE)
+  if (length(first) != length(last)) return(FALSE)
+  identical(as.numeric(first), as.numeric(last))
+}
+
+sdm_boundary_rings_are_valid <- function(rings) {
+  if (!sdm_boundary_is_json_array(rings) || length(rings) < 1L) return(FALSE)
+  for (ring in rings) {
+    # RFC 7946: a linear ring is a closed LineString of four or more positions.
+    if (!sdm_boundary_positions_are_valid(ring, 4L)) return(FALSE)
+    if (!sdm_boundary_ring_is_closed(ring)) return(FALSE)
+  }
+  TRUE
+}
+
+# Recursive validation of a GeoJSON Geometry object.
+sdm_boundary_geometry_is_valid <- function(geometry) {
+  if (!sdm_boundary_is_json_object(geometry)) return(FALSE)
+  type <- sdm_boundary_object_type(geometry)
+  if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
+  if (!type %in% sdm_boundary_geometry_types) return(FALSE)
+  if (!sdm_boundary_members_are_valid(geometry, type)) return(FALSE)
+  if (!sdm_boundary_bbox_is_valid(geometry, sdm_boundary_geometry_dimensions(geometry))) return(FALSE)
+  members <- names(geometry)
+  if (identical(type, "GeometryCollection")) {
+    geometries <- geometry$geometries
+    if (!("geometries" %in% members) || !sdm_boundary_is_json_array(geometries)) return(FALSE)
+    for (nested in geometries) {
+      if (!sdm_boundary_geometry_is_valid(nested)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  if (!("coordinates" %in% members)) return(FALSE)
+  coordinates <- geometry$coordinates
+  if (identical(type, "Point")) return(sdm_boundary_position_is_valid(coordinates))
+  if (identical(type, "MultiPoint")) return(sdm_boundary_positions_are_valid(coordinates, 1L))
+  if (identical(type, "LineString")) return(sdm_boundary_positions_are_valid(coordinates, 2L))
+  if (identical(type, "MultiLineString")) {
+    if (!sdm_boundary_is_json_array(coordinates) || length(coordinates) < 1L) return(FALSE)
+    for (line in coordinates) {
+      if (!sdm_boundary_positions_are_valid(line, 2L)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  if (identical(type, "Polygon")) return(sdm_boundary_rings_are_valid(coordinates))
+  if (identical(type, "MultiPolygon")) {
+    if (!sdm_boundary_is_json_array(coordinates) || length(coordinates) < 1L) return(FALSE)
+    for (polygon in coordinates) {
+      if (!sdm_boundary_rings_are_valid(polygon)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  FALSE
+}
+
+# Recursive validation of a GeoJSON Feature object.  RFC 7946 requires both a
+# geometry member (a Geometry object or null) and a properties member (an
+# object or null), forbids the defining members of other types (section 7.1),
+# and defines an optional id as a JSON string or number only.  A missing
+# required member and a defining member of another type are both invalid;
+# optional members (bbox) and foreign members remain permitted.
+sdm_boundary_feature_is_valid <- function(feature) {
+  if (!sdm_boundary_is_json_object(feature)) return(FALSE)
+  if (!identical(sdm_boundary_object_type(feature), "Feature")) return(FALSE)
+  if (!sdm_boundary_members_are_valid(feature, "Feature")) return(FALSE)
+  if (!sdm_boundary_bbox_is_valid(feature, sdm_boundary_feature_dimensions(feature))) return(FALSE)
+  members <- names(feature)
+  if (!("geometry" %in% members) || !("properties" %in% members)) return(FALSE)
+  if (!is.null(feature$properties) && !sdm_boundary_is_json_object(feature$properties)) return(FALSE)
+  if ("id" %in% members) {
+    # RFC 7946 section 3.2 defines id only as a string or number, and a present
+    # null is not an identifier.
+    id <- feature$id
+    if (!(is.character(id) || is.numeric(id)) || length(id) != 1L || is.na(id)) return(FALSE)
+  }
+  if (is.null(feature$geometry)) return(TRUE)
+  sdm_boundary_geometry_is_valid(feature$geometry)
+}
+
+# Deterministic structure/type validation for a parsed JSON document.
+sdm_boundary_geojson_is_valid <- function(parsed) {
+  if (!sdm_boundary_is_json_object(parsed)) return(FALSE)
+  type <- sdm_boundary_object_type(parsed)
+  if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
+  if (!type %in% sdm_boundary_geojson_types) return(FALSE)
+  members <- names(parsed)
+  if (identical(type, "FeatureCollection")) {
+    if (!sdm_boundary_members_are_valid(parsed, "FeatureCollection")) return(FALSE)
+    features <- parsed$features
+    if (!("features" %in% members) || !sdm_boundary_is_json_array(features)) return(FALSE)
+    dimensions <- unlist(lapply(features, sdm_boundary_feature_dimensions), use.names = FALSE)
+    if (!sdm_boundary_bbox_is_valid(parsed, dimensions)) return(FALSE)
+    for (feature in features) {
+      if (!sdm_boundary_feature_is_valid(feature)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  if (identical(type, "Feature")) return(sdm_boundary_feature_is_valid(parsed))
+  sdm_boundary_geometry_is_valid(parsed)
+}
+
+# Reads a resolved custom asset and classifies it without asserting geometry.
+# Returns list(state = ...) where state is one of:
+#   "parsed"             readable, valid GeoJSON document (geojson attached)
+#   "unvalidated"        readable, but not a JSON-family boundary format
+#   "invalid_content"    demonstrably invalid client content
+#   "read_failure"       server-side read/I/O failure
+#   "parser_unavailable" missing JSON parser dependency (server fault)
+sdm_boundary_classify_asset <- function(path) {
+  raw_content <- tryCatch(sdm_boundary_read_asset_bytes(path), error = function(e) NULL)
+  if (is.null(raw_content)) return(list(state = "read_failure"))
+  if (!sdm_boundary_is_json_format(path)) return(list(state = "unvalidated"))
+  if (!sdm_boundary_parser_available()) return(list(state = "parser_unavailable"))
+  parsed <- tryCatch(
+    jsonlite::fromJSON(rawToChar(raw_content), simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (!sdm_boundary_geojson_is_valid(parsed)) return(list(state = "invalid_content"))
+  list(state = "parsed", geojson = parsed)
+}
+
 handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL, file_path = NULL,
                                     boundary_asset_id = NULL, project_id = NULL, req = NULL) {
   boundary_root <- sdm_boundary_storage_root(app_dir)
@@ -203,7 +477,29 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
     return(list(error = "Boundary path is unsafe"))
   }
 
-  geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
+  if (identical(dataset_type, "custom")) {
+    inspection <- sdm_boundary_classify_asset(boundary_path)
+    if (identical(inspection$state, "invalid_content")) {
+      # The asset is the requester's own canonical, hash-verified file and its
+      # bytes are demonstrably not a GeoJSON document: a content-integrity
+      # denial of client data, not an upstream server fault.
+      res$status <- 422L
+      return(list(error = "Boundary content is not valid GeoJSON"))
+    }
+    if (identical(inspection$state, "read_failure") || identical(inspection$state, "parser_unavailable")) {
+      res$status <- 500L
+      return(list(error = "Boundary read failed"))
+    }
+    if (identical(inspection$state, "parsed")) return(inspection$geojson)
+  }
+  geojson <- tryCatch(
+    jsonlite::fromJSON(boundary_path, simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(geojson)) {
+    res$status <- 500L
+    return(list(error = "Boundary read failed"))
+  }
   geojson
 }
 
@@ -335,6 +631,17 @@ handle_boundary_countries <- function(res, app_dir) {
   list(countries = countries)
 }
 
+# Geometry extent via the geometry runtime.  Kept as its own function so the
+# read/processing fault path is separable from the content classification: the
+# callers pass only an already-classified, server-resolved canonical path.
+sdm_boundary_compute_extent <- function(file_path, buffer_deg = 2) {
+  vec <- terra::vect(file_path)
+  e <- terra::ext(vec)
+  xmin <- e[1]; xmax <- e[2]; ymin <- e[3]; ymax <- e[4]
+  buf <- as.numeric(buffer_deg) %||% 2
+  list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
+}
+
 handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2,
                                    boundary_asset_id = NULL, project_id = NULL, req = NULL) {
   boundary_root <- sdm_boundary_storage_root(app_dir)
@@ -347,6 +654,7 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     res$status <- 400L
     return(list(error = "Invalid boundary type or resolution"))
   }
+  from_canonical_asset <- FALSE
   if (!is.null(file_path) || identical(type, "custom") || !is.null(boundary_asset_id)) {
     if (is.null(boundary_asset_id) || is.null(req) || !is.null(file_path) || !identical(type %||% "custom", "custom")) {
       res$status <- 400L
@@ -357,6 +665,7 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
       res$status <- 404L
       return(list(error = "Boundary file not found"))
     }
+    from_canonical_asset <- TRUE
   } else if (!is.null(type)) {
     res_type <- type %||% "admin0"
     res_scale <- resolution %||% "110m"
@@ -387,17 +696,35 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     res$status <- 500L
     return(list(error = "Boundary path is unsafe"))
   }
-  tryCatch({
-    vec <- terra::vect(file_path)
-    e <- terra::ext(vec)
-    xmin <- e[1]; xmax <- e[2]; ymin <- e[3]; ymax <- e[4]
-    buf <- as.numeric(buffer_deg) %||% 2
-    list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
-  }, error = function(e) {
-    warning("Boundary extent failed: ", conditionMessage(e), call. = FALSE)
+  if (from_canonical_asset) {
+    # Classify the requester's own canonical asset before reading it with the
+    # geometry runtime, so a demonstrable content denial stays 422 while I/O and
+    # parser/dependency faults stay genuine server failures.
+    inspection <- sdm_boundary_classify_asset(file_path)
+    if (identical(inspection$state, "invalid_content")) {
+      res$status <- 422L
+      return(list(error = "Boundary content is not a usable geometry"))
+    }
+    if (identical(inspection$state, "read_failure") || identical(inspection$state, "parser_unavailable")) {
+      res$status <- 500L
+      return(list(error = "Boundary read failed"))
+    }
+  }
+  if (!sdm_boundary_terra_available()) {
+    # A missing geometry runtime is a server fault, never a client denial.
     res$status <- 500L
-    list(error = "Boundary extent failed")
-  })
+    return(list(error = "Boundary processing is unavailable"))
+  }
+  tryCatch(
+    sdm_boundary_compute_extent(file_path, buffer_deg),
+    error = function(e) {
+      # Any remaining failure is an unexpected read/processing fault, not a
+      # demonstrable content denial: keep it an upstream 5xx.
+      warning("Boundary extent failed: ", conditionMessage(e), call. = FALSE)
+      res$status <- 500L
+      list(error = "Boundary extent failed")
+    }
+  )
 }
 
 sdm_boundary_download_filename <- function(type, resolution, country) {

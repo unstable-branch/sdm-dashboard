@@ -276,6 +276,23 @@ jobs:
           wait_for API http://localhost:4000/health
           wait_for Frontend http://localhost:3000/
 
+      - name: Fresh-volume boundary upload/resolve regression
+        run: |
+          # Regression for the Phase 2 acceptance finding in
+          # acceptance/phase2/phase2_findings_r5.md ("The live built plumber
+          # runtime cannot CREATE its custom-boundary directory"): a fresh
+          # boundary-data volume stayed root-owned because the plumber
+          # entrypoint normalized the uploads/outputs/covariates volumes but
+          # not the boundaries volume, so the first custom-boundary upload on a
+          # clean deployment returned 500 {"error":"Custom boundary storage is
+          # unsafe"}. This check runs against the real built stack with its
+          # fresh CI volumes and only passes once the entrypoint fix is in the
+          # image; it also proves the boundary the API just registered reads
+          # back as GeoJSON.
+          set -eu
+          python3 scripts/verify_fresh_volume_boundary_upload.py \
+            --base-url http://localhost:4000
+
       - name: Memory stress check — verify Plumber can handle concurrent requests
         run: |
           compose() {
