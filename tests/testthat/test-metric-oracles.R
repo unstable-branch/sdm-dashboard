@@ -78,6 +78,15 @@ test_that("auc_rank excludes fractional soft labels instead of truncating them",
   expect_equal(as.numeric(auc_rank(c(1, 0, 1, 0), c(0.9, 0.1, 0.8, 0.2))), 1)
 })
 
+test_that("integrated binary metrics exclude fractional labels before counting or ranking", {
+  # The third score would poison AUC and the confusion matrix if 0.5 were
+  # truncated to background before the original label is validated.
+  m <- compute_binary_metrics(c(1, 0, 0.5), c(0.9, 0.1, 1), threshold = 0.5)
+  expect_equal(m$auc, 1)
+  expect_equal(m$n, 2L)
+  expect_equal(m$fp, 0L)
+})
+
 test_that("auc_rank scores all-tied predictions at 0.5 regardless of class mix", {
   expect_equal(as.numeric(auc_rank(c(1, 1, 0, 0), c(0.5, 0.5, 0.5, 0.5))), 0.5)
   expect_equal(as.numeric(auc_rank(c(1, 1, 1, 0), rep(0.7, 4))), 0.5)
