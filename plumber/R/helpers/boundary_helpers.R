@@ -157,18 +157,24 @@ sdm_boundary_is_json_format <- function(path) {
   tryCatch(tolower(tools::file_ext(path)) %in% c("geojson", "json"), error = function(e) FALSE)
 }
 
-# RFC 7946 GeoJSON types.  A document that declares any other type, or whose
-# nested member shapes do not match the type it declares, is demonstrably not a
-# GeoJSON document and therefore a client content denial rather than a server
-# fault.
+# RFC 7946 GeoJSON types.  A document that declares any other type, omits a
+# required member of the type it declares (FeatureCollection.features,
+# Feature.geometry, Feature.properties, Geometry.coordinates or
+# GeometryCollection.geometries), has a nested member of the wrong JSON kind,
+# or whose coordinate structure does not match the declared geometry type
+# (including a linear ring that is not closed) is demonstrably not a GeoJSON
+# document and therefore a client content denial rather than a server fault.
+# Foreign members are allowed and are not rejected.
 sdm_boundary_geometry_types <- c(
   "GeometryCollection",
   "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"
 )
 sdm_boundary_geojson_types <- c("FeatureCollection", "Feature", sdm_boundary_geometry_types)
 
-# jsonlite parses both JSON arrays and JSON objects as unnamed or named lists;
-# a GeoJSON array member is therefore a list without names.
+# jsonlite parses both JSON arrays and JSON objects as lists.  A GeoJSON
+# object is therefore a named list (an empty JSON object keeps an empty name
+# vector) and a GeoJSON array, including an empty one, is a list without names.
+sdm_boundary_is_json_object <- function(value) is.list(value) && !is.null(names(value))
 sdm_boundary_is_json_array <- function(value) is.list(value) && is.null(names(value))
 
 # RFC 7946 Position: an array of two or more numbers.
@@ -190,17 +196,30 @@ sdm_boundary_positions_are_valid <- function(positions, minimum) {
   TRUE
 }
 
+# RFC 7946: a linear ring is closed — its first and last positions must contain
+# identical values (ordinal count included).
+sdm_boundary_ring_is_closed <- function(ring) {
+  if (!sdm_boundary_is_json_array(ring) || length(ring) < 2L) return(FALSE)
+  first <- ring[[1L]]
+  last <- ring[[length(ring)]]
+  if (!sdm_boundary_position_is_valid(first) || !sdm_boundary_position_is_valid(last)) return(FALSE)
+  if (length(first) != length(last)) return(FALSE)
+  identical(as.numeric(first), as.numeric(last))
+}
+
 sdm_boundary_rings_are_valid <- function(rings) {
   if (!sdm_boundary_is_json_array(rings) || length(rings) < 1L) return(FALSE)
   for (ring in rings) {
+    # RFC 7946: a linear ring is a closed LineString of four or more positions.
     if (!sdm_boundary_positions_are_valid(ring, 4L)) return(FALSE)
+    if (!sdm_boundary_ring_is_closed(ring)) return(FALSE)
   }
   TRUE
 }
 
 # Recursive validation of a GeoJSON Geometry object.
 sdm_boundary_geometry_is_valid <- function(geometry) {
-  if (!is.list(geometry) || is.null(names(geometry))) return(FALSE)
+  if (!sdm_boundary_is_json_object(geometry)) return(FALSE)
   type <- geometry$type
   if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
   if (!type %in% sdm_boundary_geometry_types) return(FALSE)
@@ -236,19 +255,25 @@ sdm_boundary_geometry_is_valid <- function(geometry) {
   FALSE
 }
 
-# Recursive validation of a GeoJSON Feature object.  RFC 7946 allows a Feature
-# with a null geometry; only a missing member is structurally invalid.
+# Recursive validation of a GeoJSON Feature object.  RFC 7946 requires both a
+# geometry member (a Geometry object or null) and a properties member (an
+# object or null); an optional id must be a string or number.  Only a missing
+# required member is structurally invalid for an otherwise well-typed Feature.
 sdm_boundary_feature_is_valid <- function(feature) {
-  if (!is.list(feature) || is.null(names(feature))) return(FALSE)
+  if (!sdm_boundary_is_json_object(feature)) return(FALSE)
   if (!identical(feature$type, "Feature")) return(FALSE)
-  if (!("geometry" %in% names(feature))) return(FALSE)
+  members <- names(feature)
+  if (!("geometry" %in% members) || !("properties" %in% members)) return(FALSE)
+  if (!is.null(feature$properties) && !sdm_boundary_is_json_object(feature$properties)) return(FALSE)
+  if ("id" %in% members && !is.null(feature$id) &&
+      !(is.character(feature$id) || is.numeric(feature$id))) return(FALSE)
   if (is.null(feature$geometry)) return(TRUE)
   sdm_boundary_geometry_is_valid(feature$geometry)
 }
 
 # Deterministic structure/type validation for a parsed JSON document.
 sdm_boundary_geojson_is_valid <- function(parsed) {
-  if (!is.list(parsed) || is.null(names(parsed))) return(FALSE)
+  if (!sdm_boundary_is_json_object(parsed)) return(FALSE)
   type <- parsed$type
   if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
   if (!type %in% sdm_boundary_geojson_types) return(FALSE)

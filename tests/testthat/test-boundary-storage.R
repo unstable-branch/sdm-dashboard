@@ -426,7 +426,34 @@ test_that("clearly invalid GeoJSON content is a typed client denial from both re
     collection_with_invalid_feature = paste0(
       '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},',
       '"geometry":{"type":"MultiPolygon","coordinates":"nope"}}]}'
-    )
+    ),
+    # Feature without the required properties member (reviewer round-4 case A).
+    feature_missing_properties = '{"type":"Feature","geometry":null}',
+    # Feature whose properties member is not an object or null (round-4 case B).
+    feature_properties_not_object = '{"type":"Feature","geometry":null,"properties":"not-an-object"}',
+    feature_properties_array = '{"type":"Feature","geometry":null,"properties":[]}',
+    # An optional Feature id must be a JSON string or number.
+    feature_id_not_string_or_number = '{"type":"Feature","id":{"a":1},"geometry":null,"properties":{}}',
+    # A Polygon linear ring must be closed (round-4 case C).
+    polygon_unclosed_ring =
+      '{"type":"Polygon","coordinates":[[[0.0,0.0],[1.0,0.0],[1.0,1.0],[0.0,1.0]]]}',
+    # A linear ring needs four or more positions.
+    polygon_ring_too_short = '{"type":"Polygon","coordinates":[[[0.0,0.0],[1.0,0.0],[0.0,0.0]]]}',
+    # The closure comparison includes the ordinal count.
+    polygon_ring_closure_ordinal_mismatch =
+      '{"type":"Polygon","coordinates":[[[0.0,0.0,0.0],[1.0,0.0],[1.0,1.0],[0.0,0.0]]]}',
+    multipolygon_unclosed_ring =
+      '{"type":"MultiPolygon","coordinates":[[[[0.0,0.0],[1.0,0.0],[1.0,1.0],[0.0,1.0]]]]}',
+    # A nested Feature in a collection must satisfy the same Feature rules.
+    collection_feature_missing_properties =
+      '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":null}]}',
+    # A GeometryCollection member must be a Geometry object.
+    geometry_collection_invalid_member =
+      '{"type":"GeometryCollection","geometries":[{"type":"BogusGeometry","coordinates":[]}]}',
+    # MultiPoint coordinates must be an array of Position arrays.
+    multipoint_positions_not_arrays = '{"type":"MultiPoint","coordinates":[1.0,2.0]}',
+    # A LineString needs two or more positions.
+    linestring_single_position = '{"type":"LineString","coordinates":[[1.0,2.0]]}'
   )
 
   for (fixture in invalid_documents) {
@@ -479,6 +506,29 @@ test_that("structurally valid GeoJSON documents are not over-rejected", {
     ),
     # RFC 7946 permits a Feature with a null geometry.
     feature_null_geometry = '{"type":"Feature","geometry":null,"properties":{}}',
+    # ... and a null properties value, plus string/number identifiers.
+    feature_null_properties = '{"type":"Feature","geometry":null,"properties":null}',
+    feature_string_id = '{"type":"Feature","id":"abc","geometry":null,"properties":{}}',
+    feature_numeric_id = '{"type":"Feature","id":7,"geometry":null,"properties":{}}',
+    multilinestring = paste0(
+      '{"type":"MultiLineString","coordinates":[',
+      '[[0.0,0.0],[1.0,1.0]],[[2.0,2.0],[3.0,3.0]]]}'
+    ),
+    polygon_3d_closed_ring = paste0(
+      '{"type":"Polygon","coordinates":[[',
+      '[0.0,0.0,0.0],[1.0,0.0,0.0],[1.0,1.0,0.0],[0.0,0.0,0.0]]]}'
+    ),
+    geometry_collection_nested = paste0(
+      '{"type":"GeometryCollection","geometries":[',
+      '{"type":"GeometryCollection","geometries":[]}]}'
+    ),
+    # Foreign members (including the sf/GDAL "name" and "crs" members) are not
+    # rejected, so a converted upload stays a valid boundary.
+    feature_collection_with_foreign_members = paste0(
+      '{"type":"FeatureCollection","name":"file","crs":{"type":"name","properties":',
+      '{"name":"urn:ogc:def:crs:OGC:1.3:CRS84"}},"features":[{"type":"Feature","properties":{},',
+      '"geometry":{"type":"Polygon","coordinates":[[[0.0,0.0],[4.0,0.0],[4.0,4.0],[0.0,4.0],[0.0,0.0]]]}}]}'
+    ),
     feature_collection = paste0(
       '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"x"},',
       '"geometry":{"type":"Point","coordinates":[1.0,2.0]}}]}'

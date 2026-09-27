@@ -10,6 +10,7 @@ import {
   resolveInputAssetStorage,
   resolveLegacyInputAsset,
   registerInputAsset,
+  authorizeProjectInputWrite,
   registerDerivedInputAsset,
   registerSystemInputAsset,
   registerInputAssetFromServerPath,
@@ -476,5 +477,43 @@ describe("server-only registration", () => {
     await expect(registerInputAsset({ creatorUserId: A, scope: "project", projectId: P, kind: "raw_occurrence", root: "uploads", relativePath: "asset.csv" }, {
       roots: roots(), database: makeRegistrationDatabase("editor"),
     })).resolves.toMatchObject({ scope: "project", projectId: P });
+  });
+});
+
+describe("project input write authorization", () => {
+  // The pre-write check exists so a denied principal never reaches the write
+  // path; it must mirror the registration recheck exactly and fail closed.
+  const membershipDatabase = (membershipRole?: "admin" | "editor" | "viewer") => ({
+    select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => table === projectMembers && membershipRole ? [{ role: membershipRole }] : [] }) }) }),
+  }) as unknown as InputAssetDependencies["database"];
+
+  it("permits a current editor or project admin membership", async () => {
+    await expect(authorizeProjectInputWrite({ principal: principal(A, "editor"), projectId: P },
+      { database: membershipDatabase("editor") })).resolves.toEqual({ allowed: true });
+    await expect(authorizeProjectInputWrite({ principal: principal(A, "editor"), projectId: P },
+      { database: membershipDatabase("admin") })).resolves.toEqual({ allowed: true });
+  });
+
+  it("denies a viewer, a non-member, and a global admin without project membership", async () => {
+    await expect(authorizeProjectInputWrite({ principal: principal(A, "viewer"), projectId: P },
+      { database: membershipDatabase("viewer") })).resolves.toEqual({ allowed: false, reason: "not_authorized" });
+    await expect(authorizeProjectInputWrite({ principal: principal(A, "editor"), projectId: P },
+      { database: membershipDatabase() })).resolves.toEqual({ allowed: false, reason: "not_authorized" });
+    await expect(authorizeProjectInputWrite({ principal: principal(A, "admin"), projectId: P },
+      { database: membershipDatabase() })).resolves.toEqual({ allowed: false, reason: "not_authorized" });
+  });
+
+  it("fails closed when the membership lookup cannot be answered", async () => {
+    await expect(authorizeProjectInputWrite({ principal: principal(A, "editor"), projectId: P },
+      { database: fakeDatabase({ unavailable: true }) })).resolves.toEqual({ allowed: false, reason: "unavailable" });
+  });
+
+  it("rejects a malformed principal or project identifier", async () => {
+    await expect(authorizeProjectInputWrite({ principal: principal("not-a-uuid", "editor"), projectId: P },
+      { database: membershipDatabase("editor") })).resolves.toEqual({ allowed: false, reason: "invalid_request" });
+    await expect(authorizeProjectInputWrite({ principal: principal(A, "editor"), projectId: "not-a-uuid" },
+      { database: membershipDatabase("editor") })).resolves.toEqual({ allowed: false, reason: "invalid_request" });
+    await expect(authorizeProjectInputWrite({ principal: principal(A, "owner"), projectId: P },
+      { database: membershipDatabase("editor") })).resolves.toEqual({ allowed: false, reason: "invalid_request" });
   });
 });
