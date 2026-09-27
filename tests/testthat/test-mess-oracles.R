@@ -78,9 +78,9 @@ test_that("MESS per-variable values combine by cellwise minimum", {
   # p=15 -> f=2/3  -> 50 < f < 100 -> 200 - 400/3 = 200/3
   expect_equal(as.numeric(terra::values(result$per_variable$varying)),
                c(200 / 3, NA_real_, 200 / 3), tolerance = 1e-8)
-  # Overall MESS = cellwise min over available variables; a cell where one
-  # variable is NA uses the finite ones (documented repo semantics; dismo's
-  # min() would propagate NA — deviation recorded in the review notes).
+  # Overall MESS = cellwise min over available variables; dismo::mess likewise
+  # uses a rowwise minimum with na.rm=TRUE for multivariable cells. We return
+  # NA if no variable has a finite score.
   expect_equal(as.numeric(terra::values(result$mess)),
                c(200 / 3, -100, 200 / 3), tolerance = 1e-8)
 })

@@ -33,7 +33,9 @@ compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold
   if (!is.finite(threshold)) {
     threshold <- 0.5
   }
-  ok <- is.finite(obs) & is.finite(score)
+  # Preserve original labels until validation; integer conversion would turn
+  # fractional labels into apparently valid presence/background observations.
+  ok <- is.finite(obs) & is.finite(score) & (obs %in% c(0, 1))
   obs <- as.integer(obs[ok])
   score <- as.numeric(score[ok])
   if (length(obs) == 0) {
