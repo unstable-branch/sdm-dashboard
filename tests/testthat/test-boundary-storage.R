@@ -453,7 +453,44 @@ test_that("clearly invalid GeoJSON content is a typed client denial from both re
     # MultiPoint coordinates must be an array of Position arrays.
     multipoint_positions_not_arrays = '{"type":"MultiPoint","coordinates":[1.0,2.0]}',
     # A LineString needs two or more positions.
-    linestring_single_position = '{"type":"LineString","coordinates":[[1.0,2.0]]}'
+    linestring_single_position = '{"type":"LineString","coordinates":[[1.0,2.0]]}',
+    # RFC 7946 section 7.1: an object must not carry the defining member of
+    # another GeoJSON type (reviewer round-6 case A).
+    feature_collection_with_geometry_member =
+      '{"type":"FeatureCollection","features":[],"geometry":null}',
+    feature_collection_with_properties_member =
+      '{"type":"FeatureCollection","features":[],"properties":{}}',
+    feature_collection_with_coordinates_member =
+      '{"type":"FeatureCollection","features":[],"coordinates":[[0.0,0.0]]}',
+    feature_collection_with_geometries_member =
+      '{"type":"FeatureCollection","features":[],"geometries":[]}',
+    feature_collection_with_id_member =
+      '{"type":"FeatureCollection","features":[],"id":1}',
+    # A Feature must not carry the FeatureCollection or Geometry members.
+    feature_with_features_member =
+      '{"type":"Feature","geometry":null,"properties":{},"features":[]}',
+    feature_with_coordinates_member =
+      '{"type":"Feature","geometry":null,"properties":{},"coordinates":[[0.0,0.0]]}',
+    feature_with_geometries_member =
+      '{"type":"Feature","geometry":null,"properties":{},"geometries":[]}',
+    # A Geometry must not carry the Feature or FeatureCollection members.
+    point_with_geometry_member = '{"type":"Point","coordinates":[1.0,2.0],"geometry":null}',
+    point_with_properties_member = '{"type":"Point","coordinates":[1.0,2.0],"properties":{}}',
+    point_with_features_member = '{"type":"Point","coordinates":[1.0,2.0],"features":[]}',
+    # A geometry must not carry the GeometryCollection member, and a
+    # GeometryCollection must not carry coordinates.
+    point_with_geometries_member = '{"type":"Point","coordinates":[1.0,2.0],"geometries":[]}',
+    geometry_collection_with_coordinates_member =
+      '{"type":"GeometryCollection","geometries":[],"coordinates":[]}',
+    # The same §7.1 rule holds for a nested Feature/geometry in a collection.
+    collection_feature_with_properties_member = paste0(
+      '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},',
+      '"geometry":{"type":"Point","coordinates":[1.0,2.0],"properties":{}}}]}'
+    ),
+    # A present Feature id must be a JSON string or number (RFC 7946 §3.2).
+    feature_id_null = '{"type":"Feature","id":null,"geometry":null,"properties":{}}',
+    feature_id_boolean = '{"type":"Feature","id":true,"geometry":null,"properties":{}}',
+    feature_id_array = '{"type":"Feature","id":[1],"geometry":null,"properties":{}}'
   )
 
   for (fixture in invalid_documents) {
@@ -533,7 +570,17 @@ test_that("structurally valid GeoJSON documents are not over-rejected", {
       '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"x"},',
       '"geometry":{"type":"Point","coordinates":[1.0,2.0]}}]}'
     ),
-    empty_feature_collection = '{"type":"FeatureCollection","features":[]}'
+    empty_feature_collection = '{"type":"FeatureCollection","features":[]}',
+    # "bbox" is an optional member of every GeoJSON object (RFC 7946 §5), and a
+    # Feature may combine it with an id and foreign members.
+    point_with_bbox = '{"type":"Point","coordinates":[1.0,2.0],"bbox":[1.0,2.0,1.0,2.0]}',
+    feature_with_id_bbox_and_foreign_member =
+      '{"type":"Feature","id":"abc","geometry":null,"properties":{},"bbox":[0.0,0.0,0.0,0.0],"name":"file"}',
+    feature_collection_with_bbox_and_foreign_members = paste0(
+      '{"type":"FeatureCollection","name":"file","crs":{"type":"name"},',
+      '"bbox":[0.0,0.0,1.0,1.0],"features":[{"type":"Feature","properties":null,',
+      '"geometry":{"type":"Point","coordinates":[1.0,2.0]}}]}'
+    )
   )
 
   for (fixture in valid_documents) {
