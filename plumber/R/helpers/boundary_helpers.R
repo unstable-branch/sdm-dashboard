@@ -160,16 +160,49 @@ sdm_boundary_is_json_format <- function(path) {
 # RFC 7946 GeoJSON types.  A document that declares any other type, omits a
 # required member of the type it declares (FeatureCollection.features,
 # Feature.geometry, Feature.properties, Geometry.coordinates or
-# GeometryCollection.geometries), has a nested member of the wrong JSON kind,
-# or whose coordinate structure does not match the declared geometry type
-# (including a linear ring that is not closed) is demonstrably not a GeoJSON
-# document and therefore a client content denial rather than a server fault.
+# GeometryCollection.geometries), carries a defining member of another type
+# (RFC 7946 section 7.1), has a nested member of the wrong JSON kind, or whose
+# coordinate structure does not match the declared geometry type (including a
+# linear ring that is not closed) is demonstrably not a GeoJSON document and
+# therefore a client content denial rather than a server fault.
 # Foreign members are allowed and are not rejected.
 sdm_boundary_geometry_types <- c(
   "GeometryCollection",
   "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"
 )
 sdm_boundary_geojson_types <- c("FeatureCollection", "Feature", sdm_boundary_geometry_types)
+
+# RFC 7946 section 7.1 ("Semantics of GeoJSON Members and Types Are Not
+# Changeable") keeps the meaning of the defined members fixed, so an object MUST
+# NOT carry the defining member of another GeoJSON type: a FeatureCollection or
+# Feature must not carry "coordinates"/"geometries", a FeatureCollection or
+# Geometry must not carry "geometry"/"properties", and a Feature or Geometry
+# must not carry "features".  "id" is defined for a Feature only.  The tables
+# below list the members RFC 7946 defines for each object type; "bbox" is an
+# optional member of every GeoJSON object (section 5).  Anything outside those
+# members (for example the sf/GDAL "name" and legacy "crs" members) is a foreign
+# member: it stays permitted and its value is not interpreted here.  The
+# structural content of "bbox" itself is not validated.
+sdm_boundary_feature_collection_members <- c("type", "features", "bbox")
+sdm_boundary_feature_members <- c("type", "geometry", "properties", "id", "bbox")
+sdm_boundary_geometry_collection_members <- c("type", "geometries", "bbox")
+sdm_boundary_geometry_members <- c("type", "coordinates", "bbox")
+sdm_boundary_defined_members <- c(
+  "type", "features", "geometry", "properties", "coordinates", "geometries", "id"
+)
+
+sdm_boundary_allowed_members <- function(type) {
+  if (identical(type, "FeatureCollection")) return(sdm_boundary_feature_collection_members)
+  if (identical(type, "Feature")) return(sdm_boundary_feature_members)
+  if (identical(type, "GeometryCollection")) return(sdm_boundary_geometry_collection_members)
+  sdm_boundary_geometry_members
+}
+
+# TRUE when the object carries no defining member of another GeoJSON type.
+sdm_boundary_members_are_valid <- function(object, type) {
+  members <- names(object)
+  length(setdiff(intersect(members, sdm_boundary_defined_members), sdm_boundary_allowed_members(type))) == 0L
+}
 
 # jsonlite parses both JSON arrays and JSON objects as lists.  A GeoJSON
 # object is therefore a named list (an empty JSON object keeps an empty name
@@ -223,6 +256,7 @@ sdm_boundary_geometry_is_valid <- function(geometry) {
   type <- geometry$type
   if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
   if (!type %in% sdm_boundary_geometry_types) return(FALSE)
+  if (!sdm_boundary_members_are_valid(geometry, type)) return(FALSE)
   members <- names(geometry)
   if (identical(type, "GeometryCollection")) {
     geometries <- geometry$geometries
@@ -257,16 +291,23 @@ sdm_boundary_geometry_is_valid <- function(geometry) {
 
 # Recursive validation of a GeoJSON Feature object.  RFC 7946 requires both a
 # geometry member (a Geometry object or null) and a properties member (an
-# object or null); an optional id must be a string or number.  Only a missing
-# required member is structurally invalid for an otherwise well-typed Feature.
+# object or null), forbids the defining members of other types (section 7.1),
+# and defines an optional id as a JSON string or number only.  A missing
+# required member and a defining member of another type are both invalid;
+# optional members (bbox) and foreign members remain permitted.
 sdm_boundary_feature_is_valid <- function(feature) {
   if (!sdm_boundary_is_json_object(feature)) return(FALSE)
   if (!identical(feature$type, "Feature")) return(FALSE)
+  if (!sdm_boundary_members_are_valid(feature, "Feature")) return(FALSE)
   members <- names(feature)
   if (!("geometry" %in% members) || !("properties" %in% members)) return(FALSE)
   if (!is.null(feature$properties) && !sdm_boundary_is_json_object(feature$properties)) return(FALSE)
-  if ("id" %in% members && !is.null(feature$id) &&
-      !(is.character(feature$id) || is.numeric(feature$id))) return(FALSE)
+  if ("id" %in% members) {
+    # RFC 7946 section 3.2 defines id only as a string or number, and a present
+    # null is not an identifier.
+    id <- feature$id
+    if (!(is.character(id) || is.numeric(id)) || length(id) != 1L || is.na(id)) return(FALSE)
+  }
   if (is.null(feature$geometry)) return(TRUE)
   sdm_boundary_geometry_is_valid(feature$geometry)
 }
@@ -279,6 +320,7 @@ sdm_boundary_geojson_is_valid <- function(parsed) {
   if (!type %in% sdm_boundary_geojson_types) return(FALSE)
   members <- names(parsed)
   if (identical(type, "FeatureCollection")) {
+    if (!sdm_boundary_members_are_valid(parsed, "FeatureCollection")) return(FALSE)
     features <- parsed$features
     if (!("features" %in% members) || !sdm_boundary_is_json_array(features)) return(FALSE)
     for (feature in features) {
