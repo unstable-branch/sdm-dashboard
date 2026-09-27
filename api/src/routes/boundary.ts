@@ -7,10 +7,12 @@ import { db } from "../db/index.js";
 import { inputAssets, projectMembers } from "../db/schema.js";
 import { and, eq } from "drizzle-orm";
 import {
+  InputAssetRegistrationError,
   registerInputAssetFromServerPath,
   resolveInputAsset,
   updateInputAssetState,
 } from "../services/input-assets.js";
+import { PlumberUpstreamError } from "../services/plumber-errors.js";
 
 export const boundaryRoutes = new Hono<AppEnv>();
 
@@ -19,6 +21,26 @@ const BOUNDARY_TYPES = new Set(["admin0", "land", "custom"]);
 const BOUNDARY_RESOLUTIONS = new Set(["auto", "10m", "50m", "110m"]);
 const isBoundaryType = (value: string | undefined): boolean => value === undefined || BOUNDARY_TYPES.has(value);
 const isBoundaryResolution = (value: string | undefined): boolean => value === undefined || BOUNDARY_RESOLUTIONS.has(value);
+
+/**
+ * Client-owned producer denials that must not be reported as an upstream
+ * failure.  Only the producer STATUS is translated; the producer body can
+ * carry internal storage paths and is never echoed to the caller.
+ */
+const CLIENT_BOUNDARY_DENIALS: Record<number, { status: 400 | 404 | 422; error: string }> = {
+  400: { status: 400, error: "Invalid boundary request" },
+  404: { status: 404, error: "Boundary not found" },
+  422: { status: 422, error: "Boundary content is not a usable geometry" },
+};
+
+function boundaryProducerFailure(error: unknown, fallbackMessage: string): { status: 400 | 404 | 422 | 502; error: string } {
+  if (error instanceof PlumberUpstreamError) {
+    const denial = CLIENT_BOUNDARY_DENIALS[error.status];
+    if (denial) return denial;
+  }
+  return { status: 502, error: fallbackMessage };
+}
+
 const PATH_ALIASES = [
   "file_path",
   "filePath",
@@ -106,8 +128,8 @@ boundaryRoutes.get("/boundary/default", async (c) => {
     const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/default", body);
     return c.json(res);
   } catch (err) {
-    const message = "Boundary fetch failed";
-    return c.json({ error: message }, 502);
+    const failure = boundaryProducerFailure(err, "Boundary fetch failed");
+    return c.json({ error: failure.error }, failure.status);
   }
 });
 
@@ -149,6 +171,9 @@ boundaryRoutes.post("/boundary/upload", async (c) => {
         absolutePath: producedPath,
       });
     } catch (error) {
+      if (error instanceof InputAssetRegistrationError && error.reason === "not_authorized") {
+        return c.json({ error: "Project membership does not permit boundary creation" }, 403);
+      }
       const message = "Boundary registration failed";
       return c.json({ error: message }, 502);
     }
@@ -295,8 +320,8 @@ boundaryRoutes.get("/boundary/extent", async (c) => {
     const res = await plumberClient.withUser(user.id).withRole(user.role).post("/api/v1/data/boundary/extent", body);
     return c.json(res);
   } catch (err) {
-    const message = "Boundary extent failed";
-    return c.json({ error: message }, 502);
+    const failure = boundaryProducerFailure(err, "Boundary extent failed");
+    return c.json({ error: failure.error }, failure.status);
   }
 });
 
@@ -343,6 +368,9 @@ boundaryRoutes.post("/boundary/download", async (c) => {
         absolutePath: producedPath,
       });
     } catch (error) {
+      if (error instanceof InputAssetRegistrationError && error.reason === "not_authorized") {
+        return c.json({ error: "Project membership does not permit boundary creation" }, 403);
+      }
       const message = "Boundary registration failed";
       return c.json({ error: message }, 502);
     }
