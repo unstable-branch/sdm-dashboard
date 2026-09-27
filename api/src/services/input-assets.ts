@@ -705,6 +705,51 @@ export async function registerSystemInputAsset(input: RegisterSystemInputAssetIn
   return register(input, dependencies, true, null);
 }
 
+export type ProjectInputWriteDecision =
+  | { allowed: true }
+  | { allowed: false; reason: "invalid_request" | "not_authorized" | "unavailable" };
+
+export interface ProjectInputWriteOptions {
+  principal: InputAssetPrincipal;
+  projectId: string;
+}
+
+/**
+ * Current-principal authorization to add a project input, evaluated BEFORE any
+ * server-side write.  The registration path rechecks the same membership
+ * immediately before the insert and remains the authoritative final check;
+ * this pre-check exists so a viewer, a removed member, or an unanswerable
+ * membership lookup can never cause a shared-storage write that only a
+ * best-effort cleanup would undo.
+ */
+export async function authorizeProjectInputWrite(
+  options: ProjectInputWriteOptions,
+  dependencies: InputAssetDependencies = {},
+): Promise<ProjectInputWriteDecision> {
+  const { principal, projectId } = options;
+  if (!isUuid(principal.id) || !PRINCIPAL_ROLES.has(principal.role) || !isUuid(projectId)) {
+    return { allowed: false, reason: "invalid_request" };
+  }
+  const database = dependencies.database || db;
+  try {
+    const [membership] = await database.select({ role: projectMembers.role })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, principal.id)))
+      .limit(1);
+    // Deliberately identical to the registration recheck: only a current
+    // editor or admin membership permits adding to a project, and a global
+    // administrator does not bypass project membership.
+    if (!membership || !["editor", "admin"].includes(membership.role)) {
+      return { allowed: false, reason: "not_authorized" };
+    }
+    return { allowed: true };
+  } catch {
+    // Fail closed: an unanswerable lookup denies the write and is reported as
+    // an unavailable dependency, never as a successful authorization.
+    return { allowed: false, reason: "unavailable" };
+  }
+}
+
 /** Only lifecycle state can be changed after registration; ownership and locator are immutable. */
 export interface InputAssetStateAuthorization {
   principal: InputAssetPrincipal;

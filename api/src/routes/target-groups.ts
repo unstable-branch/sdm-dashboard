@@ -12,6 +12,7 @@ import type { AppEnv } from "../middleware/auth.js";
 import { apiKeyScopeAllows } from "../services/auth-principal.js";
 import {
   InputAssetRegistrationError,
+  authorizeProjectInputWrite,
   registerInputAssetFromServerPath,
   resolveInputAsset,
   updateInputAssetState,
@@ -62,6 +63,27 @@ async function handleUpload(c: Context<AppEnv>) {
   // A project-scoped API key may only write inside its bound project.
   if (!apiKeyScopeAllows(user, scope.projectId)) {
     return c.json({ error: "API key is not valid for this project" }, 403);
+  }
+  const projectId = scope.projectId;
+  if (scope.scope === "project" && projectId !== null) {
+    // Current-principal membership is checked BEFORE the shared-storage write.
+    // The registration path rechecks it immediately before the insert; this
+    // pre-check is what keeps a viewer or a removed member from ever creating
+    // the file, and what makes the denial a typed 4xx instead of a post-write
+    // cleanup.  An unanswerable lookup fails closed.
+    const authorization = await authorizeProjectInputWrite({
+      principal: { id: user.id, role: user.role },
+      projectId,
+    });
+    if (!authorization.allowed) {
+      if (authorization.reason === "not_authorized") {
+        return c.json({ error: "Project membership does not permit target-group upload" }, 403);
+      }
+      if (authorization.reason === "invalid_request") {
+        return c.json({ error: "Invalid projectId" }, 400);
+      }
+      return c.json({ error: "Target-group upload authorization is unavailable" }, 502);
+    }
   }
 
   await mkdir(UPLOAD_DIR, { recursive: true });
