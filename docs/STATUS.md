@@ -51,6 +51,12 @@ Required full gates for a release review are pnpm run check:node, pnpm run check
 - The smoke gate reported optional maxnet and ranger backends unavailable and skipped their contracts.
 - The complete lockfile-backed R gate did not run because restore failed as recorded above. A system-library `tests/testthat.R` run reached the repaired tests but failed on missing data.table and is not accepted as the locked gate.
 
+## Update: 2026-09-28 AEST (after the dated snapshot above)
+
+PR #105 merged the bounded plain-GLM VIF correction into `dev` at `2cf436b1f13ece89f1d52f64fcefa674172a78fd`. Direct GLM runs with VIF enabled select predictors on each CV fold's training rows, select final-fit predictors on sampled fitting rows, and align current/future suitability and MESS to the final feature set. The fixed-fold synthetic oracle tests held-out perturbations that change a leaked full-data selection. Unsupported multiple pseudo-absence replicates fail before direct-run setup. The staged/Targets GLM VIF path now **fails explicitly** instead of silently ignoring the option; its fit, projection, and MESS alignment remains a separate implementation gate. The 2026-09-20 statement above that fold-local VIF is wholly open is therefore superseded for the direct plain-GLM route only.
+
+All six PR checks passed on exact head `e1a8561f749cdbb3ea066dd4fc55521bd0fc9fc2`; both post-merge Platform CI and R Quality Checks passed on exact `dev` SHA `2cf436b1f13ece89f1d52f64fcefa674172a78fd`. A network-isolated diagnostic R 4.4.2 run also passed the focused GLM/future/Group-S tests and fast smoke. These are bounded integration checks, **not** the complete lockfile-backed R 4.5 gate: CI installs R dependencies with `RENV_PROJECT=""`, and no accepted CPU/CUDA/ROCm candidate-model matrix or authenticated release journey was run. The environment, durable execution, request/effect attribution, ensemble out-of-fold metrics, staged feature alignment, operations rehearsal, and exact-candidate release gates remain open.
+
 ## Release posture
 
 **Not release-ready.** The primary authenticated upload-to-clean-to-model-to-result workflow, durable lifecycle, scientific reference-oracle acceptance, immutable provenance, and complete environment gates are not jointly accepted. Do not advertise a validated production or research release from this snapshot.
