@@ -138,7 +138,12 @@ test_that("GLM fold VIF matches a fixed-fold training-only selector oracle", {
   expect_setequal(result$per_fold_dropped_vars[[1]], c("x"))
 
   perturbed <- model_data
-  perturbed$x_copy[test_rows] <- 1000 * perturbed$x_copy[test_rows] + 500
+  perturbed$x_copy[test_rows] <- sin(seq_along(test_rows) * 2.7)
+  full_selector <- function(data) apply_vif_selection(
+    data[, c("x", "x_copy", "z")], threshold = 5, log_fun = NULL
+  )$selected
+  expect_false(setequal(full_selector(perturbed), full_selector(model_data)),
+               info = "held-out perturbation must change a leaked full-data selection")
   expect_identical(run_cv(perturbed)$per_fold_dropped_vars[[1]],
                    result$per_fold_dropped_vars[[1]])
 })
