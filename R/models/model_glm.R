@@ -206,8 +206,8 @@ cross_validate_glm <- function(model_data, formula, k = 3, seed = 42, n_cores = 
         sel <- apply_vif_selection(as.data.frame(cov_for_vif),
                                   threshold = vif_threshold, log_fun = NULL)
         kept <- intersect(sel$selected, cov_names)
-        dropped <- setdiff(cov_names, kept)
         if (length(kept) >= 2 && length(kept) < length(cov_names)) {
+          dropped <- setdiff(cov_names, kept)
           # Drop folded-out variables from this fold's data only.
           train_md <- train_md[, c("presence", kept, intersect(c(".x", ".y"), names(train_md))), drop = FALSE]
           test_md  <- test_md[,  c("presence", kept, intersect(c(".x", ".y"), names(test_md))),  drop = FALSE]
@@ -353,7 +353,8 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
                          bias_method = c("uniform", "target_group", "thickened"),
                          target_group_occ = NULL,
                          thickening_distance_km = NULL,
-                         model_data = NULL) {
+                         model_data = NULL,
+                         vif_threshold = NA_real_) {
   bias_method <- match.arg(bias_method)
   if (is.null(model_data)) {
     d <- prepare_sdm_data(occ, env_train_scaled, background_n,
@@ -372,6 +373,32 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   bg_xy <- d$bg_xy
   model_data <- d$model_data
   covariates <- d$covariates
+  cv_model_data <- model_data
+  cv_formula <- make_sdm_formula(covariates, include_quadratic = include_quadratic)
+  environment(cv_formula) <- baseenv()
+  final_vif_result <- NULL
+  final_vif_status <- NULL
+
+  # Final plain-GLM features are selected from the sampled fit-training rows,
+  # while CV retains the original sampled predictors for independent fold-local selection.
+  if (is.finite(vif_threshold)) {
+    final_vif_status <- if (length(covariates) < 3) "skipped_fewer_than_three_predictors" else "skipped_insufficient_sampled_rows"
+  }
+  if (is.finite(vif_threshold) && length(covariates) >= 3 && nrow(model_data) >= 100) {
+    vif_data <- model_data[, covariates, drop = FALSE]
+    vif_data <- vif_data[stats::complete.cases(vif_data), , drop = FALSE]
+    if (nrow(vif_data) >= 100) {
+      final_vif <- apply_vif_selection(vif_data, threshold = vif_threshold, log_fun = log_fun)
+      final_vif_result <- final_vif$vif_result
+      if (length(final_vif$selected) >= 2 && length(final_vif$selected) < length(covariates)) {
+        covariates <- final_vif$selected
+        final_vif_status <- "applied"
+        model_data <- model_data[, c("presence", covariates, intersect(c(".x", ".y"), names(model_data))), drop = FALSE]
+      } else {
+        final_vif_status <- if (length(final_vif$selected) < 2) "rejected_too_few_predictors" else "kept_all"
+      }
+    }
+  }
   formula <- make_sdm_formula(covariates, include_quadratic = include_quadratic)
   environment(formula) <- baseenv()
 
@@ -392,13 +419,13 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
   train_pred <- stats::predict(model, newdata = model_fit_data, type = "response")
   train_metrics <- compute_binary_metrics(model_fit_data$presence, train_pred, threshold = threshold)
 
-  cv <- cross_validate_glm(model_data, formula,
+  cv <- cross_validate_glm(cv_model_data, cv_formula,
     k = cv_folds, seed = seed, n_cores = n_cores,
     cv_strategy = cv_strategy, cv_block_size_km = cv_block_size_km, threshold = threshold,
     collect_predictions = TRUE,
     env_train_scaled = env_train_scaled,
     do_per_fold_scaling = TRUE,
-    vif_threshold = NA_real_
+    vif_threshold = vif_threshold
   )
   if (is.finite(cv$auc_mean)) {
     log_message(
@@ -452,6 +479,7 @@ fit_fast_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
       cv_cbi = if (!is.null(cv_cbi)) cv_cbi$cbi else NA_real_
     ),
     cbi_detail = cbi_result, covariates = covariates,
+    vif_result = final_vif_result, vif_status = final_vif_status,
     bias_method = bias_method,
     thickening_distance_km = if (identical(bias_method, "thickened")) thickening_distance_km else NULL,
     presence_suit = train_pred[model_fit_data$presence == 1],
