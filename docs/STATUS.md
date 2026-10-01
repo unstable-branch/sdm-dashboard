@@ -76,6 +76,12 @@ This supersedes the preceding same-day statement that the complete R suite remai
 - Post-fix focused results: 0 failures, 0 errors, 3 skips (empty batch-parallel tests). The changed R sources parsed and `Rscript scripts/smoke_test.R --tags=fast` passed.
 - After the lock-status and offline CPU LibTorch tensor gates passed, the single network-disabled `Rscript tests/testthat.R` run exited 0: 2,173 passed, 90 skipped, 223 warnings, and 0 failures/errors (2,486 total). Skips remain for optional backends, absent raster data, and hardware-specific cases. This is locked-suite evidence for this exact candidate, not release acceptance; review the warnings and remaining release gates separately.
 
+## Update: 2026-10-02 AEST — PR #107 CLI boundary correction
+
+- Restored the exact `--no-targets` legacy `future_lapply` route while keeping the default Targets route fail-closed before optional parsing, project loading, output creation, cluster environment mutation, or dispatch. `--help` explains that split; malformed `--no-targets=<value>` is rejected, and other invocations cannot default into Targets.
+- Focused `test-batch-cli-unavailable.R` passed in the R 4.5.0 base test environment with `testthat` 3.3.2 and no `optparse`; the legacy route reports explicit optional-package guidance. It also passed in a separate scratch optional profile with `optparse` 1.8.2, where a real Rscript subprocess and controlled loader stubs proved exact `--no-targets` reaches `batch_run_parallel`, while an unknown option does not dispatch. Help and R parse smoke checks passed.
+- No lock/settings or Targets-helper changes were made. The full locked R suite and CI were not rerun for this new candidate; run full CI against its new commit SHA before integration. Logs are preserved under `/root/spookys-workspace/reports/sdm/cli-boundary-fix-2026-10-02/`.
+
 ## Release posture
 
 **Not release-ready.** The primary authenticated upload-to-clean-to-model-to-result workflow, durable lifecycle, scientific reference-oracle acceptance, immutable provenance, and complete environment gates are not jointly accepted. Do not advertise a validated production or research release from this snapshot.
