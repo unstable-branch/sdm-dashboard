@@ -1,12 +1,8 @@
 #!/usr/bin/env Rscript
-# scripts/batch_run.R — run multiple species SDM models in parallel via CLI.
+# scripts/batch_run.R — intentionally unavailable until durable batch execution exists.
 #
-# Usage:
-#   Rscript scripts/batch_run.R --config batch_config.csv [--output batch_results/] [--cores 4] [--seed 42] [--no-targets]
-#
-# By default uses targets pipeline for caching, incremental rebuild, and HPC support.
-# Pass --no-targets to use future_lapply instead (legacy Shiny desktop path).
-#
+# The API returns TARGETS_DURABLE_EXECUTION_UNAVAILABLE for Targets-backed jobs.
+# Keep this CLI boundary before optparse or any Targets packages are loaded.
 # Config CSV format (all columns optional except species + occurrences_csv):
 #   species,occurrences_csv,model_id,biovars,use_elevation,use_soil,soil_vars,
 #   soil_depths,use_uv,uv_vars,use_vegetation,veg_year,veg_products,use_lulc,
@@ -22,6 +18,14 @@
 #
 # Comma-separated fields: biovars, soil_vars, soil_depths, uv_vars, veg_products,
 #   drought_periods
+
+stop(
+  paste0(
+    "TARGETS_DURABLE_EXECUTION_UNAVAILABLE: New Targets and Targets-backed batch ",
+    "computations are unavailable until durable execution ownership exists."
+  ),
+  call. = FALSE
+)
 
 suppressPackageStartupMessages({
   library(optparse)
