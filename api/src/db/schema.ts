@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex, primaryKey, check, AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex, primaryKey, foreignKey, check, AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { relations } from "drizzle-orm";
 
@@ -504,6 +504,11 @@ export const idempotencyRequests = pgTable("idempotency_requests", {
 }, (t) => [
   primaryKey({ columns: [t.principal, t.key], name: "idempotency_requests_pk" }),
   index("idempotency_requests_expires_idx").on(t.expiresAt),
+  foreignKey({
+    name: "idempotency_requests_run_id_fk",
+    columns: [t.runId],
+    foreignColumns: [runs.id],
+  }).onDelete("restrict"),
 ]);
 
 /** Stable Plumber deployment identity (SDM_PLUMBER_INSTANCE). */
