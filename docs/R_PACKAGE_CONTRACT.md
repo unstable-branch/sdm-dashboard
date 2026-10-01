@@ -1,6 +1,6 @@
 # R package contract
 
-The repository-level R 4.5.0 `renv.lock` is the reproducible base for its locked local R profile. `scripts/check_renv_imports.py` checks that every non-base package declared in `Depends`, `Imports`, or `LinkingTo` has a lock record. Its self-test covers inline, continued, and empty DCF fields; it does not claim that every source reference belongs in this profile or that `renv::status()` is synchronized.
+The repository-level R 4.5.0 `renv.lock` is the reproducible base for its declared local R profile. `scripts/check_renv_imports.py` independently requires every non-base package declared in root `Depends`, `Imports`, or `LinkingTo` to have a lock record; its self-test covers inline, continued, and empty DCF fields. `renv::status()` is also an acceptance gate: after an exact restore, `status$synchronized` must be `TRUE` for this base profile. The versioned `renv/settings.json` narrows renv's source scan to the declared profile by explicitly ignoring optional/development package references; this does not weaken the hard-dependency checker. The lock also records hard transitive dependencies of locked packages, including `sodium` imported by `plumber`.
 
 The Plumber images have a separate build contract: their Dockerfiles install `plumber/install-runtime-packages.R` from a dated Posit Package Manager repository (the CPU/CUDA images use R 4.4.2; ROCm uses R 4.6.1). Those image-specific package sets are not restored from this R 4.5.0 lock. Packages preinstalled by an image are not evidence that their source paths were tested by the repository-level restore, and this lock does not pin or validate those image builds.
 
@@ -27,4 +27,26 @@ The following packages remain outside the repository-level lock's base profile. 
 | Provider, format, or Python/GEE integrations | `arrow`, `finch`, `galah`, `httr`, `rgbif`, `rgee` | Python model registration is conditional on `arrow`; `read_dwca()` guards `finch`; GBIF operations guard `rgbif`; ALA access uses `galah` when present and `httr` for its HTTP path; GEE helpers require both `rgee` and initialized credentials. These are not required for API startup or the core GLM path. |
 | Optional cleaning, Redis, explainability, test tooling | `CoordinateCleaner`, `fastshap`, `mockery`, `redux` | Coordinate cleaning defaults off and warns when the optional package is absent; SHAP helpers return an unavailable result without `fastshap`; Redis degrades to a no-op without `redux`; `mockery` is test/development-only. |
 
-This is an explicit base-versus-optional boundary, not a claim that every listed feature has its own completed profile. Until such profiles are separately locked and verified, do not run their source paths as though the primary lock covered them. `renv::status()` is still expected to report source-scanned dependencies outside the primary profile; this contract does not suppress or waive that result.
+This is an explicit base-versus-optional boundary, not a claim that every listed feature has its own completed profile. The 28 names in `renv/settings.json` are these 25 optional/development source references plus `optparse`, `tarchetypes`, and `geotargets` from the disabled batch path. `ignored.packages` keeps those feature-specific references out of the base profile's renv source scan; it neither installs nor locks them, and it does not alter `scripts/check_renv_imports.py`. `sodium` is deliberately not ignored: locked `plumber` imports it, so the lock records the restored version 1.4.0. Until separate feature profiles are locked and verified, do not run the optional source paths as though the primary lock covered them.
+
+## CPU LibTorch boundary
+
+The lock pins the R `torch` wrapper at 0.17.0, not its separately downloaded LibTorch/Lantern runtime. CPU LibTorch is needed to execute the `cito` DNN path on a CPU and the real CPU tensor/fused-Adam checks; `R/core/gpu_helpers.R` and `R/models/model_dnn.R` distinguish a present R wrapper from an installed LibTorch runtime. The `r-quality` workflow explicitly sets `CUDA=cpu`, runs `torch::install_torch()`, verifies a CPU tensor sum, and then runs `tests/testthat.R`. The CPU Plumber image has its own R 4.4.2 runtime build: `plumber/Dockerfile` and `plumber/install-cpu-dnn-packages.R` install the checksum-pinned CPU archive and compile the pinned wrapper. `Dockerfile.cuda` builds a separate CUDA 12.8 runtime, while `Dockerfile.rocm` uses Python PyTorch and deliberately omits R torch/cito. These image-specific runtimes are not part of the repository's R 4.5.0 lock.
+
+## Acceptance procedure
+
+In the pinned R 4.5.0 image, restore the exact lock into a fresh project library with a writable HOME/renv cache:
+
+```sh
+Rscript -e 'renv::restore(prompt = FALSE)'
+Rscript -e 'status <- renv::status(); stopifnot(isTRUE(status$synchronized))'
+```
+
+The `status()` assertion is a required, separate-process gate. Keep CPU LibTorch outside `renv.lock`; where the CPU DNN and CPU tensor tests are in scope, install it into a writable scratch path and verify it in another process:
+
+```sh
+CUDA=cpu TORCH_HOME=/path/to/writable/scratch Rscript -e 'options(timeout = 1800); torch::install_torch()'
+CUDA=cpu TORCH_HOME=/path/to/writable/scratch Rscript -e 'stopifnot(torch::torch_is_installed()); probe <- torch::torch_tensor(c(1, 2, 3), device = "cpu")$sum()$item(); stopifnot(identical(as.numeric(probe), 6))'
+```
+
+Run `Rscript tests/testthat.R` only after both gates pass. A synchronized dependency status is not a substitute for test results or optional-feature profile verification; dated command results and blockers belong in `docs/STATUS.md`.
