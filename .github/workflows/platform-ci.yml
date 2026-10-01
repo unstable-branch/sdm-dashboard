@@ -153,6 +153,46 @@ jobs:
           path: api/dist
           retention-days: 5
 
+  execution-migration:
+    name: PostgreSQL execution migration contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgis/postgis@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
+        env:
+          POSTGRES_USER: sdm
+          POSTGRES_PASSWORD: sdm_ci_only
+          POSTGRES_DB: sdm_migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sdm -d sdm_migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.30.3
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run required execution migration test against disposable PostgreSQL
+        env:
+          SDM_MIGRATION_TEST_DATABASE_URL: postgresql://sdm:sdm_ci_only@127.0.0.1:5432/sdm_migration_test
+          SDM_MIGRATION_TEST_REQUIRED: "1"
+        run: pnpm --filter api exec vitest run src/db/execution-migration.test.ts --reporter=verbose
+
   docker:
     name: Docker build + integration
     runs-on: ubuntu-latest
