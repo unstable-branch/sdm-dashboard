@@ -19,6 +19,11 @@ import { Pool } from "pg";
 import { idempotencyRequests } from "./schema.js";
 
 const DATABASE_URL = process.env.SDM_MIGRATION_TEST_DATABASE_URL;
+const MIGRATION_TEST_REQUIRED = process.env.SDM_MIGRATION_TEST_REQUIRED === "1";
+
+if (MIGRATION_TEST_REQUIRED && !DATABASE_URL) {
+  throw new Error("SDM_MIGRATION_TEST_REQUIRED=1 requires SDM_MIGRATION_TEST_DATABASE_URL");
+}
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
@@ -70,7 +75,7 @@ interface AttemptOverrides {
   finalized?: Date | null;
 }
 
-describe.skipIf(!DATABASE_URL)("durable execution schema (migration 0043)", () => {
+describe.skipIf(!DATABASE_URL && !MIGRATION_TEST_REQUIRED)("durable execution schema (migration 0043)", () => {
   let pool: Pool;
 
   beforeAll(async () => {

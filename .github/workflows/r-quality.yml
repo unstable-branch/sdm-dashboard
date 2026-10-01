@@ -14,6 +14,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  r45-lockfile:
+    name: R 4.5.0 locked full suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    container:
+      image: docker.io/rocker/geospatial@sha256:e501f5e7e6128dd65ccf753c35f6a7aca85c9e62c3c2e0ab258fe3e28e562a80
+      options: --user 0:0
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Cache renv package cache
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.2.4
+        with:
+          path: /root/.cache/R/renv
+          key: ${{ runner.os }}-r-4.5.0-renv-${{ hashFiles('renv.lock') }}
+
+      - name: Cache CPU LibTorch runtime
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.2.4
+        with:
+          path: /root/.cache/torch
+          key: ${{ runner.os }}-r-4.5.0-torch-cpu-${{ hashFiles('renv.lock') }}
+
+      - name: Test environment verifier rejection fixtures
+        run: Rscript scripts/verify_r_environment.R --self-test
+
+      - name: Restore and verify exact renv lock
+        env:
+          RENV_PATHS_CACHE: /root/.cache/R/renv
+        run: |
+          Rscript -e 'stopifnot(as.character(getRversion()) == "4.5.0")'
+          Rscript -e 'renv::restore(prompt = FALSE, clean = TRUE)'
+          Rscript scripts/verify_r_environment.R --lock
+          git diff --exit-code -- renv.lock
+
+      - name: Install CPU LibTorch and repeat environment checks
+        env:
+          CUDA: cpu
+          TORCH_HOME: /root/.cache/torch
+          RENV_PATHS_CACHE: /root/.cache/R/renv
+        run: |
+          Rscript -e 'options(timeout = 1800); torch::install_torch()'
+          Rscript scripts/verify_r_environment.R --torch
+
+      - name: Run complete R test suite
+        env:
+          CUDA: cpu
+          TORCH_HOME: /root/.cache/torch
+        run: Rscript tests/testthat.R
+
   quality-checks:
     name: R source, test and release validation
     runs-on: ubuntu-latest
