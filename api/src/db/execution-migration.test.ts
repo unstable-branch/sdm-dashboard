@@ -11,9 +11,12 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it } from "vitest";
+import { getTableName } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
+import { idempotencyRequests } from "./schema.js";
 
 const DATABASE_URL = process.env.SDM_MIGRATION_TEST_DATABASE_URL;
 
@@ -34,6 +37,18 @@ interface FkInfo {
   def: string;
   is_deferrable: string;
   initially_deferred: string;
+}
+
+interface FkCatalogRow {
+  constraint_name: string;
+  constraint_type: string;
+  source_column: string;
+  referenced_table: string;
+  referenced_column: string;
+  deferrable: boolean;
+  initially_deferred: boolean;
+  delete_action: string;
+  validated: boolean;
 }
 
 interface ExecOverrides {
@@ -367,6 +382,65 @@ describe.skipIf(!DATABASE_URL)("durable execution schema (migration 0043)", () =
       "INSERT INTO idempotency_requests (principal, key, project_id, request_hash, run_id, expires_at) VALUES ($1,'key-1',$2,'hash-1',$3, now()+interval '48 hours')",
       [otherUser, PROJECT_ID, await createRun()],
     );
+  });
+
+  it("matches the idempotency run FK between SQL and Drizzle without losing SQL deferral", async () => {
+    const catalogResult = await pool.query<FkCatalogRow>(
+      `SELECT con.conname AS constraint_name,
+              con.contype AS constraint_type,
+              source_column.attname AS source_column,
+              target_table.relname AS referenced_table,
+              target_column.attname AS referenced_column,
+              con.condeferrable AS deferrable,
+              con.condeferred AS initially_deferred,
+              con.confdeltype AS delete_action,
+              con.convalidated AS validated
+       FROM pg_constraint AS con
+       JOIN pg_class AS source_table ON source_table.oid = con.conrelid
+       JOIN pg_namespace AS source_schema ON source_schema.oid = source_table.relnamespace
+       JOIN pg_class AS target_table ON target_table.oid = con.confrelid
+       JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS source_key(attnum, ord) ON TRUE
+       JOIN pg_attribute AS source_column
+         ON source_column.attrelid = source_table.oid AND source_column.attnum = source_key.attnum
+       JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS target_key(attnum, ord)
+         ON target_key.ord = source_key.ord
+       JOIN pg_attribute AS target_column
+         ON target_column.attrelid = target_table.oid AND target_column.attnum = target_key.attnum
+       WHERE source_schema.nspname = 'public'
+         AND source_table.relname = 'idempotency_requests'
+         AND con.contype = 'f'
+       ORDER BY con.conname, source_key.ord`,
+    );
+    // This exact catalog read makes a dropped or duplicate SQL FK fail, and pins
+    // the deferred/restrict semantics that drizzle-orm 0.36.4 cannot serialize.
+    expect(catalogResult.rows).toHaveLength(1);
+    const [catalogFk] = catalogResult.rows;
+    expect(catalogFk).toMatchObject({
+      constraint_name: "idempotency_requests_run_id_fk",
+      constraint_type: "f",
+      source_column: "run_id",
+      referenced_table: "runs",
+      referenced_column: "id",
+      deferrable: true,
+      initially_deferred: true,
+      delete_action: "r",
+      validated: true,
+    });
+
+    const drizzleForeignKeys = getTableConfig(idempotencyRequests).foreignKeys;
+    expect(drizzleForeignKeys).toHaveLength(1);
+    const drizzleFk = drizzleForeignKeys[0];
+    expect(drizzleFk).toBeDefined();
+    if (!drizzleFk) throw new Error("Drizzle omitted idempotency_requests.run_id FK");
+    expect(drizzleFk.getName()).toBe("idempotency_requests_run_id_fk");
+    const reference = drizzleFk.reference();
+    expect(reference.columns.map((column) => column.name)).toEqual(["run_id"]);
+    expect(getTableName(reference.foreignTable)).toBe("runs");
+    expect(reference.foreignColumns.map((column) => column.name)).toEqual(["id"]);
+    expect(drizzleFk.onDelete).toBe("restrict");
+    // Deferrability remains an explicit SQL-only contract in this pinned ORM.
+    expect(reference).not.toHaveProperty("deferrable");
+    expect(reference).not.toHaveProperty("initiallyDeferred");
   });
 
   it("resolves the idempotency run_id FK at commit only (§2.2.2 winner path)", async () => {

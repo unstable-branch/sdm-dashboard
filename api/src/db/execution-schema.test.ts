@@ -2,10 +2,11 @@
  * Durable execution ownership — S1 schema.ts contract (docs/DESIGN_DURABLE_EXECUTION_OWNERSHIP.md §2.2).
  *
  * Unit test: pins the drizzle table definitions that slices S3+ will import,
- * mirroring migration 0041 (the SQL-level truth is asserted by
+ * mirroring migration 0043 (the SQL-level truth is asserted by
  * execution-migration.test.ts against a real PostgreSQL).
  */
 import { describe, expect, it } from "vitest";
+import { getTableName } from "drizzle-orm";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import {
   executions,
@@ -141,6 +142,15 @@ describe("durable execution drizzle schema", () => {
     expect(byName.expires_at.notNull).toBe(true);
     // PK (principal, key) is the one-key/one-execution gate.
     expect(cfg.primaryKeys.map((pk) => pk.columns.map((c) => c.name).join(","))).toContain("principal,key");
+    expect(cfg.foreignKeys).toHaveLength(1);
+    const runIdFk = cfg.foreignKeys[0];
+    expect(runIdFk?.getName()).toBe("idempotency_requests_run_id_fk");
+    if (!runIdFk) throw new Error("Drizzle omitted idempotency_requests.run_id FK");
+    const reference = runIdFk.reference();
+    expect(reference.columns.map((column) => column.name)).toEqual(["run_id"]);
+    expect(getTableName(reference.foreignTable)).toBe("runs");
+    expect(reference.foreignColumns.map((column) => column.name)).toEqual(["id"]);
+    expect(runIdFk.onDelete).toBe("restrict");
   });
 
   it("types the instance boot registry with pid_chain_verified defaulting false", () => {
