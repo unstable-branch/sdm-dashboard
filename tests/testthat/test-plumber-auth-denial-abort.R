@@ -191,7 +191,7 @@ test_that("real handle_model_run denial aborts serve() with 403 and no handler b
   # The denial throws before body parsing/downstream dispatch: no execution
   # nonce may have been recorded (zero side effects on denial).
   nonces <- if (dir.exists(nonce_dir)) list.dirs(nonce_dir, recursive = FALSE) else character(0)
-  testthat::expect_length(nonces, 0L,
+  testthat::expect_identical(length(nonces), 0L,
     info = "denied request must record no execution nonce (no side effects)")
 })
 
