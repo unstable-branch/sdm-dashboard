@@ -19,13 +19,47 @@
 # Comma-separated fields: biovars, soil_vars, soil_depths, uv_vars, veg_products,
 #   drought_periods
 
-stop(
-  paste0(
-    "TARGETS_DURABLE_EXECUTION_UNAVAILABLE: New Targets and Targets-backed batch ",
-    "computations are unavailable until durable execution ownership exists."
-  ),
-  call. = FALSE
-)
+cli_args <- commandArgs(trailingOnly = TRUE)
+
+if (any(cli_args %in% c("-h", "--help"))) {
+  cat(paste0(
+    "Usage: batch_run.R --config <batch_config.csv> [--output results/] ",
+    "[--cores 4] [--seed 42] [--no-targets] [--cluster local]\n\n",
+    "Options:\n",
+    "  -c, --config FILE    CSV file with per-species batch config [required]\n",
+    "  -o, --output DIR     Output directory [default: batch_results/]\n",
+    "  -n, --cores N        Number of parallel workers [default: detectCores() - 1]\n",
+    "  -s, --seed N         Random seed [default: 42]\n",
+    "      --no-targets     Use the legacy future_lapply batch runner\n",
+    "      --cluster NAME   Cluster backend: local, slurm, sge, pbs, aws\n\n",
+    "Targets-backed execution is unavailable (TARGETS_DURABLE_EXECUTION_UNAVAILABLE).\n",
+    "Only the exact --no-targets flag selects the legacy route. That route requires ",
+    "the optional optparse package.\n"
+  ))
+  quit(status = 0)
+}
+
+if (any(grepl("^--no-targets=", cli_args))) {
+  stop("Invalid option: --no-targets does not accept a value", call. = FALSE)
+}
+
+if (!("--no-targets" %in% cli_args)) {
+  stop(
+    paste0(
+      "TARGETS_DURABLE_EXECUTION_UNAVAILABLE: New Targets and Targets-backed batch ",
+      "computations are unavailable until durable execution ownership exists."
+    ),
+    call. = FALSE
+  )
+}
+
+if (!requireNamespace("optparse", quietly = TRUE)) {
+  stop(
+    "The legacy --no-targets mode requires the optional 'optparse' package; ",
+    "install optparse in the legacy CLI environment.",
+    call. = FALSE
+  )
+}
 
 suppressPackageStartupMessages({
   library(optparse)
@@ -41,7 +75,7 @@ option_list <- list(
   make_option(c("-s", "--seed"), type = "integer", default = 42,
               help = "Random seed for reproducibility [default: %default]"),
   make_option(c("--no-targets"), action = "store_true", default = FALSE,
-              help = "Use future_lapply instead of targets pipeline [default: use targets]"),
+              help = "Use the legacy future_lapply batch runner (Targets execution unavailable)"),
   make_option(c("--cluster"), type = "character", default = "local",
               help = "Cluster backend: local, slurm, sge, pbs, aws [default: %default]")
 )
