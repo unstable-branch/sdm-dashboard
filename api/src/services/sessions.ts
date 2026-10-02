@@ -191,6 +191,19 @@ export async function consumePasswordReset(
 
 export type RotatedRefresh = { accessToken: string; refreshToken: string };
 
+/** Revoke one refresh credential only when it belongs to the authenticated user. */
+export async function revokeBrowserSession(userId: string, tokenHash: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const revoked = await tx.update(refreshTokens).set({ revokedAt: new Date() }).where(and(
+      eq(refreshTokens.userId, userId),
+      eq(refreshTokens.tokenHash, tokenHash),
+      isNull(refreshTokens.revokedAt),
+      gt(refreshTokens.expiresAt, sql.raw("CURRENT_TIMESTAMP")),
+    )).returning({ id: refreshTokens.id });
+    return revoked.length === 1;
+  });
+}
+
 /**
  * Rotate one refresh token under the same per-user lock used by recovery. The
  * conditional consume is the one-consumer gate; successor insertion and access
