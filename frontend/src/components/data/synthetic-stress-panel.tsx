@@ -44,6 +44,7 @@ export function SyntheticStressPanel({ onAddToWorkspace, onSavedExample }: Synth
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [resultError, setResultError] = useState<string | null>(null);
+  const [workspaceAddFailed, setWorkspaceAddFailed] = useState(false);
   const [savingExample, setSavingExample] = useState(false);
   const [savedExampleName, setSavedExampleName] = useState<string | null>(null);
 
@@ -51,6 +52,7 @@ export function SyntheticStressPanel({ onAddToWorkspace, onSavedExample }: Synth
     setLoading(true);
     setResultError(null);
     setResult(null);
+    setWorkspaceAddFailed(false);
     try {
       const body: Record<string, unknown> = { level, seed: 42, error_rate: errorRate / 100 };
       if (level === "custom") {
@@ -60,8 +62,6 @@ export function SyntheticStressPanel({ onAddToWorkspace, onSavedExample }: Synth
       const data = await apiPost<GenerationResult>("/api/v1/data/occurrences/synthetic", body);
       const rawAssetId = data.rawAssetId || data.raw_asset_id;
       if (!rawAssetId) throw new Error("Synthetic producer returned no canonical rawAssetId");
-      setResult(data);
-
       const file: UploadFile = {
         file_id: data.file_id,
         rawAssetId,
@@ -74,7 +74,15 @@ export function SyntheticStressPanel({ onAddToWorkspace, onSavedExample }: Synth
         format: "csv",
       };
       const speciesList = Array.isArray(data.species_names) ? data.species_names.join(", ") : undefined;
-      onAddToWorkspace(file, speciesList);
+      try {
+        onAddToWorkspace(file, speciesList);
+        setWorkspaceAddFailed(false);
+      } catch (err) {
+        setWorkspaceAddFailed(true);
+        const detail = err instanceof Error ? err.message : "Unknown workspace error";
+        setResultError(`Generated, but not added to workspace: ${detail}`);
+      }
+      setResult(data);
       setSavedExampleName(null);
     } catch (err) {
       setResultError(err instanceof Error ? err.message : "Generation failed");
@@ -236,9 +244,9 @@ export function SyntheticStressPanel({ onAddToWorkspace, onSavedExample }: Synth
           }}
           className="rounded-md border border-sdm-success/30 bg-sdm-success/5 p-3 space-y-1.5 cursor-grab active:cursor-grabbing"
         >
-          <div className="flex items-center gap-1.5 text-sm font-medium text-sdm-success">
+          <div className={`flex items-center gap-1.5 text-sm font-medium ${workspaceAddFailed ? "text-sdm-warning" : "text-sdm-success"}`}>
             <CheckCircle2 className="h-4 w-4" />
-            Generated successfully
+            {workspaceAddFailed ? "Generated; workspace add failed" : "Added to workspace"}
           </div>
           <p className="text-xs text-sdm-text">{result.message}</p>
           <div className="flex flex-wrap gap-2 text-xs text-sdm-muted">
