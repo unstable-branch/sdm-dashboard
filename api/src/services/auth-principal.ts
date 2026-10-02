@@ -73,8 +73,22 @@ export async function verifyCurrentJwt(token: string): Promise<Principal | null>
   if (payload.iss !== expectedIssuer || typeof payload.sub !== "string" || !UUID_RE.test(payload.sub)) return null;
   if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp) || payload.exp <= now) return null;
   if (!Number.isSafeInteger(payload.av) || (payload.av as number) < 0) return null;
+  const hasBrowserSession = Object.prototype.hasOwnProperty.call(payload, "browser_session");
+  const hasSessionId = Object.prototype.hasOwnProperty.call(payload, "sid");
+  if (hasBrowserSession || hasSessionId) {
+    if (payload.browser_session !== true || typeof payload.sid !== "string" || !UUID_RE.test(payload.sid) || payload.sid !== payload.sid.toLowerCase()) return null;
+  }
   const principal = await currentUser(payload.sub, "jwt");
-  return principal && principal.authVersion === payload.av ? principal : null;
+  if (!principal || principal.authVersion !== payload.av) return null;
+  if (hasBrowserSession) {
+    try {
+      const { isPersistentBrowserSessionActive } = await import("./browser-session-lifecycle.js");
+      if (!await isPersistentBrowserSessionActive(principal.id, payload.sid as string, principal.authVersion)) return null;
+    } catch {
+      throw new AuthStorageUnavailable();
+    }
+  }
+  return principal;
 }
 
 /** Resolves an API key to a current user. API keys intentionally survive session revocation. */

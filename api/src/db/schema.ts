@@ -391,16 +391,30 @@ export const systemSettingsRelations = relations(systemSettings, ({ one }) => ({
   updatedByUser: one(users, { fields: [systemSettings.updatedBy], references: [users.id] }),
 }));
 
+export const browserSessions = pgTable("browser_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  authVersion: integer("auth_version").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (t) => [
+  index("browser_sessions_user_id_idx").on(t.userId),
+  index("browser_sessions_active_idx").on(t.userId, t.expiresAt).where(sql`revoked_at IS NULL`),
+]);
+
 export const refreshTokens = pgTable("refresh_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   tokenHash: text("token_hash").notNull(),
+  sessionId: uuid("session_id").references(() => browserSessions.id, { onDelete: "cascade" }),
   expiresAt: timestamp("expires_at").notNull(),
   revokedAt: timestamp("revoked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_refresh_tokens_user").on(t.userId),
   index("idx_refresh_tokens_hash").on(t.tokenHash),
+  index("refresh_tokens_session_id_idx").on(t.sessionId),
   uniqueIndex("refresh_tokens_token_hash_unique").on(t.tokenHash),
 ]);
 
