@@ -13,7 +13,7 @@ import { CovariateTab } from "./covariate-tab";
 import { BoundaryTab } from "./boundary-tab";
 import { OverviewTab } from "./overview-tab";
 import type { UploadFile, ClimateScenarioResponse, ClimateCheckResponse } from "@/services/types";
-import type { WorkspaceFile } from "./types";
+import { addWorkspaceFile, type WorkspaceFile } from "./types";
 
 export default function DataPage() {
   return (
@@ -84,24 +84,7 @@ function DataPageContent() {
           .split(",").map((s: string) => s.trim()).filter(Boolean)
       : [];
     setWorkspaceFiles((prev) => {
-      if (prev.some(f => f.rawAssetId === rawAssetId || f.fileId === file.file_id)) return prev;
-      return [...prev, {
-        id: crypto.randomUUID(),
-        rawAssetId,
-        fileId: file.file_id,
-        fileName: file.file_name,
-        filePath: file.file_id,
-        fileFormat: file.format,
-        fileRows: file.n_rows,
-        fileCleaned: file.cleaned,
-        fileCleanedFileId: file.cleaned_file_id,
-        cleanedFileId: file.cleaned_file_id,
-        cleanedAssetId: file.cleanedAssetId || file.cleaned_asset_id,
-        cleanValidRecords: file.cleaned_valid_records,
-        selectedSpecies: allSpecies,
-        cleanLoading: false,
-        cleanError: null,
-      }];
+      return addWorkspaceFile(prev, file, allSpecies);
     });
     if (allSpecies.length > 0) {
       useSDMStore.getState().setSpecies(allSpecies[0]);
