@@ -19,7 +19,7 @@ export interface WorkspaceFile {
   selectedSpecies: string[];
   cleanedFileId?: string;
   cleanedAssetId?: string;
-  cleanValidRecords?: number;
+  cleanValidRecords?: number | null;
   cleanOriginalRows?: number;
   cleanSourceCounts?: Record<string, number>;
   cleanCcLog?: string[];

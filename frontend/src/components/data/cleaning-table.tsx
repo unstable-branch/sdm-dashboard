@@ -5,13 +5,14 @@ import {
   getCoreRowModel,
   flexRender,
 } from "@tanstack/react-table";
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 
 interface CleaningTableProps {
   data: Array<Record<string, unknown>>;
-  onFlagToggle?: (index: number, flagged: boolean) => void;
+  flaggedRows: ReadonlySet<number>;
+  onFlagToggle: (index: number, flagged: boolean) => void;
   title?: string;
 }
 
@@ -43,21 +44,11 @@ function cellStyle(colId: string): React.CSSProperties {
   return { position: "sticky", left, zIndex: 5 };
 }
 
-function useToggleFlag(flaggedRows: Set<number>, setFlaggedRows: (s: Set<number>) => void, onFlagToggle?: (index: number, flagged: boolean) => void) {
-  return useCallback((idx: number) => {
-    const isFlagged = flaggedRows.has(idx);
-    const next = new Set(flaggedRows);
-    if (isFlagged) next.delete(idx);
-    else next.add(idx);
-    setFlaggedRows(next);
-    onFlagToggle?.(idx, !isFlagged);
-  }, [flaggedRows, setFlaggedRows, onFlagToggle]);
-}
-
-export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps) {
-  const [flaggedRows, setFlaggedRows] = useState<Set<number>>(new Set());
+export function CleaningTable({ data, flaggedRows, onFlagToggle, title }: CleaningTableProps) {
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
-  const toggleFlag = useToggleFlag(flaggedRows, setFlaggedRows, onFlagToggle);
+  const toggleFlag = useCallback((index: number) => {
+    onFlagToggle(index, !flaggedRows.has(index));
+  }, [flaggedRows, onFlagToggle]);
 
   const hasCcFlags = useMemo(() => {
     if (data.length === 0) return false;
@@ -68,14 +59,6 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
     if (data.length === 0) return [];
     return Object.keys(data[0]).filter(k => !CORE_KEYS.has(k) && !k.startsWith("cc_test_"));
   }, [data]);
-
-  if (data.length === 0) {
-    return (
-      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
-        No records to display
-      </div>
-    );
-  }
 
   const columns = useMemo(() => [
     {
@@ -93,6 +76,7 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
               : "border-sdm-border hover:border-sdm-accent"
           )}
           aria-label={flaggedRows.has(info.row.index) ? "Unflag record" : "Flag record"}
+          aria-pressed={flaggedRows.has(info.row.index)}
         />
       ),
     },
@@ -218,6 +202,14 @@ export function CleaningTable({ data, onFlagToggle, title }: CleaningTableProps)
   const totalSize = rowVirtualizer.getTotalSize();
   const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
   const paddingBottom = virtualRows.length > 0 ? totalSize - virtualRows[virtualRows.length - 1].end : 0;
+
+  if (data.length === 0) {
+    return (
+      <div className="rounded-lg border border-sdm-border bg-sdm-surface p-8 text-center text-sdm-muted">
+        No records to display
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">

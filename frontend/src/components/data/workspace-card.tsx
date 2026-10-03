@@ -46,10 +46,10 @@ export function WorkspaceCard({
         metadata: {
           n_species: item.selectedSpecies.length,
           n_records: item.fileRows,
-          valid_records: item.cleanValidRecords || item.fileRows,
+          valid_records: item.cleanValidRecords ?? null,
           original_rows: item.fileRows,
           species_names: item.selectedSpecies,
-          description: `Cleaned data: ${item.selectedSpecies.length} species, ${item.cleanValidRecords?.toLocaleString() || item.fileRows.toLocaleString()} valid records`,
+          description: `Cleaned data: ${item.selectedSpecies.length} species, ${item.cleanValidRecords == null ? "valid-record count unavailable" : `${item.cleanValidRecords.toLocaleString()} valid records`}`,
         },
       });
       setSavedExampleName(res.name);
@@ -120,7 +120,7 @@ export function WorkspaceCard({
                 </span>
               ) : isCleaned ? (
                 <span className="flex items-center gap-1 text-xs text-sdm-success">
-                  <BadgeCheck className="h-3 w-3" /> Cleaned — {item.cleanValidRecords?.toLocaleString()} valid records
+                  <BadgeCheck className="h-3 w-3" /> Cleaned — {item.cleanValidRecords == null ? "Count unavailable" : item.cleanValidRecords.toLocaleString()} valid records
                 </span>
               ) : item.cleanError ? (
                 <span className="flex items-center gap-1 text-xs text-sdm-danger">
