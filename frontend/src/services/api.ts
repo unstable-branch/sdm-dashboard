@@ -11,17 +11,13 @@ export class ApiUnavailableError extends Error {
 export class SessionChangedError extends Error {
   constructor() { super("The session changed while this request was in flight."); this.name = "SessionChangedError"; }
 }
-function assertCurrentGeneration(generation: number): void {
+export function assertSessionGenerationCurrent(generation: number): void {
   if (generation !== currentSessionGeneration()) throw new SessionChangedError();
 }
+const assertCurrentGeneration = assertSessionGenerationCurrent;
 const responseGenerations = new WeakMap<Response, number>();
-async function readJson<T>(response: Response, schema?: z.ZodType<unknown>): Promise<T> {
-  const generation = responseGenerations.get(response) ?? currentSessionGeneration();
-  const data = await response.json();
-  assertCurrentGeneration(generation);
-  return validateResponse<T>(data, schema);
-}
 interface FetchOptions extends RequestInit { retry?: number; timeout?: number; schema?: z.ZodType<unknown>; }
+export type ApiBodyOptions = Pick<RequestInit, "signal"> & { timeout?: number };
 function validateResponse<T>(data: unknown, schema?: z.ZodType<unknown>): T {
   if (schema) {
     const result = schema.safeParse(data);
@@ -123,15 +119,83 @@ export async function fetchWithAuth(url: string, options: FetchOptions = {}): Pr
     return response;
   } finally { if (timer) clearTimeout(timer); }
 }
-export async function apiGet<T>(url: string, options?: FetchOptions): Promise<T> { return readJson<T>(await fetchWithAuth(url, { method: "GET", ...options }), options?.schema); }
-export async function apiPost<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> { const res = await fetchWithAuth(url, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body), ...options }); return readJson<T>(res, options?.schema); }
-export async function apiDelete<T>(url: string, options?: FetchOptions): Promise<T> { return readJson<T>(await fetchWithAuth(url, { method: "DELETE", ...options }), options?.schema); }
-export async function apiPut<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> { const res = await fetchWithAuth(url, { method: "PUT", body: body === undefined ? undefined : JSON.stringify(body), ...options }); return readJson<T>(res, options?.schema); }
-export async function apiPatch<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> { const res = await fetchWithAuth(url, { method: "PATCH", body: body === undefined ? undefined : JSON.stringify(body), ...options }); return readJson<T>(res, options?.schema); }
+async function readAuthenticatedBody<T>(url: string, reader: (response: Response) => Promise<T>, options: FetchOptions = {}): Promise<{ response: Response; data: T }> {
+  const { signal: callerSignal, timeout = 15000, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(callerSignal?.reason ?? new DOMException("The request was aborted", "AbortError"));
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new DOMException("The request timed out", "TimeoutError"));
+  }, timeout);
+  let rejectAbort!: (reason: unknown) => void;
+  const aborted = new Promise<never>((_, reject) => { rejectAbort = reject; });
+  const onAbort = () => rejectAbort(controller.signal.reason ?? new DOMException("The request was aborted", "AbortError"));
+  controller.signal.addEventListener("abort", onAbort, { once: true });
+  if (controller.signal.aborted) onAbort();
+  try {
+    const operation = (async () => {
+      const response = await fetchWithAuth(url, { ...fetchOptions, signal: controller.signal });
+      const generation = responseGenerations.get(response) ?? currentSessionGeneration();
+      const data = await reader(response);
+      assertCurrentGeneration(generation);
+      return { response, data };
+    })();
+    try { return await Promise.race([operation, aborted]); }
+    catch (error) {
+      if (timedOut) throw new DOMException("The request timed out", "TimeoutError");
+      throw error;
+    }
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
+    controller.signal.removeEventListener("abort", onAbort);
+  }
+}
+export async function apiGet<T>(url: string, options?: FetchOptions): Promise<T> {
+  const { schema, ...requestOptions } = options ?? {};
+  const { data } = await readAuthenticatedBody(url, (response) => response.json(), requestOptions);
+  return validateResponse<T>(data, schema);
+}
+export async function apiGetText(url: string, options?: ApiBodyOptions): Promise<string> {
+  const { data } = await readAuthenticatedBody(url, (response) => response.text(), options);
+  return data;
+}
+export async function apiGetBlob(url: string, options?: ApiBodyOptions): Promise<Blob> {
+  const { data } = await readAuthenticatedBody(url, (response) => response.blob(), options);
+  return data;
+}
+export async function apiGetArrayBuffer(url: string, options?: ApiBodyOptions): Promise<ArrayBuffer> {
+  const { data } = await readAuthenticatedBody(url, (response) => response.arrayBuffer(), options);
+  return data;
+}
+export async function apiPost<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
+  const { schema, ...requestOptions } = options ?? {};
+  const { data } = await readAuthenticatedBody(url, (response) => response.json(), { method: "POST", body: body === undefined ? undefined : JSON.stringify(body), ...requestOptions });
+  return validateResponse<T>(data, schema);
+}
+export async function apiDelete<T>(url: string, options?: FetchOptions): Promise<T> {
+  const { schema, ...requestOptions } = options ?? {};
+  const { data } = await readAuthenticatedBody(url, (response) => response.json(), { method: "DELETE", ...requestOptions });
+  return validateResponse<T>(data, schema);
+}
+export async function apiPut<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
+  const { schema, ...requestOptions } = options ?? {};
+  const { data } = await readAuthenticatedBody(url, (response) => response.json(), { method: "PUT", body: body === undefined ? undefined : JSON.stringify(body), ...requestOptions });
+  return validateResponse<T>(data, schema);
+}
+export async function apiPatch<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
+  const { schema, ...requestOptions } = options ?? {};
+  const { data } = await readAuthenticatedBody(url, (response) => response.json(), { method: "PATCH", body: body === undefined ? undefined : JSON.stringify(body), ...requestOptions });
+  return validateResponse<T>(data, schema);
+}
 export async function apiUpload<T>(url: string, file: File, extraFields?: Record<string, string>, timeout?: number): Promise<T> {
   const formData = new FormData(); formData.append("file", file);
   if (extraFields) Object.entries(extraFields).forEach(([key, value]) => formData.append(key, value));
-  return readJson<T>(await fetchWithAuth(url, { method: "POST", body: formData, timeout }));
+  const { data } = await readAuthenticatedBody(url, (response) => response.json(), { method: "POST", body: formData, timeout });
+  return data as T;
 }
 /** @deprecated Browser sessions never expose access credentials to JavaScript. */
 export function setAuthToken(_token: string, _remember = true): void { clearAuthToken(); }
@@ -173,9 +237,7 @@ export async function logoutBrowserSession(): Promise<void> {
   });
 }
 export async function apiDownload(url: string, filename?: string): Promise<void> {
-  const res = await fetchWithAuth(url, { method: "GET" }); const generation = responseGenerations.get(res) ?? currentSessionGeneration();
-  const blob = await res.blob();
-  assertCurrentGeneration(generation);
+  const { response: res, data: blob } = await readAuthenticatedBody(url, (response) => response.blob(), { method: "GET" });
   const disp = res.headers.get("Content-Disposition");
   const name = filename || (disp ? disp.split("filename=")[1]?.replace(/"/g, "") : undefined) || url.split("/").pop() || "download";
   const blobUrl = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = blobUrl; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
