@@ -4,12 +4,29 @@ import { useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRouter } from "next/navigation";
 import { Settings, LogOut, Key, User } from "lucide-react";
-import { clearAuthToken } from "@/services/api";
+import { logoutBrowserSession } from "@/services/api";
 
 export function UserMenu() {
   const router = useRouter();
-  const { user, clearAuth, projects, project, setProject } = useAuthStore();
+  const { user, clearAuth, projects, project, setProject, setStatus } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    setLogoutError(null);
+    setLoggingOut(true);
+    setStatus("signing-out");
+    try {
+      await logoutBrowserSession();
+      clearAuth();
+      router.push("/login");
+      setIsOpen(false);
+    } catch (error) {
+      setStatus("authenticated");
+      setLogoutError(error instanceof Error ? `Sign out failed: ${error.message}` : "Sign out failed. Please retry.");
+    } finally { setLoggingOut(false); }
+  };
 
   if (!user) {
     return (
@@ -60,6 +77,7 @@ export function UserMenu() {
             </div>
           )}
 
+          {logoutError && <p className="px-3 pb-2 text-xs text-red-400" role="alert">{logoutError}</p>}
           <div className="p-2">
             <button
               onClick={() => { router.push("/profile"); setIsOpen(false); }}
@@ -86,8 +104,9 @@ export function UserMenu() {
               API Keys
             </button>
             <button
-              onClick={() => { clearAuthToken(); clearAuth(); router.push("/login"); setIsOpen(false); }}
-              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+              onClick={() => { void handleLogout(); }}
+              disabled={loggingOut}
+              className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
               role="menuitem"
             >
               <LogOut className="h-3.5 w-3.5" />
