@@ -19,10 +19,12 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = request.cookies.get("sdm_token")?.value;
-  if (!token) {
+  // Navigation-only hint: the client guard verifies the persisted principal with /me.
+  const hasSessionCookie = ["sdm_token", "__Host-sdm_token", "sdm_refresh_token", "__Host-sdm_refresh_token"]
+    .some((name) => Boolean(request.cookies.get(name)?.value));
+  if (!hasSessionCookie) {
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("redirect", pathname);
+    loginUrl.searchParams.set("redirect", `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(loginUrl);
   }
 
