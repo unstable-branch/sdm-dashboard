@@ -1,240 +1,186 @@
 import type { z } from "zod";
+import { announceLogoutPending, currentSessionGeneration, currentSessionRevision, isLogoutPending, publishLogoutFinished, publishLogoutStarted, publishSessionChanged, publishSessionRefreshed, withSessionMutation } from "./session-coordinator";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-
-let _redirecting = false;
-
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public data?: unknown,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
+  constructor(public status: number, message: string, public data?: unknown) { super(message); this.name = "ApiError"; }
 }
-
-interface FetchOptions extends RequestInit {
-  retry?: number;
-  timeout?: number;
-  schema?: z.ZodType<unknown>;
+export class ApiUnavailableError extends Error {
+  constructor(message = "The service is temporarily unavailable. Please retry.") { super(message); this.name = "ApiUnavailableError"; }
 }
-
+export class SessionChangedError extends Error {
+  constructor() { super("The session changed while this request was in flight."); this.name = "SessionChangedError"; }
+}
+function assertCurrentGeneration(generation: number): void {
+  if (generation !== currentSessionGeneration()) throw new SessionChangedError();
+}
+const responseGenerations = new WeakMap<Response, number>();
+async function readJson<T>(response: Response, schema?: z.ZodType<unknown>): Promise<T> {
+  const generation = responseGenerations.get(response) ?? currentSessionGeneration();
+  const data = await response.json();
+  assertCurrentGeneration(generation);
+  return validateResponse<T>(data, schema);
+}
+interface FetchOptions extends RequestInit { retry?: number; timeout?: number; schema?: z.ZodType<unknown>; }
 function validateResponse<T>(data: unknown, schema?: z.ZodType<unknown>): T {
   if (schema) {
     const result = schema.safeParse(data);
     if (!result.success) {
-      const msg = `[api] Response validation failed: ${result.error.format()}`;
-      if (process.env.NODE_ENV === "development") {
-        console.warn(msg);
-      }
+      if (process.env.NODE_ENV === "development") console.warn(`[api] Response validation failed: ${result.error.format()}`);
       throw new ApiError(500, `Response validation failed: ${result.error.message}`);
     }
   }
   return data as T;
 }
-
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  const localToken = localStorage.getItem("sdm_token");
-  if (localToken) return localToken;
-
-  const sessionToken = sessionStorage.getItem("sdm_token");
-  if (sessionToken) return sessionToken;
-
-  return null;
+function requestUrl(url: string): string {
+  if (typeof window === "undefined") return `${API_BASE}${url}`;
+  const resolved = new URL(url, window.location.origin);
+  if (resolved.origin !== window.location.origin) throw new ApiError(0, "Cross-origin API requests are not supported by browser sessions");
+  return `${resolved.pathname}${resolved.search}${resolved.hash}`;
 }
-
-function clearToken() {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("sdm_token");
-    sessionStorage.removeItem("sdm_token");
-  }
+function requestHeaders(headers?: HeadersInit, body?: BodyInit | null): Headers {
+  const result = new Headers(headers);
+  result.set("X-Requested-With", "XMLHttpRequest");
+  if (!(typeof FormData !== "undefined" && body instanceof FormData) && !result.has("Content-Type")) result.set("Content-Type", "application/json");
+  return result;
 }
-
-export async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {
-  const { retry = 1, timeout = 15000, headers, ...rest } = options;
-
-  const token = getToken();
-  const isFormData = rest.body instanceof FormData;
-  const defaultHeaders: Record<string, string> = {};
-  defaultHeaders["X-Requested-With"] = "XMLHttpRequest";
-  if (!isFormData) {
-    defaultHeaders["Content-Type"] = "application/json";
-  }
-  if (token) {
-    defaultHeaders.Authorization = `Bearer ${token}`;
-  }
-
-  const fetchOptions: RequestInit = {
-    ...rest,
-    headers: { ...defaultHeaders, ...headers },
-  };
-  if (!fetchOptions.signal) {
-    fetchOptions.signal = AbortSignal.timeout(timeout);
-  }
-
-  let lastError: Error | null = null;
-  for (let attempt = 0; attempt <= retry; attempt++) {
-    if (attempt > 0) {
-      await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 10000)));
-    }
+async function withRequestDeadline<T>(timeout: number, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try { return await operation(controller.signal); }
+  finally { clearTimeout(timer); }
+}
+async function responseError(response: Response): Promise<ApiError> {
+  let data: Record<string, unknown> | null = null;
+  try { data = await response.json(); } catch { /* response may have no JSON body */ }
+  return new ApiError(response.status, typeof data?.error === "string" ? data.error : `Request failed with status ${response.status}`, data);
+}
+const AUTH_ENDPOINT = /\/api\/v1\/auth\/(?:login|register|refresh|logout)(?:\?|$)/;
+let refreshFlight: Promise<boolean> | null = null;
+function refreshSession(): Promise<boolean> {
+  if (refreshFlight) return refreshFlight;
+  if (isLogoutPending()) return Promise.resolve(false);
+  const startingRevision = currentSessionRevision();
+  const flight = withSessionMutation(async (lockedRevision) => {
+    if (isLogoutPending()) return false;
+    if (lockedRevision > startingRevision) return true;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
     try {
-      const res = await fetch(`${API_BASE}${url}`, fetchOptions);
-
-      if (res.status === 401) {
-        clearToken();
-        if (typeof window !== "undefined" && !_redirecting) {
-          _redirecting = true;
-          const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-          window.location.href = "/login?redirect=" + redirect;
-          // Short window (5 s) instead of 30 s. The original 30 s window
-          // suppressed 401 redirects across all other tabs for half a minute
-          // after the first one fired. 5 s is enough for the active tab to
-          // navigate away while allowing other tabs to redirect promptly if
-          // they hit their own 401.
-          setTimeout(() => { _redirecting = false; }, 5000);
-        }
-        throw new ApiError(401, "Unauthorized");
+      const response = await fetch(requestUrl("/api/v1/auth/refresh"), { method: "POST", credentials: "same-origin", headers: requestHeaders(undefined, "{}"), body: JSON.stringify({ browser_session: true }), signal: controller.signal });
+      if (response.status === 401) return false;
+      if (!response.ok) throw new ApiUnavailableError(`Session refresh unavailable (${response.status}).`);
+      if (isLogoutPending()) return false;
+      if (!publishSessionRefreshed()) return false;
+      return true;
+    } catch (error) {
+      if (error instanceof ApiUnavailableError) throw error;
+      if (controller.signal.aborted) throw new ApiUnavailableError("Session refresh timed out. Please retry.");
+      throw new ApiUnavailableError();
+    } finally { clearTimeout(timer); }
+  }).catch((error) => { if (error instanceof ApiUnavailableError) throw error; throw new ApiUnavailableError(error instanceof Error ? error.message : undefined); }).finally(() => { if (refreshFlight === flight) refreshFlight = null; });
+  refreshFlight = flight;
+  return flight;
+}
+export async function fetchWithAuth(url: string, options: FetchOptions = {}): Promise<Response> {
+  // The raw Response is guarded at return; callers that consume it later own body-read race handling.
+  const { timeout = 15000, headers, signal, ...rest } = options;
+  const method = (rest.method || "GET").toUpperCase();
+  const safeRead = method === "GET" || method === "HEAD";
+  const target = requestUrl(url);
+  const init: RequestInit = { ...rest, credentials: "same-origin", headers: requestHeaders(headers, rest.body) };
+  const controller = signal ? null : new AbortController();
+  const timer = controller ? setTimeout(() => controller.abort(), timeout) : null;
+  init.signal = controller ? controller.signal : signal;
+  const generation = currentSessionGeneration();
+  const send = () => fetch(target, init);
+  try {
+    let response: Response;
+    try { response = await send(); } catch (error) { assertCurrentGeneration(generation); if (init.signal?.aborted) throw error; throw new ApiUnavailableError(); }
+    assertCurrentGeneration(generation);
+    if (response.status === 401 && !AUTH_ENDPOINT.test(target) && !isLogoutPending()) {
+      if (init.signal?.aborted) throw new DOMException("The request was aborted", "AbortError");
+      const refreshed = await refreshSession();
+      if (!refreshed) {
+        assertCurrentGeneration(generation);
+        if (!isLogoutPending() && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("sdm:session-expired"));
+        const error = await responseError(response);
+        assertCurrentGeneration(generation);
+        throw error;
       }
-
-      if (!res.ok && attempt < retry && res.status >= 500) {
-        lastError = new ApiError(res.status, `Server error ${res.status}`);
-        continue;
+      if (safeRead && !init.signal?.aborted && generation === currentSessionGeneration() && !isLogoutPending()) {
+        try { response = await send(); } catch (error) { assertCurrentGeneration(generation); if (init.signal?.aborted) throw error; throw new ApiUnavailableError(); }
+        assertCurrentGeneration(generation);
       }
-
-      if (!res.ok) {
-        let data: Record<string, unknown> | null;
-        try {
-          data = await res.json();
-        } catch {
-          data = null;
-        }
-        const message = data?.error as string | undefined || `Request failed with status ${res.status}`;
-        throw new ApiError(res.status, message, data);
-      }
-
-      return res;
-    } catch (err) {
-      if (err instanceof ApiError && err.status < 500) {
-        throw err;
-      }
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt >= retry) break;
     }
-  }
-  throw lastError || new Error("Request failed");
+    if (!response.ok) {
+      const error = await responseError(response);
+      assertCurrentGeneration(generation);
+      throw error;
+    }
+    assertCurrentGeneration(generation);
+    responseGenerations.set(response, generation);
+    return response;
+  } finally { if (timer) clearTimeout(timer); }
 }
-
-export async function apiGet<T>(url: string, options?: FetchOptions): Promise<T> {
-  const res = await fetchWithAuth(url, { method: "GET", ...options });
-  const data = await res.json();
-  return validateResponse<T>(data, options?.schema);
-}
-
-export async function apiPost<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
-  const res = await fetchWithAuth(url, {
-    method: "POST",
-    body: body ? JSON.stringify(body) : undefined,
-    ...options,
-  });
-  const data = await res.json();
-  return validateResponse<T>(data, options?.schema);
-}
-
-export async function apiDelete<T>(url: string, options?: FetchOptions): Promise<T> {
-  const res = await fetchWithAuth(url, { method: "DELETE", ...options });
-  const data = await res.json();
-  return validateResponse<T>(data, options?.schema);
-}
-
-export async function apiPut<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
-  const res = await fetchWithAuth(url, {
-    method: "PUT",
-    body: body ? JSON.stringify(body) : undefined,
-    ...options,
-  });
-  const data = await res.json();
-  return validateResponse<T>(data, options?.schema);
-}
-
-export async function apiPatch<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> {
-  const res = await fetchWithAuth(url, {
-    method: "PATCH",
-    body: body ? JSON.stringify(body) : undefined,
-    ...options,
-  });
-  const data = await res.json();
-  return validateResponse<T>(data, options?.schema);
-}
-
+export async function apiGet<T>(url: string, options?: FetchOptions): Promise<T> { return readJson<T>(await fetchWithAuth(url, { method: "GET", ...options }), options?.schema); }
+export async function apiPost<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> { const res = await fetchWithAuth(url, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body), ...options }); return readJson<T>(res, options?.schema); }
+export async function apiDelete<T>(url: string, options?: FetchOptions): Promise<T> { return readJson<T>(await fetchWithAuth(url, { method: "DELETE", ...options }), options?.schema); }
+export async function apiPut<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> { const res = await fetchWithAuth(url, { method: "PUT", body: body === undefined ? undefined : JSON.stringify(body), ...options }); return readJson<T>(res, options?.schema); }
+export async function apiPatch<T>(url: string, body?: unknown, options?: FetchOptions): Promise<T> { const res = await fetchWithAuth(url, { method: "PATCH", body: body === undefined ? undefined : JSON.stringify(body), ...options }); return readJson<T>(res, options?.schema); }
 export async function apiUpload<T>(url: string, file: File, extraFields?: Record<string, string>, timeout?: number): Promise<T> {
-  const formData = new FormData();
-  formData.append("file", file);
-  if (extraFields) {
-    Object.entries(extraFields).forEach(([key, value]) => formData.append(key, value));
-  }
-
-  const token = getToken();
-  const headers: Record<string, string> = {
-    "X-Requested-With": "XMLHttpRequest",
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  const res = await fetchWithAuth(url, {
-    method: "POST",
-    body: formData,
-    headers,
-    timeout,
+  const formData = new FormData(); formData.append("file", file);
+  if (extraFields) Object.entries(extraFields).forEach(([key, value]) => formData.append(key, value));
+  return readJson<T>(await fetchWithAuth(url, { method: "POST", body: formData, timeout }));
+}
+/** @deprecated Browser sessions never expose access credentials to JavaScript. */
+export function setAuthToken(_token: string, _remember = true): void { clearAuthToken(); }
+/** Remove legacy JS-readable credentials only; HttpOnly cookies are server-managed. */
+export function clearAuthToken(): void {
+  if (typeof window === "undefined") return;
+  try { localStorage.removeItem("sdm_token"); sessionStorage.removeItem("sdm_token"); } catch { /* storage may be unavailable */ }
+  document.cookie = "sdm_token=; Path=/; SameSite=Lax; Max-Age=0";
+}
+/** @deprecated Compatibility export; browser-session credentials are HttpOnly. */
+export function getAuthToken(): string | null { clearAuthToken(); return null; }
+export function getToken(): string | null { return getAuthToken(); }
+export async function loginBrowserSession<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  clearAuthToken();
+  return withSessionMutation(async () => {
+    const result = await withRequestDeadline(10000, (signal) => apiPost<T>(url, { ...body, browser_session: true }, { signal }));
+    publishSessionChanged();
+    return result;
   });
-  const data = await res.json();
-  return data as T;
 }
-
-export function setAuthToken(token: string, remember = true) {
-  if (typeof window !== "undefined") {
-    clearToken();
-    const storage = remember ? localStorage : sessionStorage;
-    storage.setItem("sdm_token", token);
-  }
+export async function registerBrowserSession<T>(url: string, body: Record<string, unknown>): Promise<T> { return loginBrowserSession<T>(url, body); }
+export async function logoutBrowserSession(): Promise<void> {
+  clearAuthToken();
+  announceLogoutPending();
+  await withSessionMutation(async () => {
+    if (!publishLogoutStarted()) throw new ApiUnavailableError("Could not safely publish logout intent. Please retry.");
+    try {
+      const response = await fetch(requestUrl("/api/v1/auth/logout"), { method: "POST", credentials: "same-origin", headers: requestHeaders(undefined, "{}"), body: JSON.stringify({ browser_session: true }), signal: AbortSignal.timeout(10000) });
+      if (!response.ok) throw await responseError(response);
+      if (!publishLogoutFinished(true)) throw new ApiUnavailableError("Logout completed but session recovery could not be confirmed. Please retry.");
+    } catch (error) {
+      // The lock still orders recovery after logout; a /me probe, not local metadata, decides authority.
+      const probe = await fetch(requestUrl("/api/v1/auth/me"), { method: "GET", credentials: "same-origin", headers: requestHeaders(), signal: AbortSignal.timeout(5000) });
+      if (probe.ok) publishLogoutFinished(true);
+      else if (probe.status === 401) publishLogoutFinished(true);
+      else throw error;
+      throw error;
+    }
+  });
 }
-
-export function clearAuthToken() {
-  clearToken();
-}
-
-export function getAuthToken(): string | null {
-  return getToken();
-}
-
 export async function apiDownload(url: string, filename?: string): Promise<void> {
-  const res = await fetchWithAuth(url, { method: "GET" });
+  const res = await fetchWithAuth(url, { method: "GET" }); const generation = responseGenerations.get(res) ?? currentSessionGeneration();
   const blob = await res.blob();
+  assertCurrentGeneration(generation);
   const disp = res.headers.get("Content-Disposition");
   const name = filename || (disp ? disp.split("filename=")[1]?.replace(/"/g, "") : undefined) || url.split("/").pop() || "download";
-  const blobUrl = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = blobUrl;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  const blobUrl = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = blobUrl; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
 }
-
-const API_BASE_URL = typeof process !== "undefined" ? (process.env.NEXT_PUBLIC_API_URL ?? "") : "";
-
-export async function apiGetSuitabilityValue(
-  runId: string,
-  lat: number,
-  lng: number,
-  band?: string
-): Promise<{ value: number | null }> {
-  const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
-  if (band) params.set("band", band);
-  const url = `${API_BASE_URL}/api/v1/results/suitability-value/${encodeURIComponent(runId)}?${params.toString()}`;
-  return apiGet<{ value: number | null }>(url);
+export async function apiGetSuitabilityValue(runId: string, lat: number, lng: number, band?: string): Promise<{ value: number | null }> {
+  const params = new URLSearchParams({ lat: String(lat), lng: String(lng) }); if (band) params.set("band", band);
+  return apiGet(`/api/v1/results/suitability-value/${encodeURIComponent(runId)}?${params.toString()}`);
 }

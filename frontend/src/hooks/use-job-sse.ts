@@ -124,6 +124,7 @@ function openSharedConnection(): void {
   sharedEventSource = es;
 
   es.onopen = () => {
+    if (sharedEventSource !== es) return;
     lastConnectedAt = Date.now();
     rapidFailures = 0;
     sharedConnected = true;
@@ -133,6 +134,7 @@ function openSharedConnection(): void {
     fetchWithAuth(`${API_BASE}/api/v1/sdm/runs?status=running&limit=10`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
+        if (sharedEventSource !== es) return;
         if (data?.runs) {
           const now = Date.now();
           for (const run of data.runs) {
@@ -159,6 +161,7 @@ function openSharedConnection(): void {
   };
 
   es.addEventListener("job-update", (event) => {
+    if (sharedEventSource !== es) return;
     try {
       const data = JSON.parse(event.data) as JobEvent;
       const now = Date.now();
@@ -194,6 +197,7 @@ function openSharedConnection(): void {
   });
 
   es.onerror = () => {
+    if (sharedEventSource !== es) return;
     sharedConnected = false;
     es.close();
     sharedEventSource = null;
