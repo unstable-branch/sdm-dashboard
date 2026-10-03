@@ -61,6 +61,9 @@ jobs:
           TORCH_HOME: /root/.cache/torch
           RENV_PATHS_CACHE: /root/.cache/R/renv
         run: |
+          # A cache miss leaves TORCH_HOME absent; torch checks it before installing.
+          mkdir -p "$TORCH_HOME"
+          test -w "$TORCH_HOME"
           Rscript -e 'options(timeout = 1800); torch::install_torch()'
           Rscript scripts/verify_r_environment.R --torch
 

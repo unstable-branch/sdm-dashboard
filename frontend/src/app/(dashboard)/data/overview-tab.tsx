@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { ApiError } from "@/services/api";
 import type { UploadFile } from "@/services/types";
+import { aggregateCleanedCounts, displayCleanedCount, readCleanedCount } from "./cleaned-counts";
 
 interface ClimateScenario {
   id: string;
@@ -169,18 +170,16 @@ export function OverviewTab({
   const hasStoredUploads = recentUploads.length > 0;
   const hasOccurrences = !!(uploadResult?.file_id || recordCount > 0 || hasStoredUploads);
 
-  const sessionCleaned = !!(typeof cleanResult?.valid_records === "number" && cleanResult.valid_records > 0
+  const sessionCleaned = !!(cleanResult && typeof cleanResult === "object" && "valid_records" in cleanResult
     || typeof (uploadResult as Record<string, unknown>)?.cleaned_file_id === "string"
     || (uploadResult as Record<string, unknown>)?.cleaned);
   const recentCleaned = recentUploads.some((u) => u.cleaned || u.cleaned_file_id);
   const isCleaned = sessionCleaned || recentCleaned;
 
-  const sessionRecordCount = typeof cleanResult?.valid_records === "number"
-    ? cleanResult.valid_records : recordCount || 0;
-  const recentTotalRecords = recentUploads.reduce(
-    (sum, u) => sum + (u.cleaned_valid_records || u.n_rows || 0), 0
-  );
-  const validRecordCount = sessionRecordCount || recentTotalRecords || 0;
+  const sessionRecordCount = cleanResult ? readCleanedCount(cleanResult) : null;
+  const recentTotalRecords = aggregateCleanedCounts(recentUploads);
+  const validRecordCount = cleanResult ? sessionRecordCount : recentTotalRecords;
+  const validRecordLabel = validRecordCount == null ? "Count unavailable" : `${validRecordCount.toLocaleString()} valid records`;
 
   const displaySource = computeSourceLabel(recentUploads);
 
@@ -191,8 +190,8 @@ export function OverviewTab({
   const bioCheckCount = climateBiovars.length || 6;
 
   const readinessItems = [
-    { label: "Occurrence data loaded", ok: hasOccurrences, detail: hasOccurrences ? `${validRecordCount.toLocaleString()} records` : "Upload data in the Upload tab" },
-    { label: "Data cleaned", ok: isCleaned, detail: isCleaned ? `${validRecordCount.toLocaleString()} valid records` : "Clean data before modeling" },
+    { label: "Occurrence data loaded", ok: hasOccurrences, detail: hasOccurrences ? validRecordLabel : "Upload data in the Upload tab" },
+    { label: "Data cleaned", ok: isCleaned, detail: isCleaned ? validRecordLabel : "Clean data before modeling" },
     { label: "Species selected", ok: !!species && species !== "Untitled species", detail: species || "Select a species on the Model page" },
     { label: "Climate layers ready", ok: totalClimateLayers > 0, detail: totalClimateLayers > 0 ? `${wcLayers} WorldClim + ${chelsaLayers} CHELSA layers` : "Download in Climate tab" },
     { label: "Boundary configured", ok: boundaries.length > 0, detail: boundaries.length > 0 ? `${boundaries.length} file(s)` : "Set up in Boundary tab" },
@@ -236,7 +235,7 @@ export function OverviewTab({
         {/* Current session data */}
         {hasOccurrences && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3 pb-3 border-b border-sdm-border/50">
-            <div><span className="text-sdm-muted">Records:</span> <span className="font-medium text-sdm-text">{validRecordCount.toLocaleString()}</span></div>
+            <div><span className="text-sdm-muted">Records:</span> <span className="font-medium text-sdm-text">{validRecordCount == null ? "Count unavailable" : validRecordCount.toLocaleString()}</span></div>
             <div><span className="text-sdm-muted">Species:</span> <span className="font-medium text-sdm-text">{species || "—"}</span></div>
             <div><span className="text-sdm-muted">Cleaned:</span> <span className={`font-medium ${isCleaned ? "text-sdm-success" : "text-sdm-warning"}`}>{isCleaned ? "Yes" : "No"}</span></div>
             <div><span className="text-sdm-muted">Source:</span> <span className="font-medium text-sdm-text">{displaySource}</span></div>
@@ -257,7 +256,7 @@ export function OverviewTab({
                   {u.species && <span className="text-xs text-sdm-muted truncate">{u.species}</span>}
                   {u.cleaned || u.cleaned_file_id ? <CheckCircle2 className="h-3 w-3 shrink-0 text-sdm-success" /> : <AlertTriangle className="h-3 w-3 shrink-0 text-sdm-warning" />}
                 </div>
-                <span className="text-sdm-muted shrink-0">{(u.cleaned_valid_records || u.n_rows).toLocaleString()} rows</span>
+                <span className="text-sdm-muted shrink-0">{u.cleaned || u.cleanedAssetId || u.cleaned_asset_id || u.cleaned_file_id ? `${displayCleanedCount(u)} valid rows` : `${u.n_rows.toLocaleString()} rows`}</span>
               </div>
             ))}
           </div>
