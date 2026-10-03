@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, fetchWithAuth, loginBrowserSession, registerBrowserSession, SessionChangedError } from "./api";
+import { ApiError, apiGetArrayBuffer, apiGetBlob, apiGetText, assertSessionGenerationCurrent, fetchWithAuth, loginBrowserSession, registerBrowserSession, SessionChangedError } from "./api";
 import { currentSessionGeneration, publishSessionChanged } from "./session-coordinator";
 import { useAuthStore } from "@/stores/auth-store";
 import { announceLogoutPending, isLogoutPending, publishLogoutFinished, withSessionMutation } from "./session-coordinator";
@@ -108,6 +108,135 @@ describe("cookie browser-session requests", () => {
     finishBlob(new Blob(["principal A"]));
     await expect(download).rejects.toBeInstanceOf(SessionChangedError);
     expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("rejects and aborts a text body that exceeds the complete-operation deadline", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    let bodyCancelled = false;
+    let bodyStarted!: () => void;
+    const started = new Promise<void>((resolve) => { bodyStarted = resolve; });
+    const response = new Response(null, { status: 200 });
+    response.text = vi.fn(() => {
+      bodyStarted();
+      return new Promise<string>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => { bodyCancelled = true; reject(signal?.reason); }, { once: true });
+      });
+    });
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return response;
+    }));
+
+    const pending = apiGetText("/api/v1/report", { timeout: 25 });
+    const outcome = pending.then(() => null, (error: unknown) => error);
+    await started;
+    await vi.advanceTimersByTimeAsync(26);
+    expect(await outcome).toMatchObject({ name: "TimeoutError" });
+    expect(signal?.aborted).toBe(true);
+    expect(bodyCancelled).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("composes caller cancellation with the text body operation", async () => {
+    const caller = new AbortController();
+    let signal: AbortSignal | undefined;
+    const response = new Response(null, { status: 200 });
+    response.text = vi.fn(() => new Promise<string>(() => {}));
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return response;
+    }));
+
+    const pending = apiGetText("/api/v1/report", { signal: caller.signal, timeout: 10000 });
+    await vi.waitFor(() => expect(response.text).toHaveBeenCalled());
+    caller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("rejects cross-origin binary URLs before fetch", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(apiGetArrayBuffer("https://attacker.invalid/tile")).rejects.toThrow(/Cross-origin API requests are not supported/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a deferred binary body after principal change", async () => {
+    let finishBody!: (body: ArrayBuffer) => void;
+    const response = new Response(null, { status: 200 });
+    response.arrayBuffer = vi.fn(() => new Promise<ArrayBuffer>((resolve) => { finishBody = resolve; }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    const pending = apiGetArrayBuffer("/api/v1/map/tiles/1/2/3");
+    await vi.waitFor(() => expect(response.arrayBuffer).toHaveBeenCalled());
+    await withSessionMutation(async () => { publishSessionChanged(); });
+    finishBody(new ArrayBuffer(4));
+    await expect(pending).rejects.toBeInstanceOf(SessionChangedError);
+  });
+
+  it("aborts and rejects a binary body at its deadline", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    let bodyCancelled = false;
+    let bodyStarted!: () => void;
+    const started = new Promise<void>((resolve) => { bodyStarted = resolve; });
+    const response = new Response(null, { status: 200 });
+    response.arrayBuffer = vi.fn(() => {
+      bodyStarted();
+      return new Promise<ArrayBuffer>((_resolve, reject) => {
+        requestSignal?.addEventListener("abort", () => { bodyCancelled = true; reject(requestSignal?.reason); }, { once: true });
+      });
+    });
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal ?? undefined;
+      return response;
+    }));
+    const pending = apiGetArrayBuffer("/api/v1/map/tiles/1/2/3", { timeout: 30 });
+    const outcome = pending.then(() => null, (error: unknown) => error);
+    await started;
+    await vi.advanceTimersByTimeAsync(31);
+    expect(await outcome).toMatchObject({ name: "TimeoutError" });
+    expect(requestSignal?.aborted).toBe(true);
+    expect(bodyCancelled).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("rejects a Results-style aggregate when a sibling body settles after a principal switch", async () => {
+    const generation = currentSessionGeneration();
+    let finishSibling!: (text: string) => void;
+    const first = new Response(null, { status: 200 });
+    first.text = vi.fn().mockResolvedValue("report from principal A");
+    const second = new Response(null, { status: 200 });
+    second.text = vi.fn(() => new Promise<string>((resolve) => { finishSibling = resolve; }));
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second));
+    let published = false;
+    const aggregate = Promise.all([
+      import("./api").then(({ apiGetText }) => apiGetText("/api/v1/report")).catch(() => null),
+      import("./api").then(({ apiGetText }) => apiGetText("/api/v1/odmap")).catch(() => null),
+    ]).then((values) => {
+      assertSessionGenerationCurrent(generation);
+      published = true;
+      return values;
+    });
+    await vi.waitFor(() => expect(finishSibling).toBeTypeOf("function"));
+    await withSessionMutation(async () => { publishSessionChanged(); });
+    finishSibling("late sibling from principal A");
+    await expect(aggregate).rejects.toBeInstanceOf(SessionChangedError);
+    expect(published).toBe(false);
+  });
+
+  it("rejects a blob body after a principal change before exposing it", async () => {
+    let finishBlob!: (blob: Blob) => void;
+    const response = new Response(null, { status: 200 });
+    response.blob = vi.fn(() => new Promise<Blob>((resolve) => { finishBlob = resolve; }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+    const pending = apiGetBlob("/api/v1/private-export");
+    await vi.waitFor(() => expect(finishBlob).toBeTypeOf("function"));
+    await withSessionMutation(async () => { publishSessionChanged(); });
+    finishBlob(new Blob(["stale"]));
+    await expect(pending).rejects.toBeInstanceOf(SessionChangedError);
   });
 
   it("sends browser login metadata and accepts a user-only response", async () => {

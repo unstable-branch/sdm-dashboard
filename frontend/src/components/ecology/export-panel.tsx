@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, FileText, Copy, Check } from "lucide-react";
-import { fetchWithAuth } from "@/services/api";
+import { currentSessionGeneration } from "@/services/session-coordinator";
+import { apiGetText } from "@/services/api";
 
 interface ExportPanelProps {
   runId: string;
@@ -14,18 +15,24 @@ export function ExportPanel({ runId }: ExportPanelProps) {
   const [copied, setCopied] = useState(false);
 
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const reportController = useRef<AbortController | null>(null);
+
+  useEffect(() => () => { reportController.current?.abort(); }, [runId]);
 
   const fetchReport = async () => {
+    const controller = new AbortController();
+    reportController.current?.abort();
+    reportController.current = controller;
+    const generation = currentSessionGeneration();
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await fetchWithAuth(`/api/v1/ecology/${runId}/report`);
-      const text = await res.text();
-      setReport(text);
+      const text = await apiGetText(`/api/v1/ecology/${runId}/report`, { signal: controller.signal });
+      if (!controller.signal.aborted && generation === currentSessionGeneration()) setReport(text);
     } catch {
-      setFetchError("Failed to generate report");
+      if (!controller.signal.aborted && generation === currentSessionGeneration()) setFetchError("Failed to generate report");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted && generation === currentSessionGeneration()) setLoading(false);
     }
   };
 
