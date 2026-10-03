@@ -199,6 +199,8 @@ jobs:
     timeout-minutes: 45
     needs: shared
     env:
+      FRONTEND_URL: http://127.0.0.1:3000
+      E2E_BASE_URL: http://127.0.0.1:3000
       DATABASE_URL: postgresql://sdm:dummy@postgres:5432/sdm_platform
       JWT_SECRET: dummy-jwt-secret-at-least-32-characters
       CSRF_SECRET: dummy-csrf-secret-at-least-32-characters

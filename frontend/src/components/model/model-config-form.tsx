@@ -8,7 +8,8 @@ import { TooltipInfo } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { apiGet, apiUpload, fetchWithAuth } from "@/services/api";
+import { apiGet, apiUpload } from "@/services/api";
+import { currentSessionGeneration } from "@/services/session-coordinator";
 import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
 import { ModelConfigBiovars } from "./model-config-biovars";
@@ -333,22 +334,24 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
   useEffect(() => {
     if (biovars.length < 2) return;
+    let current = true;
+    const generation = currentSessionGeneration();
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       setClimateCheckLoading(true);
       setClimateCheckError(null);
-      fetchWithAuth(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`)
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      apiGet<{ available: number[] }>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`, { signal: controller.signal })
         .then((data) => {
-          if (data && Array.isArray(data.available)) {
-            setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b)));
+          if (current && generation === currentSessionGeneration() && data && Array.isArray(data.available)) {
+            setMissingBiovars(biovars.filter((b) => !data.available.includes(b)));
           }
         })
         .catch((err) => {
-          setClimateCheckError(err instanceof Error ? err.message : String(err));
+          if (current && generation === currentSessionGeneration()) setClimateCheckError(err instanceof Error ? err.message : String(err));
         })
-        .finally(() => setClimateCheckLoading(false));
+        .finally(() => { if (current && generation === currentSessionGeneration()) setClimateCheckLoading(false); });
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { current = false; clearTimeout(timer); controller.abort(); };
   }, [biovarKey, climateSource, climateRes]);
 
   // Auto-select enmevalAlgorithm to match model. Always overwrites on model change.

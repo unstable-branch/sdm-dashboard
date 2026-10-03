@@ -11,7 +11,8 @@ import { OdmapViewer } from "@/components/results/odmap-viewer";
 import { ArrowLeft, Loader2, Download, GitBranch, CheckCircle2, Layers, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { manifestRecordCount } from "@/lib/manifest";
-import { apiGet, apiPost, apiDownload, fetchWithAuth } from "@/services/api";
+import { currentSessionGeneration } from "@/services/session-coordinator";
+import { apiGet, apiGetText, apiPost, apiDownload, assertSessionGenerationCurrent } from "@/services/api";
 import { buildBoundaryGeoJsonUrl } from "@/services/boundary-url";
 import { useRunDetail } from "@/hooks/use-queries";
 import { useJobSSE } from "@/hooks/use-job-sse";
@@ -29,11 +30,9 @@ import type { FeatureCollection } from "geojson";
 import { extentToViewState, extentToCoordinates } from "@/lib/map-utils";
 
 
-async function fetchGeoJSON(url: string): Promise<FeatureCollection | null> {
+async function fetchGeoJSON(url: string, signal: AbortSignal): Promise<FeatureCollection | null> {
   try {
-    const res = await fetchWithAuth(url);
-    if (!res.ok) return null;
-    return await res.json() as FeatureCollection;
+    return await apiGet<FeatureCollection>(url, { signal });
   } catch {
     return null;
   }
@@ -274,38 +273,35 @@ export default function ResultsPage() {
   useEffect(() => {
     if (!runId || !run || run.status !== "completed") return;
     const abort = new AbortController();
+    const generation = currentSessionGeneration();
     const odmapMdPath = run.output_files?.odmap_report_md;
     const odmapCsvPath = run.output_files?.odmap_report_csv;
     const eooPath = run.output_files?.eoo_polygon;
     const aooPath = run.output_files?.aoo_grid;
 
     Promise.all([
-      fetchWithAuth(`/api/v1/results/${runId}/report.txt`, { signal: abort.signal })
-        .then((res) => res.ok ? res.text() : null)
-        .catch(() => null),
+      apiGetText(`/api/v1/results/${runId}/report.txt`, { signal: abort.signal }).catch(() => null),
       odmapMdPath
-        ? fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`, { signal: abort.signal })
-            .then((res) => res.ok ? res.text() : null)
-            .catch(() => null)
+        ? apiGetText(`/api/v1/results/file/${encodeURIComponent(odmapMdPath)}`, { signal: abort.signal }).catch(() => null)
         : Promise.resolve(null),
       odmapCsvPath
-        ? fetchWithAuth(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`, { signal: abort.signal })
-            .then((res) => res.ok ? res.text() : null)
-            .catch(() => null)
+        ? apiGetText(`/api/v1/results/file/${encodeURIComponent(odmapCsvPath)}`, { signal: abort.signal }).catch(() => null)
         : Promise.resolve(null),
       eooPath
-        ? fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`)
+        ? fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(eooPath)}`, abort.signal)
         : Promise.resolve(null),
       aooPath
-        ? fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`)
+        ? fetchGeoJSON(`/api/v1/results/file/${encodeURIComponent(aooPath)}`, abort.signal)
         : Promise.resolve(null),
       (() => {
         const cfg = run?.config as Record<string, unknown> | undefined;
         const url = buildBoundaryGeoJsonUrl(cfg || {});
-        return url ? fetchGeoJSON(url) : Promise.resolve(null);
+        return url ? fetchGeoJSON(url, abort.signal) : Promise.resolve(null);
       })(),
     ])
       .then(([reportText, odmapMd, odmapCsv, eooGeoJSON, aooGeoJSON, boundaryGeoJSON]) => {
+        if (abort.signal.aborted) return;
+        assertSessionGenerationCurrent(generation);
         setReportText(reportText);
         setOdmapMd(odmapMd);
         setOdmapCsv(odmapCsv);
@@ -313,7 +309,9 @@ export default function ResultsPage() {
         setAooGeoJSON(aooGeoJSON);
         setBoundaryGeoJSON(boundaryGeoJSON);
       })
-      .catch((e) => console.warn("[results] Failed to fetch report data:", e));
+      .catch((e) => {
+        if (!abort.signal.aborted && generation === currentSessionGeneration()) console.warn("[results] Failed to fetch report data:", e);
+      });
     return () => abort.abort();
   }, [runId, run?.id, run?.status, run?.output_files, run?.config]);
 
