@@ -1,8 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
 import { fetchWithAuth } from "@/services/api";
-import { useAuthStore } from "@/stores/auth-store";
-
-const API_BASE = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
 
 const MAX_JOBS_IN_MAP = 50;
 const TERMINAL_STATES: Set<JobEvent["state"]> = new Set(["completed", "failed", "cancelled"]);
@@ -15,12 +12,8 @@ const CLEANUP_INTERVAL_MS = 30_000;
 // user needing to refresh.
 const MAX_RECONNECT_ATTEMPTS = 20;
 const GAVE_UP_RETRY_INTERVAL_MS = 2 * 60 * 1000;
-// If the SSE connection fails repeatedly within this window (in ms), it
-// indicates an auth issue (401) rather than a transient network outage.
-// Auth errors cause EventSource to close immediately, so rapid failures
-// after brief connections are a reliable 401 signal.
-const AUTH_FAILURE_RAPID_WINDOW_MS = 3000;
-const AUTH_FAILURE_RAPID_THRESHOLD = 3;
+const ACTIVE_RUNS_URL = "/api/v1/sdm/runs?status=running&limit=10";
+const SSE_PATH = "/api/v1/jobs/sse";
 
 export interface ProgressStage {
   timestamp: string;
@@ -84,12 +77,8 @@ let lastCleanup = 0;
 let subscriberCount = 0;
 let sharedHasActive = false;
 let sharedVersion = 0;
+let sharedLifecycle = 0;
 const listeners = new Set<() => void>();
-// Track connection duration to detect auth (401) errors — a 401 causes
-// EventSource to close immediately, so brief connections that error quickly
-// are a strong auth-failure signal.
-let lastConnectedAt = 0;
-let rapidFailures = 0;
 
 function notifyListeners(): void {
   for (const fn of listeners) {
@@ -112,26 +101,69 @@ export function clearSharedJobs(): void {
   sharedGaveUp = false;
   sharedHasActive = false;
   sharedVersion++;
-  lastConnectedAt = 0;
-  rapidFailures = 0;
+  sharedLifecycle++;
   notifyListeners();
 }
 
-function openSharedConnection(): void {
-  if (sharedEventSource) return;
+function resolveEventSourceUrl(): string | null {
+  const apiBase = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
+  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+  let resolved: URL;
+  try {
+    resolved = new URL(apiBase ? `${apiBase.replace(/\/$/, "")}${SSE_PATH}` : SSE_PATH, origin);
+  } catch {
+    console.warn("[sse] Refusing invalid credentialed EventSource URL");
+    return null;
+  }
+  if (resolved.origin !== origin) {
+    console.warn("[sse] Refusing cross-origin credentialed EventSource");
+    return null;
+  }
+  return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+}
 
-  const es = new EventSource(`${API_BASE}/api/v1/jobs/sse`, { withCredentials: true });
+function scheduleReconnect(lifecycle: number): void {
+  if (lifecycle !== sharedLifecycle || subscriberCount === 0 || (typeof document !== "undefined" && document.hidden)) return;
+  sharedReconnectAttempts++;
+  if (sharedReconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+    if (!sharedGaveUp) {
+      sharedGaveUp = true;
+      notifyListeners();
+    }
+    if (sharedReconnectTimer) clearTimeout(sharedReconnectTimer);
+    sharedReconnectTimer = setTimeout(() => {
+      sharedReconnectTimer = null;
+      if (lifecycle !== sharedLifecycle || subscriberCount === 0 || (typeof document !== "undefined" && document.hidden)) return;
+      sharedReconnectAttempts = 0;
+      sharedGaveUp = false;
+      openSharedConnection();
+    }, GAVE_UP_RETRY_INTERVAL_MS);
+    return;
+  }
+  notifyListeners();
+  const delay = Math.min(3000 * Math.pow(2, sharedReconnectAttempts - 1), 60000);
+  if (sharedReconnectTimer) clearTimeout(sharedReconnectTimer);
+  sharedReconnectTimer = setTimeout(() => {
+    sharedReconnectTimer = null;
+    if (lifecycle === sharedLifecycle && subscriberCount > 0 && !(typeof document !== "undefined" && document.hidden)) openSharedConnection();
+  }, delay);
+}
+
+function openSharedConnection(): void {
+  if (sharedEventSource || subscriberCount === 0 || (typeof document !== "undefined" && document.hidden)) return;
+
+  const url = resolveEventSourceUrl();
+  if (!url) return;
+  const es = new EventSource(url, { withCredentials: true });
   sharedEventSource = es;
 
   es.onopen = () => {
     if (sharedEventSource !== es) return;
-    lastConnectedAt = Date.now();
-    rapidFailures = 0;
     sharedConnected = true;
     sharedReconnectAttempts = 0;
     sharedGaveUp = false;
     notifyListeners();
-    fetchWithAuth(`${API_BASE}/api/v1/sdm/runs?status=running&limit=10`)
+    fetchWithAuth(ACTIVE_RUNS_URL)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (sharedEventSource !== es) return;
@@ -201,52 +233,17 @@ function openSharedConnection(): void {
     sharedConnected = false;
     es.close();
     sharedEventSource = null;
-    // Detect auth (401) failures: a 401 causes EventSource to close immediately
-    // after opening. Rapid failures (< AUTH_FAILURE_RAPID_WINDOW_MS since open)
-    // are a reliable auth-failure signal even without HTTP status access.
-    const connectionDuration = Date.now() - lastConnectedAt;
-    if (lastConnectedAt > 0 && connectionDuration < AUTH_FAILURE_RAPID_WINDOW_MS) {
-      rapidFailures++;
-    } else {
-      rapidFailures = 0;
-    }
-    if (rapidFailures >= AUTH_FAILURE_RAPID_THRESHOLD) {
-      // Likely a 401 — stop retrying and force logout
-      rapidFailures = 0;
-      console.warn("[sse] Rapid SSE failures detected (probable auth error); clearing session");
-      try { useAuthStore.getState().clearAuth(); } catch { /* store may not be ready */ }
-      return;
-    }
-    sharedReconnectAttempts++;
-    if (sharedReconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
-      // Surface the give-up state so the UI can render a reconnect button.
-      // We still attempt one more connection every GAVE_UP_RETRY_INTERVAL_MS
-      // so a long-running backend outage eventually recovers without the
-      // user needing to refresh.
-      if (!sharedGaveUp) {
-        sharedGaveUp = true;
-        notifyListeners();
-      }
-      if (sharedReconnectTimer) clearTimeout(sharedReconnectTimer);
-      sharedReconnectTimer = setTimeout(() => {
-        sharedReconnectTimer = null;
-        sharedReconnectAttempts = 0;
-        sharedGaveUp = false;
-        openSharedConnection();
-      }, GAVE_UP_RETRY_INTERVAL_MS);
-      return;
-    }
-    notifyListeners();
-    const delay = Math.min(3000 * Math.pow(2, sharedReconnectAttempts - 1), 60000);
-    if (sharedReconnectTimer) clearTimeout(sharedReconnectTimer);
-    sharedReconnectTimer = setTimeout(() => {
-      sharedReconnectTimer = null;
-      openSharedConnection();
-    }, delay);
+    const lifecycle = sharedLifecycle;
+    // EventSource hides HTTP status. Use the canonical authenticated safe-read
+    // path to distinguish recoverable expiry from an opaque transport failure.
+    void fetchWithAuth(ACTIVE_RUNS_URL).catch(() => undefined).finally(() => {
+      scheduleReconnect(lifecycle);
+    });
   };
 }
 
 function closeSharedConnection(): void {
+  sharedLifecycle++;
   if (sharedReconnectTimer) {
     clearTimeout(sharedReconnectTimer);
     sharedReconnectTimer = null;
@@ -274,6 +271,12 @@ function handleBeforeUnload(): void {
   closeSharedConnection();
 }
 
+function handleSessionChanged(): void {
+  // A principal/session transition invalidates both the stream and its data.
+  // The next authenticated mount (or an explicit reconnect) starts a fresh one.
+  clearSharedJobs();
+}
+
 // --- Hook ---
 export function useJobSSE(enabled = true) {
   const [, forceUpdate] = useState(0);
@@ -286,6 +289,7 @@ export function useJobSSE(enabled = true) {
       openSharedConnection();
       document.addEventListener("visibilitychange", handleVisibilityChange);
       window.addEventListener("beforeunload", handleBeforeUnload);
+      window.addEventListener("sdm:session-changed", handleSessionChanged);
     }
 
     const listener = () => forceUpdate((n) => n + 1);
@@ -297,6 +301,7 @@ export function useJobSSE(enabled = true) {
       if (subscriberCount === 0) {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
         window.removeEventListener("beforeunload", handleBeforeUnload);
+        window.removeEventListener("sdm:session-changed", handleSessionChanged);
         closeSharedConnection();
         // Preserve sharedJobs across navigation — data survives page transitions so
         // components remounting (e.g., ModelPage → ResultsPage) retain progress data.
