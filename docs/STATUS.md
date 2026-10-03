@@ -80,7 +80,7 @@ This supersedes the preceding same-day statement that the complete R suite remai
 
 - Restored the exact `--no-targets` legacy `future_lapply` route while keeping the default Targets route fail-closed before optional parsing, project loading, output creation, cluster environment mutation, or dispatch. `--help` explains that split; malformed `--no-targets=<value>` is rejected, and other invocations cannot default into Targets.
 - Focused `test-batch-cli-unavailable.R` passed in the R 4.5.0 base test environment with `testthat` 3.3.2 and no `optparse`; the legacy route reports explicit optional-package guidance. It also passed in a separate scratch optional profile with `optparse` 1.8.2, where a real Rscript subprocess and controlled loader stubs proved exact `--no-targets` reaches `batch_run_parallel`, while an unknown option does not dispatch. Help and R parse smoke checks passed.
-- No lock/settings or Targets-helper changes were made. The full locked R suite and CI were not rerun for this new candidate; run full CI against its new commit SHA before integration. Logs are preserved under `/root/spookys-workspace/reports/sdm/cli-boundary-fix-2026-10-02/`.
+- No lock/settings or Targets-helper changes were made. The full locked R suite and CI were not rerun for this new candidate; run full CI against its new commit SHA before integration. Detailed execution logs are retained separately from the public repository.
 
 ## Release posture
 
