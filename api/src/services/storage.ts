@@ -8,7 +8,7 @@ import {
   DeleteObjectCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
-import { readdirSync, statSync } from "fs";
+import { readdirSync, statSync, openSync, writeFileSync, closeSync, renameSync, unlinkSync } from "fs";
 import { stat, readFile } from "fs/promises";
 import { join, isAbsolute, normalize, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -276,7 +276,6 @@ export async function writeAtomic(path: string, data: Buffer | string): Promise<
 }
 
 export function writeAtomicSync(path: string, data: Buffer | string): void {
-  const { openSync, writeFileSync, closeSync, renameSync, unlinkSync } = require("fs");
   const tmp = `${path}.tmp.${process.pid}.${randomUUID()}`;
   let ownsTemp = false;
   let fd: number | undefined;

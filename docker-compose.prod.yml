@@ -70,6 +70,7 @@ services:
       - GARAGE_BUCKET_RASTERS=${GARAGE_BUCKET_RASTERS:?GARAGE_BUCKET_RASTERS is required}
       - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET_EXPORTS:?GARAGE_BUCKET_EXPORTS is required}
     volumes:
+      - examples-data:/app/data/examples
       - r-boundaries:/app/data/boundaries:ro
       - r-data:/app/outputs
       # Read-only verification of the exact roots published by Plumber.
@@ -248,6 +249,7 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  examples-data:
   garage-meta:
   garage-data:
   r-data:

@@ -1,0 +1,14 @@
+ARG API_BASE_IMAGE
+FROM ${API_BASE_IMAGE}
+COPY api/publish-example /usr/local/lib/sdm/publish-example
+
+COPY api/docker-entrypoint.sh /usr/local/bin/api-entrypoint.sh
+COPY api/prepare-examples.cjs /usr/local/lib/sdm/prepare-examples.cjs
+COPY api/scripts/prepare-examples.test.cjs /usr/local/lib/sdm/tests/prepare-examples.test.cjs
+COPY data/examples/ /usr/share/sdm/examples-seed/
+COPY data/examples/ /app/data/examples/
+RUN chmod 0755 /usr/local/bin/api-entrypoint.sh && \
+    chgrp -R 2000 /app/data/examples && \
+    chmod -R g+rwX /app/data/examples && \
+    find /app/data/examples -type d -exec chmod g+s {} + && \
+    chmod -R a-w /usr/share/sdm/examples-seed
