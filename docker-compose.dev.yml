@@ -197,6 +197,9 @@ services:
       - ./api/src:/app/api/src:ro
       - ./packages/shared:/app/packages/shared:ro
       - ./data/uploads:/app/data/uploads
+      # The image seeds built-in synthetic fixtures into this persistent volume;
+      # saved examples survive API container replacement without touching source.
+      - examples-data:/app/data/examples
       - ./data/boundaries:/app/data/boundaries:ro
       - ./outputs:/app/outputs
       # The API only verifies immutable manifests and their members. Keep the
@@ -266,6 +269,7 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  examples-data:
   garage-meta:
   garage-data:
   prometheus-data:
