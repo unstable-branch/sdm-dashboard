@@ -1,0 +1,50 @@
+test_that("native biomod2 caller distinguishes Off from three-fold validation", {
+  skip_if_not_installed("biomod2")
+  skip_if_not_installed("R.utils")
+
+  work <- tempfile("biomod2-caller-")
+  dir.create(work)
+  on.exit(unlink(work, recursive = TRUE), add = TRUE)
+  previous_wd <- getwd()
+  on.exit(setwd(previous_wd), add = TRUE)
+
+  set.seed(42)
+  r <- terra::rast(nrows = 12, ncols = 12, xmin = 0, xmax = 12,
+                   ymin = 0, ymax = 12, crs = "EPSG:4326", nlyrs = 2)
+  terra::values(r) <- matrix(rnorm(terra::ncell(r) * 2L), ncol = 2L)
+  names(r) <- c("bio1", "bio12")
+  xy <- terra::xyFromCell(r, seq(2L, 120L, length.out = 30L))
+  occ <- data.frame(species = "SyntheticCaller", longitude = xy[, 1], latitude = xy[, 2])
+
+  off <- run_biomod2(occ, r, models = "GLM", background_n = 30L,
+                    cv_folds = 0L, output_dir = file.path(work, "off"), seed = 42L)
+  expect_identical(getwd(), previous_wd)
+  expect_equal(off$cv$k, 0L)
+  expect_false(off$cv$enabled)
+  expect_equal(off$cv$strategy, "none")
+  expect_true(is.na(off$cv$auc_mean))
+  expect_true(is.na(off$cv$tss_mean))
+  expect_true(all(is.na(off$cv$per_algorithm$auc)))
+  expect_true(all(is.na(off$cv$per_algorithm$tss)))
+  expect_equal(nrow(off$background_xy), 30L)
+  expect_equal(length(biomod2::get_built_models(off$model)), 1L)
+  off_partition <- biomod2::get_calib_lines(off$model)
+  expect_equal(dim(off_partition), c(60L, 1L))
+  expect_true(all(off_partition))
+  expect_true(all(is.na(biomod2::get_evaluations(off$model)$validation)))
+  expect_true(dir.exists(file.path(work, "off", "SyntheticCaller")))
+
+  enabled <- run_biomod2(occ, r, models = "GLM", background_n = 30L,
+                        cv_folds = 3L, output_dir = file.path(work, "enabled"), seed = 42L)
+  expect_identical(getwd(), previous_wd)
+  expect_equal(enabled$cv$k, 3L)
+  expect_true(enabled$cv$enabled)
+  expect_equal(enabled$cv$strategy, "kfold")
+  partition <- biomod2::get_calib_lines(enabled$model)
+  folds <- partition[, !grepl("allRun$", colnames(partition)), drop = FALSE]
+  expect_equal(ncol(folds), 3L)
+  expect_true(all(rowSums(!folds) == 1L))
+  expect_true(any(is.finite(enabled$cv$per_algorithm$auc)))
+  expect_true(any(is.finite(enabled$cv$per_algorithm$tss)))
+  expect_true(dir.exists(file.path(work, "enabled", "SyntheticCaller")))
+})

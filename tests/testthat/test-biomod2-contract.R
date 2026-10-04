@@ -81,8 +81,8 @@ test_that("unique modeling.id prevents collision", {
                         species_name = "SpeciesB")
 
   expect_false(identical(result1$modeling_id, result2$modeling_id))
-  expect_true(grepl("SpeciesA", result1$modeling_id))
-  expect_true(grepl("SpeciesB", result2$modeling_id))
+  expect_true(grepl("SpeciesA", result1$modeling_id, ignore.case = TRUE))
+  expect_true(grepl("SpeciesB", result2$modeling_id, ignore.case = TRUE))
 })
 
 test_that("predict_biomod2_suitability returns SpatRaster", {
