@@ -561,7 +561,7 @@ if (requireNamespace("biomod2", quietly = TRUE) && isTRUE(getOption("sdm.enable_
     method = "Ensemble SDM via biomod2 package (GLM, GAM, RF, MAXNET, etc.)",
     packages = c("biomod2", "PresenceAbsence", "pROC"),
     maturity = "experimental",
-    fit_fun = function(...) run_biomod2(...),
+    fit_fun = function(...) fit_biomod2_sdm(...),
     predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
       predict_biomod2_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
     },
