@@ -138,3 +138,30 @@ test_that("DNN CPU vs GPU predictions are numerically equivalent", {
 
   expect_equal(cpu_vals, gpu_vals, tolerance = 1e-4)
 })
+
+test_that("DNN training balances presence/background classes", {
+  df <- data.frame(y = c(rep(1, 10), rep(0, 200)), a = seq_len(210))
+  out <- sdm_dnn_balance_classes(df)
+  expect_equal(sum(out$y == 0), 200)
+  expect_equal(sum(out$y == 1), 200)
+  expect_true(all(out$a[out$y == 1] %in% 1:10))
+  balanced <- data.frame(y = c(rep(1, 50), rep(0, 100)), a = 1:150)
+  expect_identical(sdm_dnn_balance_classes(balanced), balanced)
+  expect_identical(nrow(sdm_dnn_balance_classes(data.frame(y = rep(0, 5), a = 1:5))), 5L)
+})
+
+test_that("imbalanced DNN fit learns signal instead of a constant", {
+  skip_if_not_installed("cito")
+  skip_if_not(isTRUE(tryCatch(torch::torch_is_installed(), error = function(e) FALSE)))
+  set.seed(11)
+  n <- 1500
+  x <- matrix(rnorm(n * 3), n, 3, dimnames = list(NULL, c("bio1", "bio4", "bio12")))
+  y <- as.integer(x[, 1] > 1.6)  # ~5% presences, separable on bio1
+  tr <- 1:1000; te <- 1001:1500
+  m <- train_dnn_model(list(train_x = x[tr, ], train_y = y[tr], test_x = x[te, ], test_y = y[te],
+                            feature_names = colnames(x)), model_type = "DNN_Small", device = "cpu")
+  p <- predict(m, newdata = as.data.frame(x[te, ]), type = "response", device = "cpu")
+  p <- if (is.matrix(p)) p[, 1] else as.numeric(p)
+  expect_gt(stats::sd(p), 0.01)
+  expect_gt(auc_rank(y[te], p), 0.8)
+})

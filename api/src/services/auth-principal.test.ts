@@ -17,6 +17,8 @@ const mockDb = vi.hoisted(() => ({
 
 vi.mock("hono/jwt", () => ({ verify: mockVerify }));
 vi.mock("../db/index.js", () => ({ db: mockDb }));
+const browserState = vi.hoisted(() => ({ active: vi.fn() }));
+vi.mock("./browser-session-lifecycle.js", () => ({ isPersistentBrowserSessionActive: browserState.active }));
 
 const { AuthStorageUnavailable, verifyCurrentApiKey, verifyCurrentJwt } = await import("./auth-principal.js");
 
@@ -38,6 +40,38 @@ describe("current principal verification", () => {
     mockDb.select.mockClear();
     dbState.rows = [];
     dbState.error = null;
+    browserState.active.mockReset().mockResolvedValue(true);
+  });
+
+  it("requires complete canonical browser claims and checks their active persisted session", async () => {
+    const sid = "22222222-2222-4222-8222-222222222222";
+    for (const claims of [
+      { browser_session: true }, { browser_session: true, sid: "not-a-uuid" },
+      { browser_session: false, sid }, { browser_session: "true", sid },
+      { sid }, { browser_session: true, sid: "22222222222242228222222222222222" },
+    ]) {
+      mockVerify.mockResolvedValueOnce({ ...validPayload(), ...claims });
+      await expect(verifyCurrentJwt("token")).resolves.toBeNull();
+    }
+    expect(mockDb.select).not.toHaveBeenCalled();
+
+    mockVerify.mockResolvedValue({ ...validPayload(), browser_session: true, sid });
+    dbState.rows.push([{ id: userId, email: "current@example.com", role: "viewer", authVersion: 4 }]);
+    browserState.active.mockResolvedValueOnce(false);
+    await expect(verifyCurrentJwt("token")).resolves.toBeNull();
+    expect(browserState.active).toHaveBeenCalledWith(userId, sid, 4);
+  });
+
+  it("preserves untagged legacy JWT behavior and maps browser session storage failures", async () => {
+    mockVerify.mockResolvedValue(validPayload());
+    dbState.rows.push([{ id: userId, email: "current@example.com", role: "viewer", authVersion: 4 }]);
+    await expect(verifyCurrentJwt("token")).resolves.toMatchObject({ source: "jwt" });
+    expect(browserState.active).not.toHaveBeenCalled();
+
+    mockVerify.mockResolvedValue({ ...validPayload(), browser_session: true, sid: "22222222-2222-4222-8222-222222222222" });
+    dbState.rows.push([{ id: userId, email: "current@example.com", role: "viewer", authVersion: 4 }]);
+    browserState.active.mockRejectedValueOnce(new Error("database offline"));
+    await expect(verifyCurrentJwt("token")).rejects.toBeInstanceOf(AuthStorageUnavailable);
   });
 
   it("uses current database email and role, not JWT claims", async () => {

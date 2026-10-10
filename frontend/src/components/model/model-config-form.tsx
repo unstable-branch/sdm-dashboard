@@ -8,7 +8,8 @@ import { TooltipInfo } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { apiGet, apiUpload, fetchWithAuth } from "@/services/api";
+import { apiGet, apiUpload } from "@/services/api";
+import { currentSessionGeneration } from "@/services/session-coordinator";
 import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
 import { ModelConfigBiovars } from "./model-config-biovars";
@@ -27,7 +28,7 @@ interface ModelInfo {
 interface ModelConfigFormProps {
   occurrenceFile: string | null;
   recordCount: number;
-  cleanedOccurrence: { filePath: string; df: Record<string, unknown>[]; sourceCounts: Record<string, number>; nAbsentExcluded: number; originalRows: number; validRecords: number; } | null;
+  cleanedOccurrence: { filePath: string; cleanedAssetId?: string; df: Record<string, unknown>[]; sourceCounts: Record<string, number>; nAbsentExcluded: number; originalRows: number; validRecords: number | null; } | null;
   onSubmit: (config: Partial<ModelConfig>) => void;
   loading: boolean;
 }
@@ -333,22 +334,24 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
   useEffect(() => {
     if (biovars.length < 2) return;
+    let current = true;
+    const generation = currentSessionGeneration();
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       setClimateCheckLoading(true);
       setClimateCheckError(null);
-      fetchWithAuth(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`)
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      apiGet<{ available: number[] }>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`, { signal: controller.signal })
         .then((data) => {
-          if (data && Array.isArray(data.available)) {
-            setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b)));
+          if (current && generation === currentSessionGeneration() && data && Array.isArray(data.available)) {
+            setMissingBiovars(biovars.filter((b) => !data.available.includes(b)));
           }
         })
         .catch((err) => {
-          setClimateCheckError(err instanceof Error ? err.message : String(err));
+          if (current && generation === currentSessionGeneration()) setClimateCheckError(err instanceof Error ? err.message : String(err));
         })
-        .finally(() => setClimateCheckLoading(false));
+        .finally(() => { if (current && generation === currentSessionGeneration()) setClimateCheckLoading(false); });
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { current = false; clearTimeout(timer); controller.abort(); };
   }, [biovarKey, climateSource, climateRes]);
 
   // Auto-select enmevalAlgorithm to match model. Always overwrites on model change.
@@ -584,12 +587,12 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     <div className="space-y-6">
       {error && <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">{error}</div>}
 
-      {cleanedOccurrence?.filePath ? (
+      {cleanedOccurrence?.cleanedAssetId ? (
         <div className="rounded-md border border-indigo-500/30 bg-indigo-500/5 px-4 py-3 flex items-center gap-3">
           <CheckCircle2 className="h-4 w-4 text-indigo-500 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-sdm-text">Cleaned occurrence data ready</p>
-            <p className="text-xs text-sdm-muted">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
+            <p className="text-xs text-sdm-muted">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords === null ? "cleaned count unavailable" : `${cleanedOccurrence.validRecords.toLocaleString()} cleaned records`}</p>
           </div>
           <Link href="/data?tab=upload" className="text-xs font-medium text-sdm-accent hover:underline shrink-0">Review →</Link>
         </div>

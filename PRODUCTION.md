@@ -72,9 +72,17 @@ grafana:3000 → dashboards
 | postgres | 5432 | PostgreSQL + PostGIS |
 | redis | 6379 | Queue + caching |
 | plumber | 8000 | R SDM computation |
-| garage | 3900 | S3-compatible storage |
-| prometheus | 9090 | Metrics collection |
-| grafana | 3001 | Monitoring dashboards |
+| garage | 3900 (internal) | S3-compatible storage |
+| prometheus | 127.0.0.1:9090 | Metrics collection (`monitoring` profile) |
+| grafana | 127.0.0.1:3001 | Monitoring dashboards (`monitoring` profile) |
+
+Only nginx (80/443) is published by default. Garage, PostgreSQL, Redis and Plumber are reachable only on the internal `sdm-network`. Monitoring is opt-in and bound to loopback:
+
+```bash
+docker compose -f docker-compose.prod.yml --profile monitoring up -d
+```
+
+Reach Grafana/Prometheus through an SSH tunnel (`ssh -L 3001:127.0.0.1:3001 host`) or a reverse proxy with its own authentication.
 
 ## SSL/TLS
 
@@ -165,7 +173,7 @@ plumber:
     resources:
       limits:
         cpus: "4"
-        memory: 8G
+        memory: 12G
 ```
 
 ## Troubleshooting

@@ -223,6 +223,10 @@ tryCatch({
     worldclim_dir = sdm_resolve_project_path(config$worldclim_dir %||% sdm_default_worldclim_dir, app_dir),
     selected_biovars = biovars,
     projection_extent = projection_extent,
+    training_extent = if (!is.null(config$training_extent)) as.numeric(unlist(strsplit(as.character(config$training_extent), ","))) else NULL,
+    extrapolation_mask = isTRUE(config$extrapolation_mask %||% TRUE),
+    mess_threshold = as.numeric(config$mess_threshold %||% 0),
+    generate_cog = isTRUE(config$generate_cog %||% TRUE),
     background_n = as.integer(config$background_n %||% sdm_default_background_n),
     min_source_records = as.integer(config$min_source_records %||% sdm_default_min_source_records),
     merge_small_sources = isTRUE(config$merge_small_sources %||% TRUE),
@@ -266,6 +270,10 @@ tryCatch({
     maxnet_features = config$maxnet_features %||% sdm_default_maxnet_features,
     maxnet_regmult = as.numeric(config$maxnet_regmult %||% sdm_default_maxnet_regmult),
     bias_method = config$bias_method %||% "uniform",
+    target_group_occ = sdm_load_target_group_occ(
+      config$target_group_file, app_dir,
+      bias_method = config$bias_method %||% "uniform"
+    ),
     thickening_distance_km = as.numeric(config$thickening_distance_km %||% sdm_default_thinning_distance_km),
     pa_replicates = as.integer(config$pa_replicates %||% sdm_default_pa_replicates),
     output_dir = job_dir,

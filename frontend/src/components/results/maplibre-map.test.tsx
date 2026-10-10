@@ -29,6 +29,10 @@ const mapInstance = {
   remove: vi.fn(),
   getContainer: vi.fn(() => document.createElement("div")),
   loaded: vi.fn(() => true),
+  getLayer: vi.fn(() => null),
+  getSource: vi.fn(() => null),
+  removeLayer: vi.fn(),
+  removeSource: vi.fn(),
 };
 
 // MapRef is an object with `getMap()` method that returns the actual MapLibre map.
@@ -56,8 +60,11 @@ const fakeMap = {
   loaded: mapInstance.loaded,
 };
 
+const { protocolAdd, protocolRemove, apiGetArrayBuffer, sourceTiles } = vi.hoisted(() => ({ protocolAdd: vi.fn(), protocolRemove: vi.fn(), apiGetArrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(0)), sourceTiles: [] as string[][] }));
 vi.mock("maplibre-gl", () => ({
   default: {
+    addProtocol: protocolAdd,
+    removeProtocol: protocolRemove,
     Map: class {},
     NavigationControl: class {},
     AttributionControl: class {},
@@ -78,6 +85,7 @@ interface CapturedMapProps {
   onMoveEnd?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   children?: React.ReactNode;
+  transformRequest?: unknown;
 }
 
 const captured: { current: CapturedMapProps | null } = { current: null };
@@ -88,9 +96,12 @@ vi.mock("react-map-gl/maplibre", () => ({
     if (ref && typeof ref === "object") {
       (ref as { current: typeof fakeMap }).current = fakeMap;
     }
-    return <div data-testid="mock-map" />;
+    return <div data-testid="mock-map">{props.children}</div>;
   }),
-  Source: ({ id }: { id?: string }) => <div data-testid="mock-source" data-source-id={id} />,
+  Source: (props: { id?: string; tiles?: string[] }) => {
+    if (props.id === "suitability" && props.tiles) sourceTiles.push(props.tiles);
+    return <div data-testid="mock-source" data-source-id={props.id} />;
+  },
   Layer: () => <div data-testid="mock-layer" />,
 }));
 
@@ -124,9 +135,11 @@ vi.mock("@/hooks/use-keyboard-shortcuts", () => ({
 }));
 
 vi.mock("@/services/api", () => ({
-  getToken: () => null,
+  apiGetArrayBuffer,
+  assertSessionGenerationCurrent: vi.fn(),
   apiGetSuitabilityValue: vi.fn().mockResolvedValue({ value: null }),
 }));
+vi.mock("@/services/session-coordinator", () => ({ currentSessionGeneration: () => 1 }));
 
 vi.mock("@turf/intersect", () => ({ default: () => null }));
 vi.mock("@turf/bbox-polygon", () => ({
@@ -213,10 +226,31 @@ function flushTimers() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sourceTiles.length = 0;
   mapInstance.setFeatureState.mockReset();
   mapInstance.queryRenderedFeatures.mockReset();
   mapInstance.queryRenderedFeatures.mockReturnValue([]);
   captured.current = null;
+});
+
+describe("MaplibreMap authenticated raster ownership", () => {
+  it("uses a scoped protocol tile URL and never installs a token transform", () => {
+    renderMap();
+    expect(captured.current?.transformRequest).toBeUndefined();
+    expect(sourceTiles.at(-1)?.[0]).toMatch(/^sdm-results-[a-z0-9]+:\/\/m[a-z0-9]+\/api\/v1\/results\/tiles\/test-run\/\{z\}\/\{x\}\/\{y\}\?band=suitability$/);
+    expect(protocolAdd).toHaveBeenCalledTimes(1);
+  });
+
+  it("suspends on confirmed expiry and restores a new raster scope after the principal changes", () => {
+    renderMap();
+    const initialUrl = sourceTiles.at(-1)?.[0];
+    act(() => window.dispatchEvent(new CustomEvent("sdm:session-expired")));
+    expect(protocolRemove).toHaveBeenCalled();
+    const callsAfterExpiry = sourceTiles.length;
+    act(() => window.dispatchEvent(new CustomEvent("sdm:session-changed")));
+    expect(sourceTiles.length).toBeGreaterThan(callsAfterExpiry);
+    expect(sourceTiles.at(-1)?.[0]).not.toBe(initialUrl);
+  });
 });
 
 describe("MaplibreMap - handleMapError discrimination", () => {

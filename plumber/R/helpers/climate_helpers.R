@@ -399,6 +399,7 @@ handle_climate_status <- function(req, res, job_id, app_dir) {
   list(
     id = meta$id,
     type = meta$type,
+    user_id = nullify(meta$user_id) %||% NA,
     status = meta$status,
     started_at = meta$started_at,
     completed_at = nullify(meta$completed_at) %||% NA,
@@ -578,21 +579,28 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
     if (source == "worldclim") {
       res_label <- sdm_worldclim_res_label(resolution)
       base_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
-      all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
-                                                      full.names = TRUE, recursive = TRUE) else character()
-      manifest_ok <- tryCatch(check_manifest_for_biovars(base_dir, "worldclim", requested, names_fn = function(bv) {
-        paste0("wc2.1_", res_label, "_bio_", bv, ".tif")
-      }), error = function(e) NULL)
-      matched_worldclim <- match_worldclim_biovars(all_tifs, requested, res_label)
-      existing_nums <- matched_worldclim$biovars
+      selected_worldclim <- find_worldclim_files(base_dir, requested, "worldclim", resolution)
+      existing_nums <- suppressWarnings(as.integer(names(selected_worldclim)[
+        !is.na(selected_worldclim) & nzchar(selected_worldclim)
+      ]))
+      manifest_ok <- tryCatch(check_manifest_for_biovars(
+        base_dir, "worldclim", requested, actual_files = selected_worldclim,
+        expected_res = resolution
+      ), error = function(e) integer(0))
       if (!is.null(manifest_ok)) {
         existing_nums <- intersect(manifest_ok, existing_nums)
       }
     } else if (source == "chelsa") {
       base_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
-      all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
-                                                      full.names = TRUE, recursive = TRUE) else character()
-      existing_nums <- match_chelsa_biovars(all_tifs, requested)$biovars
+      selected_chelsa <- find_worldclim_files(base_dir, requested, "chelsa")
+      existing_nums <- suppressWarnings(as.integer(names(selected_chelsa)[
+        !is.na(selected_chelsa) & nzchar(selected_chelsa)
+      ]))
+      manifest_ok <- tryCatch(check_manifest_for_biovars(
+        base_dir, "chelsa", requested, actual_files = selected_chelsa,
+        expected_res = "0.5"
+      ), error = function(e) integer(0))
+      if (!is.null(manifest_ok)) existing_nums <- intersect(manifest_ok, existing_nums)
     } else if (source == "cmip6") {
       if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
         if (grepl("(\\.\\./|\\.\\.\\\\|/)", paste(gcm, ssp, period))) {
@@ -600,9 +608,16 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
         }
         base_dir <- file.path(sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
                               paste0(gcm, "_", ssp, "_", period))
-        all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
-                                                         full.names = TRUE, recursive = TRUE) else character()
-        existing_nums <- match_cmip6_biovars(all_tifs, requested)$biovars
+        selected_cmip6 <- find_cmip6_files(base_dir, requested)
+        selected_names <- sub("^bio", "", names(selected_cmip6))
+        existing_nums <- suppressWarnings(as.integer(selected_names[
+          !is.na(selected_cmip6) & nzchar(selected_cmip6)
+        ]))
+        manifest_ok <- tryCatch(check_manifest_for_biovars(
+          base_dir, "cmip6", requested, actual_files = selected_cmip6,
+          expected_res = paste(gcm, ssp, period, sep = "_")
+        ), error = function(e) integer(0))
+        if (!is.null(manifest_ok)) existing_nums <- intersect(manifest_ok, existing_nums)
       }
     }
 

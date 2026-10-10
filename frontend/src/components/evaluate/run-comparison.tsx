@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { BarChart3, ArrowRight } from "lucide-react";
 import { apiGet } from "@/services/api";
 import type { RunDetail } from "@/services/types";
@@ -17,9 +17,10 @@ export function RunComparison({ runs }: RunComparisonProps) {
   const [runDetails, setRunDetails] = useState<Record<string, RunSummary>>({});
   const [detailedReport, setDetailedReport] = useState(false);
 
-  const completedRuns = runs.filter((r) => r.status === "completed");
+  const completedRuns = useMemo(() => runs.filter((r) => r.status === "completed"), [runs]);
 
   useEffect(() => {
+    let current = true;
     const fetchDetails = async () => {
       const details: Record<string, RunSummary> = {};
       await Promise.all(
@@ -32,18 +33,23 @@ export function RunComparison({ runs }: RunComparisonProps) {
           }
         })
       );
-      setRunDetails(details);
+      if (current) setRunDetails(details);
     };
     fetchDetails();
+    return () => { current = false; };
   }, [completedRuns]);
 
   const toggleRun = (id: string) => {
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((r) => r !== id) : prev.length < 4 ? [...prev, id] : prev
-    );
+    setSelected((prev) => {
+      const current = prev.filter(selectedId => completedRuns.some(run => run.id === selectedId));
+      return current.includes(id) ? current.filter(runId => runId !== id) : current.length < 4 ? [...current, id] : current;
+    });
   };
 
-  const selectedRuns = selected.map((id) => runDetails[id]).filter(Boolean);
+  const activeSelected = selected.filter(id => completedRuns.some(run => run.id === id));
+  const selectedRuns = activeSelected
+    .map(id => runDetails[id])
+    .filter(Boolean);
 
   const metrics = ["auc_mean", "auc_sd", "tss_mean", "tss_sd", "elapsed_seconds", "presence_records", "background_points"];
   const metricLabels: Record<string, string> = {
@@ -82,9 +88,12 @@ export function RunComparison({ runs }: RunComparisonProps) {
           {completedRuns.map((run) => (
             <button
               key={run.id}
+              type="button"
+              aria-pressed={activeSelected.includes(run.id)}
+              disabled={!activeSelected.includes(run.id) && activeSelected.length >= 4}
               onClick={() => toggleRun(run.id)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors border ${
-                selected.includes(run.id)
+              className={`px-3 py-2 rounded-md text-sm font-medium transition-colors border disabled:cursor-not-allowed disabled:opacity-50 ${
+                activeSelected.includes(run.id)
                   ? "border-sdm-accent bg-sdm-accent/10 text-sdm-accent"
                   : "border-sdm-border bg-sdm-surface-soft text-sdm-muted hover:text-sdm-text"
               }`}
@@ -98,7 +107,7 @@ export function RunComparison({ runs }: RunComparisonProps) {
       {selectedRuns.length > 0 && (
         <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table aria-label="Run comparison metrics" className="w-full text-sm">
               <thead>
                 <tr className="border-b border-sdm-border">
                   <th className="text-left px-4 py-2 font-medium text-sdm-muted">Metric</th>

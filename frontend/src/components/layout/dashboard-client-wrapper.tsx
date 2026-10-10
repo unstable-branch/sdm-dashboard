@@ -14,7 +14,7 @@ export function DashboardClientWrapper({ children }: { children: React.ReactNode
           <AppSidebar />
           <SidebarInset>
             <AppShellHeader />
-            <main className="flex-1 p-4 sm:p-6">{children}</main>
+            <main id="workbench-content" tabIndex={-1} className="min-w-0 flex-1 p-4 outline-none sm:p-6 lg:p-8">{children}</main>
           </SidebarInset>
         </AuthGuard>
       </SidebarProvider>

@@ -173,6 +173,69 @@ pre_check_memory <- function(path, log_fun = NULL) {
   })
 }
 
+# Map the app's CoordinateCleaner test names (frontend `CC_TESTS_OPTIONS`) to
+# the names `CoordinateCleaner::clean_coordinates(tests =)` accepts. The app
+# names differ for sea/zero/country; unmapped names are logged and dropped
+# rather than passed through (CoordinateCleaner silently ignores unknown names,
+# which previously made "sea" and "zero" no-ops).
+cc_test_name_map <- c(
+  sea = "seas", seas = "seas",
+  capitals = "capitals", centroids = "centroids", institutions = "institutions",
+  urban = "urban", zero = "zeros", zeros = "zeros", equal = "equal",
+  gbif = "gbif", country = "countries", countries = "countries"
+)
+cc_default_tests <- c("seas", "capitals", "institutions", "centroids", "urban", "zeros")
+
+cc_resolve_tests <- function(cc_tests, log_fun = NULL) {
+  if (is.null(cc_tests) || !length(cc_tests)) return(cc_default_tests)
+  requested <- unique(trimws(unlist(strsplit(as.character(cc_tests), ",", fixed = TRUE))))
+  requested <- requested[nzchar(requested)]
+  if (!length(requested) || "all" %in% requested) return(cc_default_tests)
+  unknown <- setdiff(requested, names(cc_test_name_map))
+  if (length(unknown)) {
+    log_message(log_fun, "CoordinateCleaner: ignoring unknown test(s): ", paste(unknown, collapse = ", "))
+  }
+  unique(unname(cc_test_name_map[intersect(requested, names(cc_test_name_map))]))
+}
+
+# The sea and urban tests need Natural Earth reference layers. CoordinateCleaner
+# downloads them on demand; when that fails (offline host, blocked egress) it
+# errors from its own fallback warning with `rnaturalearth >= 1.0` (stale
+# `full_url` argument). Run those tests individually so one unavailable layer
+# skips that test, with a log line, instead of failing the whole clean job.
+cc_reference_tests <- c("seas", "urban")
+
+cc_run_tests <- function(cc_input, cc_species, tests, log_fun = NULL) {
+  call_cc <- function(test_set) {
+    CoordinateCleaner::clean_coordinates(
+      cc_input, lon = "longitude", lat = "latitude", species = cc_species,
+      tests = test_set, value = "spatialvalid"
+    )
+  }
+  skipped <- character()
+  core <- setdiff(tests, cc_reference_tests)
+  result <- if (length(core)) {
+    call_cc(core)
+  } else {
+    out <- cc_input
+    out$.summary <- TRUE
+    out
+  }
+  for (test in intersect(tests, cc_reference_tests)) {
+    ref <- tryCatch(suppressWarnings(call_cc(test)), error = function(e) e)
+    if (inherits(ref, "error")) {
+      skipped <- c(skipped, test)
+      log_message(log_fun, "CoordinateCleaner: '", test, "' test skipped (reference layer unavailable: ",
+        conditionMessage(ref), ")")
+      next
+    }
+    flag_cols <- setdiff(grep("^[.]", names(ref), value = TRUE), c(".val", ".summary"))
+    for (col in flag_cols) result[[col]] <- ref[[col]]
+    result$.summary <- result$.summary & ref$.summary
+  }
+  list(result = result, skipped = skipped)
+}
+
 clean_occurrences <- function(path, min_source_records = 15, merge_small_sources = TRUE,
                               use_cc = FALSE, cc_tests = "all", log_fun = NULL, progress_fun = NULL, min_records = 20,
                               max_coordinate_uncertainty = NULL, max_records = 200000L) {
@@ -280,15 +343,18 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
   if (nrow(occ) < min_records) stop("Too few valid occurrence records after cleaning (", nrow(occ), "). Minimum: ", min_records, ".", call. = FALSE)
 
   progress_step(progress_fun, 0.16, "Cleaning sources")
+  cc_skipped_tests <- character()
   if (use_cc && requireNamespace("CoordinateCleaner", quietly = TRUE)) {
-    cc_tests_active <- if (identical(cc_tests, "all")) {
-      c("sea", "capitals", "institutions", "centroids", "urban", "zeros")
-    } else {
-      cc_tests
-    }
-    cc_tests_filtered <- cc_tests_active
+    cc_tests_filtered <- cc_resolve_tests(cc_tests, log_fun = log_fun)
     if (!"species" %in% names(occ)) {
       cc_tests_filtered <- setdiff(cc_tests_filtered, c("capitals", "centroids"))
+    }
+    if ("countries" %in% cc_tests_filtered) {
+      # CoordinateCleaner needs an ISO3 country column for this test; the
+      # cleaned table carries none, so record it as skipped instead of failing.
+      cc_tests_filtered <- setdiff(cc_tests_filtered, "countries")
+      cc_skipped_tests <- c(cc_skipped_tests, "countries")
+      log_message(log_fun, "CoordinateCleaner: skipped 'country' test (no ISO3 country column)")
     }
     cc_species <- if ("species" %in% names(occ)) "species" else NULL
     cc_max_for_full <- 50000L
@@ -299,14 +365,9 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     } else {
       occ
     }
-    cc_result <- CoordinateCleaner::clean_coordinates(
-      cc_input,
-      lon = "longitude",
-      lat = "latitude",
-      species = cc_species,
-      tests = cc_tests_filtered,
-      value = "spatialvalid"
-    )
+    cc_run <- cc_run_tests(cc_input, cc_species, cc_tests_filtered, log_fun = log_fun)
+    cc_result <- cc_run$result
+    cc_skipped_tests <- c(cc_skipped_tests, cc_run$skipped)
     occ$cc_flag <- FALSE
     if (cc_run_on_sample) {
       sampled_idx <- as.integer(rownames(cc_input))
@@ -317,8 +378,9 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     cc_test_map <- c(
       .sea = "cc_test_sea", .cap = "cc_test_capitals",
       .inst = "cc_test_institutions", .cen = "cc_test_centroids",
-      .otl = "cc_test_urban", .zer = "cc_test_zero",
-      .equ = "cc_test_equal", .gbf = "cc_test_gbif"
+      .urb = "cc_test_urban", .zer = "cc_test_zero",
+      .equ = "cc_test_equal", .gbf = "cc_test_gbif",
+      .con = "cc_test_country"
     )
     for (col in names(cc_result)) {
       if (col %in% names(cc_test_map)) {
@@ -334,6 +396,9 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     n_total <- if (cc_run_on_sample) cc_max_for_full else nrow(occ)
     log_message(log_fun, "CoordinateCleaner flagged ", n_flagged, " of ", n_total, " records",
       if (cc_run_on_sample) paste0(" (sampled from ", nrow(occ), ")"))
+    if (length(cc_skipped_tests)) {
+      log_message(log_fun, "CoordinateCleaner tests not run: ", paste(cc_skipped_tests, collapse = ", "))
+    }
   } else if (use_cc && !requireNamespace("CoordinateCleaner", quietly = TRUE)) {
     warning("CoordinateCleaner not installed. Install with: install.packages('CoordinateCleaner')")
   }
@@ -358,6 +423,7 @@ clean_occurrences <- function(path, min_source_records = 15, merge_small_sources
     removed_bad_coordinates = removed_bad, removed_duplicates = removed_dupes,
     original_rows = original_n,
     n_absent_excluded = n_absent_excluded,
+    cc_skipped_tests = unique(cc_skipped_tests),
     has_occurrence_status = !is.na(status_col),
     columns = list(
       longitude = if (!is.na(original_lon_col)) original_lon_col else lon_col,

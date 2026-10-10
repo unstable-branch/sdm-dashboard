@@ -1,61 +1,54 @@
-# Tests for batch_run_targets() and targets pipeline setup
+# Tests for batch_run_targets() and config-row parsing.
+# New Targets execution remains unavailable until durable ownership exists.
 
-test_that("batch_run_targets sets env vars and creates output dir", {
-  skip_if_not_installed("targets")
-
-  local_mocked_bindings(
-    tar_make = function(store, ...) invisible(NULL),
-    .package = "targets"
-  )
-
+test_that("batch_run_targets fails closed before side effects", {
   tmp_csv <- tempfile(fileext = ".csv")
-  on.exit(unlink(tmp_csv))
-  write.csv(data.frame(
-    species = "Test", occurrences_csv = "/tmp/test.csv",
-    model_id = "glm", biovars = "1,4,12"
-  ), tmp_csv, row.names = FALSE)
+  on.exit(unlink(tmp_csv), add = TRUE)
+  write.csv(data.frame(species = "Test", occurrences_csv = "test.csv"),
+    tmp_csv, row.names = FALSE)
 
-  tmp_out <- tempfile()
-  on.exit(unlink(tmp_out, recursive = TRUE), add = TRUE)
-
-  batch_run_targets(tmp_csv, output_dir = tmp_out, seed = 42L)
-
-  expect_equal(Sys.getenv("SDM_BATCH_CONFIG"), normalizePath(tmp_csv))
-  expect_equal(Sys.getenv("SDM_BATCH_OUTPUT"), normalizePath(tmp_out))
-  expect_equal(Sys.getenv("SDM_BATCH_SEED"), "42")
-  expect_true(dir.exists(tmp_out))
-})
-
-test_that("batch_run_targets with workers env var", {
-  skip_if_not_installed("targets")
-
-  local_mocked_bindings(
-    tar_make = function(store, ...) invisible(NULL),
-    .package = "targets"
+  tmp_out <- tempfile("targets-disabled-")
+  env_names <- c(
+    "SDM_BATCH_CONFIG", "SDM_BATCH_OUTPUT", "SDM_TARGETS_STORE",
+    "SDM_CLUSTER_WORKERS", "SDM_BATCH_SEED"
   )
+  previous <- Sys.getenv(env_names, unset = NA_character_)
+  on.exit({
+    for (name in env_names) {
+      value <- previous[[name]]
+      if (is.na(value)) {
+        Sys.unsetenv(name)
+      } else {
+        do.call(Sys.setenv, stats::setNames(list(value), name))
+      }
+    }
+  }, add = TRUE)
+  Sys.unsetenv(env_names)
 
-  tmp_csv <- tempfile(fileext = ".csv")
-  on.exit(unlink(tmp_csv))
-  write.csv(data.frame(
-    species = "Test", occurrences_csv = "/tmp/test.csv"
-  ), tmp_csv, row.names = FALSE)
-
-  tmp_out <- tempfile()
-  on.exit(unlink(tmp_out, recursive = TRUE), add = TRUE)
-
-  batch_run_targets(tmp_csv, output_dir = tmp_out, workers = 4L, seed = 1L)
-
-  expect_equal(Sys.getenv("SDM_TARGETS_WORKERS"), "4")
-  expect_equal(Sys.getenv("SDM_BATCH_SEED"), "1")
-})
-
-test_that("batch_run_targets errors on non-existent config CSV", {
-  skip_if_not_installed("targets")
+  tar_make_called <- FALSE
+  if (requireNamespace("targets", quietly = TRUE)) {
+    local_mocked_bindings(
+      tar_make = function(...) tar_make_called <<- TRUE,
+      .package = "targets"
+    )
+  }
 
   expect_error(
-    batch_run_targets("/nonexistent/config.csv", output_dir = tempfile()),
-    "No such file or directory"
+    batch_run_targets(tmp_csv, output_dir = tmp_out, workers = 4L, seed = 1L),
+    "TARGETS_DURABLE_EXECUTION_UNAVAILABLE"
   )
+  expect_false(tar_make_called)
+  expect_false(dir.exists(tmp_out))
+  expect_identical(unname(Sys.getenv(env_names)), rep("", length(env_names)))
+})
+
+test_that("batch_run_targets refuses config validation while unavailable", {
+  tmp_out <- tempfile("targets-disabled-")
+  expect_error(
+    batch_run_targets("/nonexistent/config.csv", output_dir = tmp_out, workers = 4L),
+    "TARGETS_DURABLE_EXECUTION_UNAVAILABLE"
+  )
+  expect_false(dir.exists(tmp_out))
 })
 
 test_that("build_config_from_row accepts multi-species config rows", {
@@ -95,33 +88,10 @@ test_that("build_config_from_row accepts multi-species config rows", {
   expect_equal(cfgs[[2]]$selected_biovars, c(1L, 4L, 12L))
 })
 
-test_that("batch_run_targets integration (requires targets package)", {
-  skip_if_not_installed("targets")
-  skip_if_not_installed("terra")
-
-  wc_dir <- file.path(project_root, "Worldclim")
-  skip_if_not(dir.exists(wc_dir), message = "WorldClim data not available")
-
-  tmp_csv <- tempfile(fileext = ".csv")
-  on.exit(unlink(tmp_csv))
-  write.csv(data.frame(
-    species = c("Integration_A", "Integration_B"),
-    occurrences_csv = file.path(project_root, "data", "examples",
-      "synthetic_presence_data.csv"),
-    model_id = c("glm", "glm"),
-    biovars = c("1,4,12", "1,4,12"),
-    projection_extent = c("112,154,-44,-10", "112,154,-44,-10"),
-    cv_folds = c("2", "2"),
-    background_n = c("100", "100"),
-    worldclim_dir = c(normalizePath(wc_dir), normalizePath(wc_dir)),
-    stringsAsFactors = FALSE
-  ), tmp_csv, row.names = FALSE)
-
-  tmp_out <- tempfile()
-  on.exit(unlink(tmp_out, recursive = TRUE), add = TRUE)
-
-  expect_error(
-    batch_run_targets(tmp_csv, output_dir = tmp_out, seed = 42),
-    NA
-  )
+test_that("build_config_from_row handles nullable fields", {
+  row <- list(species = "Minimal", occurrences_csv = "data.csv")
+  cfg <- build_config_from_row(row, seed = 1L)
+  expect_s3_class(cfg, "sdm_config")
+  expect_equal(cfg$species, "Minimal")
+  expect_true(is.numeric(cfg$selected_biovars))
 })

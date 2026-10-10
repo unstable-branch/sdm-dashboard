@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { apiGet, apiPost, apiDelete, getAuthToken } from "@/services/api";
+import { apiGet, apiPost, apiDelete } from "@/services/api";
 import { Key, Plus, Trash2, Copy, CheckCircle2, AlertTriangle } from "lucide-react";
 
 interface ApiKey {
@@ -26,13 +26,6 @@ export function ApiKeyManager() {
   }, []);
 
   const fetchKeys = async () => {
-    const token = getAuthToken();
-    if (!token) {
-      setKeys([]);
-      setLoading(false);
-      return;
-    }
-
     try {
       const data = await apiGet<unknown[]>("/api/v1/auth/api-keys");
       setKeys(data as ApiKey[]);
@@ -49,9 +42,6 @@ export function ApiKeyManager() {
     setError(null);
 
     try {
-      const token = getAuthToken();
-      if (!token) throw new Error("Sign in again before creating API keys");
-
       const data = await apiPost<{ key: string; error?: string }>(
         "/api/v1/auth/api-keys",
         { name: newKeyName, expiresAt: newKeyExpiry || null },
@@ -68,14 +58,12 @@ export function ApiKeyManager() {
   };
 
   const handleDelete = async (id: string) => {
+    setError(null);
     try {
-      const token = getAuthToken();
-      if (!token) return;
-
       await apiDelete(`/api/v1/auth/api-keys/${id}`);
       setKeys((prev) => prev.filter((k) => k.id !== id));
-    } catch {
-      // Silently fail
+    } catch (err) {
+      setError(err instanceof Error ? `Failed to delete API key: ${err.message}` : "Failed to delete API key");
     }
   };
 
@@ -116,7 +104,7 @@ export function ApiKeyManager() {
       )}
 
       {error && (
-        <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400">
+        <div role="alert" className="rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-400">
           {error}
         </div>
       )}

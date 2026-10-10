@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useMemo } from "react";
+import { useContext, useMemo, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import {
   Sidebar,
@@ -17,14 +17,11 @@ import {
 } from "@/components/ui/sidebar";
 import {
   Leaf,
-  Moon,
-  Sun,
   X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useTheme } from "next-themes";
-import { Button } from "@/components/ui/button";
+
 import { pipelineItems, systemItems } from "@/components/dashboard-nav";
 import { useAuthStore } from "@/stores/auth-store";
 import { useJobSSE } from "@/hooks/use-job-sse";
@@ -67,18 +64,27 @@ function ActiveJobDot() {
 }
 
 export function AppSidebar() {
-  const { theme, setTheme } = useTheme();
-  const { setOpen } = useContext(SidebarContext);
+  const { open, setOpen } = useContext(SidebarContext);
   const pathname = usePathname();
+  const previousPathname = useRef(pathname);
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === "admin";
+
+  useEffect(() => {
+    if (previousPathname.current === pathname) return;
+    previousPathname.current = pathname;
+    if (open && window.matchMedia("(max-width: 767px)").matches) {
+      setOpen(false);
+      window.requestAnimationFrame(() => document.getElementById("workbench-content")?.focus());
+    }
+  }, [pathname, open, setOpen]);
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
     return pathname === href || pathname.startsWith(href + "/");
   };
 
-  const navLinkClass = "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-sdm-text hover:bg-sdm-surface-soft hover:text-sdm-accent transition-colors";
+  const navLinkClass = "flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sdm-muted hover:bg-sdm-surface-soft hover:text-sdm-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sdm-accent transition-colors";
 
   const systemLinks = useMemo(
     () =>
@@ -86,8 +92,8 @@ export function AppSidebar() {
         const active = isActive(item.href);
         return (
           <SidebarMenuItem key={item.href}>
-            <SidebarMenuButton asChild className={active ? "bg-sdm-accent/10" : ""}>
-              <Link href={item.href} className={cn(navLinkClass, active && "text-sdm-accent")} aria-current={active ? "page" : undefined}>
+            <SidebarMenuButton asChild className="p-0 hover:bg-transparent">
+              <Link href={item.href} className={cn(navLinkClass, active && "bg-sdm-accent/10 text-sdm-accent")} aria-current={active ? "page" : undefined}>
                 <item.icon className="h-4 w-4 shrink-0" />
                 <span>{item.title}</span>
               </Link>
@@ -101,9 +107,14 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-4 py-3">
-          <Leaf className="h-6 w-6 text-sdm-accent" aria-hidden="true" />
-          <span className="text-lg font-bold text-sdm-heading">SDM Platform</span>
+        <div className="flex items-center gap-3 px-3 py-5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sdm-accent/20 bg-sdm-accent/10">
+            <Leaf className="h-5 w-5 text-sdm-accent" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <span className="block text-base font-semibold tracking-tight text-sdm-heading">SDM Platform</span>
+            <span className="block text-xs text-sdm-muted">Species distribution modelling</span>
+          </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
@@ -121,9 +132,9 @@ export function AppSidebar() {
             <SidebarMenu>
               {pipelineItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild className={isActive(item.href) ? "bg-sdm-accent/10 text-sdm-accent" : ""}>
-                    <Link href={item.href}>
-                      <item.icon className="h-4 w-4" />
+                  <SidebarMenuButton asChild className="p-0 hover:bg-transparent">
+                    <Link href={item.href} className={cn(navLinkClass, isActive(item.href) && "bg-sdm-accent/10 text-sdm-accent")} aria-current={isActive(item.href) ? "page" : undefined}>
+                      <item.icon className="h-4 w-4 shrink-0" />
                       <span>{item.title}</span>
                       {item.href === "/model" && <ActiveJobDot />}
                     </Link>
@@ -144,15 +155,7 @@ export function AppSidebar() {
         {isAdmin && <AdminSidebarGroup />}
       </SidebarContent>
       <SidebarFooter>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        >
-          <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Toggle theme</span>
-        </Button>
+        <p className="px-3 py-2 text-xs leading-relaxed text-sdm-muted">SDM Dashboard Workbench</p>
       </SidebarFooter>
     </Sidebar>
   );

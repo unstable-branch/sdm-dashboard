@@ -65,6 +65,7 @@ NO_RECORD_REQUIRED = BASE_PACKAGES | BASE_RUNTIME
 # Hard dependency fields, in DESCRIPTION order. Suggests is deliberately excluded:
 # it is an optional/dev scope, not the restore contract this check pins.
 HARD_FIELDS = ("Depends", "Imports", "LinkingTo")
+# `Suggests` is intentionally not an installation contract for the primary runtime.
 
 # DCF field header: field names may contain letters, digits, and .@_+- (Authors@R).
 FIELD_RE = re.compile(r"^([A-Za-z][A-Za-z0-9.@_+-]*):(.*)$")
@@ -201,6 +202,18 @@ SELF_TEST_FIXTURES = (
         "Package: T\nImports: ()\n",
         {"presentPkg": {}},
         ("error", None),
+    ),
+    (
+        "truly empty hard field does not borrow a following Suggests value",
+        "Package: T\nImports:\nSuggests: definitelyNotInLock\n",
+        {"presentPkg": {}},
+        ("error", None),
+    ),
+    (
+        "empty field does not hide a later hard field",
+        "Package: T\nImports:\nLinkingTo: definitelyNotInLock\n",
+        {"presentPkg": {}},
+        ("missing", ["definitelyNotInLock"]),
     ),
     (
         "DESCRIPTION with no hard dependency fails closed",

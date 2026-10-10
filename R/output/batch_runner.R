@@ -197,34 +197,20 @@ build_config_from_row <- function(row, seed = 42L) {
   do.call(sdm_config, args)
 }
 
-#' Run a multi-species batch using the targets pipeline.
-#' Reads the CSV, triggers _targets.R branching via env vars.
+#' Start a Targets-backed multi-species batch (currently unavailable).
 #' @param config_csv path to batch config CSV.
 #' @param output_dir output directory.
-#' @param workers number of parallel workers (NULL = auto).
+#' @param workers integer number of workers.
 #' @param seed random seed.
+#' @return Throws TARGETS_DURABLE_EXECUTION_UNAVAILABLE until durable execution ownership exists.
 batch_run_targets <- function(config_csv, output_dir = "batch_results/",
                                workers = NULL, seed = 42L) {
-  if (!requireNamespace("targets", quietly = TRUE)) {
-    stop("targets package required. Install with: install.packages('targets')", call. = FALSE)
-  }
-
-  config_csv <- normalizePath(config_csv, mustWork = TRUE)
-  out_dir <- normalizePath(output_dir, mustWork = FALSE)
-  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-
-  targets_store <- file.path(out_dir, "_targets")
-  Sys.setenv(SDM_BATCH_CONFIG = config_csv)
-  Sys.setenv(SDM_BATCH_OUTPUT = out_dir)
-  Sys.setenv(SDM_TARGETS_STORE = targets_store)
-  if (!is.null(workers)) Sys.setenv(SDM_CLUSTER_WORKERS = as.character(workers))
-  if (!is.na(seed)) Sys.setenv(SDM_BATCH_SEED = as.character(seed))
-
-  message("[targets] Running batch pipeline from: ", config_csv)
-  message("[targets] Output directory: ", out_dir)
-
-  targets::tar_make(
-    store = targets_store
+  stop(
+    paste0(
+      "TARGETS_DURABLE_EXECUTION_UNAVAILABLE: New Targets and Targets-backed batch ",
+      "computations are unavailable until durable execution ownership exists."
+    ),
+    call. = FALSE
   )
 }
 

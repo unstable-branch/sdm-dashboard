@@ -15,6 +15,40 @@ import {
 } from "./execution-config.js";
 
 export { CAMEL_TO_SNAKE, SAFE_MODEL_CONFIG_KEYS };
+
+/** Deterministic JSON for execution identity, not authorization or asset sealing. */
+export function canonicalExecutionJson(value: unknown): string {
+  const ancestors = new Set<object>();
+  const invalid = (): never => { throw new Error("Invalid execution identity"); };
+  const serialize = (input: unknown): string => {
+    if (input === null) return "null";
+    if (typeof input === "string" || typeof input === "boolean") return JSON.stringify(input);
+    if (typeof input === "number") return Number.isFinite(input) ? String(input) : invalid();
+    if (typeof input !== "object" || ancestors.has(input)) return invalid();
+    const array = Array.isArray(input);
+    if (!array && Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null) {
+      return invalid();
+    }
+    ancestors.add(input);
+    try {
+      const descriptors = Object.getOwnPropertyDescriptors(input);
+      const keys = array ? Array.from({ length: input.length }, (_, i) => String(i)) : Object.keys(input).sort();
+      const parts: string[] = [];
+      for (const key of keys) {
+        const descriptor = descriptors[key];
+        if (!descriptor || !("value" in descriptor)) return invalid();
+        if (!array && descriptor.value === undefined) continue;
+        const serialized = serialize(descriptor.value);
+        parts.push(array ? serialized : `${JSON.stringify(key)}:${serialized}`);
+      }
+      return array ? `[${parts.join(",")}]` : `{${parts.join(",")}}`;
+    } finally {
+      ancestors.delete(input);
+    }
+  };
+  return serialize(value);
+}
+
 export type ModelConfigRecord = Record<string, unknown> & {
   species?: string;
   modelId?: string;

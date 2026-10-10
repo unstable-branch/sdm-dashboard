@@ -18,6 +18,7 @@ import { SyntheticStressPanel } from "@/components/data/synthetic-stress-panel";
 import { apiPost, apiGet } from "@/services/api";
 import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
+import { readCleanedCount } from "./cleaned-counts";
 
 const CC_TESTS_OPTIONS = [
   { value: "sea", label: "Sea" },
@@ -394,8 +395,8 @@ export function UploadTab({
             const cleanedAssetId = (resultData.cleanedAssetId || resultData.cleaned_asset_id) as string | undefined;
             if (!cleanedAssetId) throw new Error("API returned no canonical cleanedAssetId");
             const cleanedFileId = resultData.cleaned_file_id as string | undefined;
-            const validRecords = (resultData.valid_records as number) || 0;
-            const originalRows = (resultData.original_rows as number) || 0;
+            const validRecords = readCleanedCount(resultData);
+            const originalRows = typeof resultData.original_rows === "number" && Number.isSafeInteger(resultData.original_rows) && resultData.original_rows >= 0 ? resultData.original_rows : 0;
             const sourceCounts = (resultData.source_counts as Record<string, number>) || undefined;
             const ccLog = (resultData.cc_log as string[]) || undefined;
             const records = (resultData.cleaned_records as OccurrencePoint[]) || undefined;
@@ -443,7 +444,7 @@ export function UploadTab({
   const [reviewCardId, setReviewCardId] = useState<string | null>(null);
   const [reviewData, setReviewData] = useState<{
     records: OccurrencePoint[]; sourceCounts: Record<string, number>; ccLog: string[];
-    validRecords: number; originalRows: number;
+    validRecords: number | null; originalRows: number;
   } | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
@@ -460,8 +461,8 @@ export function UploadTab({
         records: card.cleanRecords,
         sourceCounts: card.cleanSourceCounts,
         ccLog: card.cleanCcLog || [],
-        validRecords: card.cleanValidRecords || 0,
-        originalRows: card.cleanOriginalRows || 0,
+        validRecords: card.cleanValidRecords ?? null,
+        originalRows: card.cleanOriginalRows ?? card.fileRows,
       });
       return;
     }
@@ -479,16 +480,16 @@ export function UploadTab({
       const apiRecords = (result.cleaned_records || []) as OccurrencePoint[];
       const apiSourceCounts = (result.source_counts || {}) as Record<string, number>;
       const apiCcLog = (result.cc_log || []) as string[];
-      const apiValidRecords = (result.valid_records as number) || 0;
+      const apiValidRecords = readCleanedCount(result);
 
       // If API returned empty but card is known cleaned, use card summary counts
-      if (apiValidRecords === 0 && card.cleanedAssetId && card.cleanValidRecords) {
+      if (apiValidRecords === null && card.cleanedAssetId && card.cleanValidRecords != null) {
         setReviewData({
           records: apiRecords,
           sourceCounts: apiSourceCounts,
           ccLog: apiCcLog,
           validRecords: card.cleanValidRecords,
-          originalRows: card.cleanOriginalRows || card.fileRows,
+          originalRows: card.cleanOriginalRows ?? card.fileRows,
         });
       } else {
         setReviewData({
@@ -496,7 +497,7 @@ export function UploadTab({
           sourceCounts: apiSourceCounts,
           ccLog: apiCcLog,
           validRecords: apiValidRecords,
-          originalRows: (result.original_rows as number) || card.fileRows,
+          originalRows: typeof result.original_rows === "number" && Number.isSafeInteger(result.original_rows) && result.original_rows >= 0 ? result.original_rows : card.fileRows,
         });
       }
     } catch (err) {
@@ -506,7 +507,7 @@ export function UploadTab({
           records: [],
           sourceCounts: {},
           ccLog: [],
-          validRecords: card.cleanValidRecords || card.fileRows,
+          validRecords: card.cleanValidRecords ?? null,
           originalRows: card.fileRows,
         });
       } else {
