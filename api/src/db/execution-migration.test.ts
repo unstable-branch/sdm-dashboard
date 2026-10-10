@@ -8,6 +8,7 @@
  * Requires SDM_MIGRATION_TEST_DATABASE_URL pointing at an EMPTY, disposable
  * database (its `public` schema is dropped and recreated). Skips otherwise.
  */
+import "../testing/disposable-execution-postgres.guard.js";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it } from "vitest";
