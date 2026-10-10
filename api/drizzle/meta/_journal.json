@@ -260,6 +260,62 @@
       "when": 1784900000000,
       "tag": "0036_orphan_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789477900000,
+      "tag": "0037_auth_version_session_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789510080000,
+      "tag": "0038_input_assets",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1789518300000,
+      "tag": "0039_occurrence_clean_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1789580000000,
+      "tag": "0040_climate_collection_manifests",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789980000000,
+      "tag": "0041_add_upload_cleaning_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1790079000000,
+      "tag": "0042_api_key_scoping",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790066500298,
+      "tag": "0043_durable_executions",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1790925922000,
+      "tag": "0044_browser_session_lifecycle",
+      "breakpoints": true
     }
   ]
 }

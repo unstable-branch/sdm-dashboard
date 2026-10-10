@@ -1,7 +1,185 @@
+SDM_CLIMATE_COLLECTION_MANIFEST_VERSION <- 1L
+
+# The API registers this artifact by its server-generated path, then resolves
+# every member through the same exact roots. Keep this mapping deliberately
+# narrow: climate data is not allowed to inherit a broad project/data root.
+sdm_climate_asset_roots <- function(app_dir) {
+  list(
+    worldclim = sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir),
+    chelsa = sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir),
+    future_worldclim = sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
+  )
+}
+
+sdm_climate_path_is_symlink <- function(path) {
+  path <- path.expand(as.character(path)[1L])
+  if (!grepl("^/", path)) path <- file.path(getwd(), path)
+  parts <- strsplit(path, "/", fixed = TRUE)[[1L]]
+  current <- if (startsWith(path, "/")) "/" else ""
+  for (part in parts[nzchar(parts)]) {
+    current <- file.path(current, part)
+    link <- tryCatch(Sys.readlink(current), error = function(e) "")
+    if (length(link) > 0L && nzchar(link[1L])) return(TRUE)
+  }
+  FALSE
+}
+
+sdm_climate_sha256 <- function(path) {
+  if (!requireNamespace("digest", quietly = TRUE)) {
+    stop("The digest package is required to publish climate collection manifests", call. = FALSE)
+  }
+  hash <- digest::digest(file = path, algo = "sha256")
+  if (!is.character(hash) || length(hash) != 1L || !grepl("^[0-9a-f]{64}$", hash, ignore.case = TRUE)) {
+    stop("Could not compute a SHA-256 identity for climate output", call. = FALSE)
+  }
+  tolower(hash)
+}
+
+sdm_climate_relative_locator <- function(path, roots) {
+  path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  matches <- vapply(names(roots), function(root_name) {
+    root <- normalizePath(roots[[root_name]], winslash = "/", mustWork = FALSE)
+    identical(path, root) || startsWith(path, paste0(root, "/"))
+  }, logical(1))
+  if (!any(matches)) return(NULL)
+  candidates <- names(roots)[matches]
+  root_lengths <- vapply(roots[candidates], function(root) nchar(normalizePath(root, winslash = "/", mustWork = FALSE)), integer(1))
+  root_name <- candidates[[which.max(root_lengths)]]
+  root <- normalizePath(roots[[root_name]], winslash = "/", mustWork = FALSE)
+  relative <- substring(path, nchar(root) + 2L)
+  if (!nzchar(relative) || grepl("(^|/)\\.\\.?(/|$)|^/", relative, perl = TRUE)) return(NULL)
+  paste(root_name, relative, sep = "/")
+}
+
+sdm_climate_valid_output <- function(path) {
+  info <- tryCatch(file.info(path), error = function(e) NULL)
+  if (is.null(info) || nrow(info) != 1L || !isTRUE(info$isdir == FALSE) ||
+      is.na(info$size) || info$size <= 0 || sdm_climate_path_is_symlink(path)) return(FALSE)
+  if (exists("validate_geotiff", mode = "function", inherits = TRUE)) {
+    return(isTRUE(tryCatch(validate_geotiff(path), error = function(e) FALSE)))
+  }
+  tryCatch({
+    con <- file(path, "rb")
+    on.exit(close(con), add = TRUE)
+    magic <- readBin(con, "raw", n = 4L)
+    length(magic) == 4L &&
+      ((identical(as.integer(magic), c(73L, 73L, 42L, 0L))) ||
+       (identical(as.integer(magic), c(77L, 77L, 0L, 42L))))
+  }, error = function(e) FALSE)
+}
+
+sdm_climate_safe_metadata <- function(key, value) {
+  is.character(key) && length(key) == 1L && nzchar(key) && nchar(key) <= 128L &&
+    grepl("^[A-Za-z][A-Za-z0-9_.-]*$", key) &&
+    !grepl("path|file|dir|secret|token|password|credential|auth", key, ignore.case = TRUE) &&
+    length(value) == 1L && !is.na(value) &&
+    (is.character(value) || is.logical(value) || (is.numeric(value) && is.finite(value))) &&
+    (!is.character(value) || (nchar(value) <= 256L && !grepl("[/\\\\]|[[:cntrl:]]", value)))
+}
+
+sdm_climate_member_metadata <- function(path, metadata = list()) {
+  name <- basename(path)
+  match <- regexec("bio[c]?_?0*([0-9]{1,2})", name, ignore.case = TRUE, perl = TRUE)
+  pieces <- regmatches(name, match)[[1L]]
+  variable <- if (length(pieces) > 1L) paste0("bio", as.integer(pieces[[2L]])) else "climate"
+  base <- list(variable = variable)
+  for (key in names(metadata)) {
+    value <- metadata[[key]]
+    if (!sdm_climate_safe_metadata(key, value)) next
+    base[[key]] <- value
+  }
+  base
+}
+
+sdm_climate_manifest_members <- function(files, app_dir, metadata = list(), roots = sdm_climate_asset_roots(app_dir)) {
+  # Do not normalize before validation: normalizePath follows symlinks and
+  # would erase the very redirect that the producer must reject.
+  files <- unique(path.expand(as.character(files)))
+  files <- sort(files)
+  if (length(files) == 0L) stop("Climate collection has no output members", call. = FALSE)
+  members <- lapply(files, function(path) {
+    if (!sdm_climate_valid_output(path)) stop("Climate output is missing, invalid, or unsafe", call. = FALSE)
+    locator <- sdm_climate_relative_locator(path, roots)
+    if (is.null(locator)) stop("Climate output is outside configured climate roots", call. = FALSE)
+    list(
+      locator = locator,
+      sha256 = sdm_climate_sha256(path),
+      size = as.numeric(file.info(path)$size),
+      metadata = sdm_climate_member_metadata(path, metadata)
+    )
+  })
+  locators <- vapply(members, function(member) member$locator, character(1))
+  roots_used <- sub("/.*$", "", locators)
+  if (length(unique(roots_used)) != 1L) {
+    stop("Climate collection members must share one configured climate root", call. = FALSE)
+  }
+  members
+}
+
+sdm_publish_climate_collection_manifest <- function(files, app_dir, metadata = list(), roots = sdm_climate_asset_roots(app_dir)) {
+  members <- sdm_climate_manifest_members(files, app_dir, metadata = metadata, roots = roots)
+  locators <- vapply(members, function(member) member$locator, character(1))
+  root_name <- sub("/.*$", "", locators[[1L]])
+  root <- normalizePath(roots[[root_name]], winslash = "/", mustWork = FALSE)
+  if (!dir.exists(root)) stop("Climate manifest root is unavailable", call. = FALSE)
+  safe_metadata <- list()
+  for (key in names(metadata)) {
+    value <- metadata[[key]]
+    if (sdm_climate_safe_metadata(key, value)) safe_metadata[[key]] <- value
+  }
+  payload <- list(
+    version = SDM_CLIMATE_COLLECTION_MANIFEST_VERSION,
+    metadata = safe_metadata,
+    members = members
+  )
+  encoded <- jsonlite::toJSON(payload, auto_unbox = TRUE, null = "null", pretty = FALSE)
+  if (!requireNamespace("digest", quietly = TRUE)) stop("The digest package is required to publish climate collection manifests", call. = FALSE)
+  identity <- tolower(digest::digest(encoded, algo = "sha256", serialize = FALSE))
+  manifest_path <- file.path(root, paste0("climate_collection_v1_", identity, ".json"))
+  if (file.exists(manifest_path)) {
+    existing <- tryCatch(paste(readLines(manifest_path, warn = FALSE), collapse = "\n"), error = function(e) NULL)
+    if (is.null(existing) || !isTRUE(existing == encoded)) stop("Immutable climate manifest identity collision", call. = FALSE)
+    return(manifest_path)
+  }
+  temporary <- tempfile(pattern = ".climate-collection-", tmpdir = root, fileext = ".tmp")
+  on.exit(if (file.exists(temporary)) unlink(temporary, force = TRUE), add = TRUE)
+  connection <- file(temporary, open = "wb")
+  tryCatch(writeBin(charToRaw(enc2utf8(encoded)), connection), finally = close(connection))
+  if (!file.rename(temporary, manifest_path)) {
+    existing <- tryCatch(paste(readLines(manifest_path, warn = FALSE), collapse = "\n"), error = function(e) NULL)
+    if (is.null(existing) || !isTRUE(existing == encoded)) stop("Could not atomically publish climate manifest", call. = FALSE)
+  }
+  if (!file.exists(manifest_path)) stop("Climate manifest publication was not verified", call. = FALSE)
+  manifest_path
+}
+
+sdm_climate_verified_files <- function(directory) {
+  if (is.null(directory) || !dir.exists(directory)) return(character())
+  files <- list.files(directory, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+  files[vapply(files, sdm_climate_valid_output, logical(1))]
+}
+
+sdm_worldclim_resolution_from_files <- function(files) {
+  names <- basename(files %||% character())
+  matches <- regexec("^wc2[.]1_([0-9]+(?:[.][0-9]+)?)m_bioc?_", names, perl = TRUE)
+  values <- vapply(regmatches(names, matches), function(parts) {
+    if (length(parts) < 2L) return(NA_real_)
+    suppressWarnings(as.numeric(parts[[2]]))
+  }, numeric(1))
+  values <- unique(values[is.finite(values)])
+  if (length(values) == 1L) values[[1]] else NA_real_
+}
+
+sdm_publish_climate_directory_manifest <- function(directory, app_dir, source, metadata = list(), roots = sdm_climate_asset_roots(app_dir)) {
+  files <- sdm_climate_verified_files(directory)
+  if (length(files) == 0L) stop("Climate output is incomplete or has no verified members", call. = FALSE)
+  sdm_publish_climate_collection_manifest(files, app_dir, metadata = c(list(source = source), metadata), roots = roots)
+}
+
 handle_future_scenarios <- function(res, app_dir) {
   base_dir <- sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
   if (!dir.exists(base_dir)) {
-    return(list(available_scenarios = list(), message = paste("Directory not found:", base_dir)))
+    return(list(available_scenarios = list(), message = "No future climate scenarios are available"))
   }
 
   available <- list()
@@ -10,6 +188,7 @@ handle_future_scenarios <- function(res, app_dir) {
     sd <- file.path(base_dir, sd_name)
     tif_files <- list.files(sd, pattern = "\\.tif$", full.names = TRUE)
     if (length(tif_files) == 0) next
+    resolution <- sdm_worldclim_resolution_from_files(tif_files)
 
     is_averaged <- startsWith(sd_name, "averaged_")
     if (is_averaged) {
@@ -29,17 +208,28 @@ handle_future_scenarios <- function(res, app_dir) {
       gcm <- paste(parts[1:(length(parts) - 2)], collapse = "_")
     }
 
+    manifest_path <- tryCatch(
+      sdm_publish_climate_directory_manifest(
+        sd, app_dir, source = "worldclim",
+        metadata = list(gcm = gcm, ssp = ssp, period = period, resolution = resolution, is_averaged = is_averaged)
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(manifest_path)) next
     available <- c(available, list(list(
       gcm = gcm,
       ssp = ssp,
       period = period,
-      path = sd,
+      source = "worldclim",
+      resolution = resolution,
       file_count = length(tif_files),
-      files = tif_files
+      manifest_path = manifest_path,
+      status = "completed",
+      is_averaged = is_averaged
     )))
   }
 
-  list(available_scenarios = available, base_directory = base_dir)
+  list(available_scenarios = available)
 }
 
 handle_climate_download <- function(req, app_dir) {
@@ -75,14 +265,34 @@ handle_climate_download <- function(req, app_dir) {
     return(list(error = cached_preflight$error, message = cached_preflight$message %||% "Climate preflight failed"))
   }
   if (isTRUE(cached_preflight$cached)) {
+    cached_manifest <- tryCatch({
+      cached_dir <- if (identical(tolower(as.character(download_type)), "worldclim")) {
+        sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
+      } else {
+        sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
+      }
+      sdm_publish_climate_directory_manifest(
+        cached_dir, app_dir, source = tolower(as.character(download_type)),
+        metadata = list(resolution = as.character(body$res %||% if (identical(tolower(as.character(download_type)), "chelsa")) "0.5" else "10"))
+      )
+    }, error = function(e) NULL)
+    if (is.null(cached_manifest)) {
+      job_meta$status <- "failed"
+      job_meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+      job_meta$error <- "Cached climate output could not be verified and published"
+      sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
+      return(list(job_id = job_id, status = "failed", error = job_meta$error))
+    }
     job_meta$status <- "completed"
     job_meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
     job_meta$cached <- TRUE
+    job_meta$manifest_path <- cached_manifest
     sdm_write_json(job_meta, file.path(job_dir, "meta.json"), null = "null")
     return(list(
       job_id  = job_id,
       status  = "completed",
       cached  = TRUE,
+      manifest_path = cached_manifest,
       message = "All requested climate layers were already present; no download performed"
     ))
   }
@@ -130,22 +340,14 @@ handle_climate_download <- function(req, app_dir) {
 }
 
 handle_climate_status <- function(req, res, job_id, app_dir) {
-  job_dir <- sdm_safe_job_dir(job_id)
-  if (is.null(job_dir)) {
-    res$status <- 404L; return(list(error = "Invalid job ID"))
-  }
-  meta_file <- file.path(job_dir, "meta.json")
+  # The loader validates the principal, resource, owner, and metadata before
+  # this handler parses or exposes any metadata-derived status.
+  auth <- sdm_load_authorized_job(req, res, job_id, app_dir)
+  if (!isTRUE(auth$ok)) return(list(error = auth$error))
+  job_dir <- auth$job_dir
+  meta_file <- auth$meta_file
   progress_file <- file.path(job_dir, "progress.log")
-
-  if (!file.exists(meta_file)) {
-    res$status <- 404L; return(list(error = "Download job not found"))
-  }
-
-  meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
-
-  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
-  if (!is.null(own_err)) return(own_err)
+  meta <- auth$meta
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[basename(job_id)]]
@@ -197,12 +399,14 @@ handle_climate_status <- function(req, res, job_id, app_dir) {
   list(
     id = meta$id,
     type = meta$type,
+    user_id = nullify(meta$user_id) %||% NA,
     status = meta$status,
     started_at = meta$started_at,
     completed_at = nullify(meta$completed_at) %||% NA,
     error = nullify(meta$error) %||% NA,
     error_category = nullify(meta$error_category) %||% NA,
     failed_vars = nullify(meta$failed_vars) %||% NA,
+    manifest_path = if (identical(meta$status, "completed")) nullify(meta$manifest_path) %||% NA else NA,
     config = nullify(meta$config) %||% NA,
     progress_log = progress_lines
   )
@@ -222,6 +426,7 @@ handle_climate_scenarios <- function(res, app_dir) {
       tif_files <- list.files(sd, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
       total_size <- sum(file.info(tif_files)$size, na.rm = TRUE)
       is_averaged <- startsWith(sd_name, "averaged_")
+      resolution <- sdm_worldclim_resolution_from_files(tif_files)
 
       gcm <- ""
       ssp <- ""
@@ -247,12 +452,21 @@ handle_climate_scenarios <- function(res, app_dir) {
       scenarios <- c(scenarios, list(list(
         id = sd_name,
         type = "future",
+        source = "worldclim",
+        resolution = resolution,
         gcm = gcm,
         ssp = ssp,
         period = period,
         file_count = length(tif_files),
         size_bytes = total_size,
-        is_averaged = is_averaged
+        is_averaged = is_averaged,
+        manifest_path = tryCatch(
+          sdm_publish_climate_directory_manifest(
+            sd, app_dir, source = "worldclim",
+            metadata = list(gcm = gcm, ssp = ssp, period = period, resolution = resolution, is_averaged = is_averaged)
+          ),
+          error = function(e) NULL
+        )
       )))
     }
   }
@@ -264,8 +478,17 @@ handle_climate_scenarios <- function(res, app_dir) {
       id = "worldclim_current",
       type = "current",
       source = "worldclim",
+      resolution = as.numeric(sdm_default_worldclim_res),
       file_count = length(tif_files),
-      size_bytes = total_size
+      size_bytes = total_size,
+      status = "completed",
+      manifest_path = tryCatch(
+        sdm_publish_climate_directory_manifest(
+          current_dir, app_dir, source = "worldclim",
+          metadata = list(resolution = as.character(sdm_default_worldclim_res))
+        ),
+        error = function(e) NULL
+      )
     )))
   }
 
@@ -276,55 +499,34 @@ handle_climate_scenarios <- function(res, app_dir) {
       id = "chelsa_current",
       type = "current",
       source = "chelsa",
+      resolution = 0.5,
       file_count = length(tif_files),
-      size_bytes = total_size
+      size_bytes = total_size,
+      status = "completed",
+      manifest_path = tryCatch(
+        sdm_publish_climate_directory_manifest(
+          chelsa_dir, app_dir, source = "chelsa",
+          metadata = list(resolution = "0.5")
+        ),
+        error = function(e) NULL
+      )
     )))
   }
 
+  scenarios <- Filter(function(scenario) {
+    is.list(scenario) && is.character(scenario$manifest_path) && length(scenario$manifest_path) == 1L
+  }, scenarios)
   list(scenarios = scenarios)
 }
 
-handle_climate_delete <- function(req, res, scenario_id, app_dir) {
-  user_role <- req$user_role %||% get_hdr(req, "x-forwarded-role") %||% NULL
-  if (!isTRUE(user_role == "admin")) {
-    res$status <- 404L; return(list(error = "Scenario not found"))
-  }
-  future_dir <- sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir)
-  current_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
-  chelsa_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
+handle_climate_cancel <- function(req, res, job_id, app_dir) {
+  auth <- sdm_load_authorized_job(req, res, job_id, app_dir)
+  if (!isTRUE(auth$ok)) return(list(error = auth$error))
+  job_dir <- auth$job_dir
+  meta_file <- auth$meta_file
+  meta <- auth$meta
 
-  target_dir <- NULL
-  if (scenario_id == "worldclim_current") {
-    target_dir <- current_dir
-  } else if (scenario_id == "chelsa_current") {
-    target_dir <- chelsa_dir
-  } else {
-    target_dir <- file.path(future_dir, basename(scenario_id))
-  }
-
-  if (is.null(target_dir) || !dir.exists(target_dir)) {
-    res$status <- 404L; return(list(error = "Scenario not found"))
-  }
-
-  unlink(target_dir, recursive = TRUE, force = TRUE)
-
-  list(ok = TRUE, message = paste("Scenario deleted:", scenario_id))
-}
-
-handle_climate_cancel <- function(req, job_id, app_dir) {
-  job_dir <- file.path(app_dir, "outputs", "jobs", basename(job_id))
-  meta_file <- file.path(job_dir, "meta.json")
-
-  if (file.exists(meta_file)) {
-    meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) return(list(error = "meta.json is unreadable; retry shortly"))
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this download"))
-      }
-    }
-  }
-
+  # Cancellation side effects occur only after resource authorization and metadata validation.
   sdm_redis_cancel_set(basename(job_id))
 
   cancel_result <- sdm_cancel_pid_first(basename(job_id), meta_file)
@@ -335,7 +537,7 @@ handle_climate_cancel <- function(req, job_id, app_dir) {
 
   if (file.exists(meta_file)) {
     meta <- sdm_read_meta_json(meta_file)
-    if (is.null(meta)) return(list(error = "meta.json is unreadable; retry shortly"))
+    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
     if (!is.null(meta$status) && meta$status %in% c("completed", "failed", "cancelled")) {
       return(list(ok = TRUE, message = "Download already terminated"))
     }
@@ -377,21 +579,28 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
     if (source == "worldclim") {
       res_label <- sdm_worldclim_res_label(resolution)
       base_dir <- sdm_resolve_project_path(sdm_default_worldclim_dir, app_dir)
-      all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
-                                                      full.names = TRUE, recursive = TRUE) else character()
-      manifest_ok <- tryCatch(check_manifest_for_biovars(base_dir, "worldclim", requested, names_fn = function(bv) {
-        paste0("wc2.1_", res_label, "_bio_", bv, ".tif")
-      }), error = function(e) NULL)
-      matched_worldclim <- match_worldclim_biovars(all_tifs, requested, res_label)
-      existing_nums <- matched_worldclim$biovars
+      selected_worldclim <- find_worldclim_files(base_dir, requested, "worldclim", resolution)
+      existing_nums <- suppressWarnings(as.integer(names(selected_worldclim)[
+        !is.na(selected_worldclim) & nzchar(selected_worldclim)
+      ]))
+      manifest_ok <- tryCatch(check_manifest_for_biovars(
+        base_dir, "worldclim", requested, actual_files = selected_worldclim,
+        expected_res = resolution
+      ), error = function(e) integer(0))
       if (!is.null(manifest_ok)) {
         existing_nums <- intersect(manifest_ok, existing_nums)
       }
     } else if (source == "chelsa") {
       base_dir <- sdm_resolve_project_path(sdm_default_chelsa_dir, app_dir)
-      all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
-                                                      full.names = TRUE, recursive = TRUE) else character()
-      existing_nums <- match_chelsa_biovars(all_tifs, requested)$biovars
+      selected_chelsa <- find_worldclim_files(base_dir, requested, "chelsa")
+      existing_nums <- suppressWarnings(as.integer(names(selected_chelsa)[
+        !is.na(selected_chelsa) & nzchar(selected_chelsa)
+      ]))
+      manifest_ok <- tryCatch(check_manifest_for_biovars(
+        base_dir, "chelsa", requested, actual_files = selected_chelsa,
+        expected_res = "0.5"
+      ), error = function(e) integer(0))
+      if (!is.null(manifest_ok)) existing_nums <- intersect(manifest_ok, existing_nums)
     } else if (source == "cmip6") {
       if (nzchar(gcm) && nzchar(ssp) && nzchar(period)) {
         if (grepl("(\\.\\./|\\.\\.\\\\|/)", paste(gcm, ssp, period))) {
@@ -399,9 +608,16 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
         }
         base_dir <- file.path(sdm_resolve_project_path(sdm_default_future_worldclim_dir, app_dir),
                               paste0(gcm, "_", ssp, "_", period))
-        all_tifs <- if (dir.exists(base_dir)) list.files(base_dir, pattern = "\\.tif$",
-                                                         full.names = TRUE, recursive = TRUE) else character()
-        existing_nums <- match_cmip6_biovars(all_tifs, requested)$biovars
+        selected_cmip6 <- find_cmip6_files(base_dir, requested)
+        selected_names <- sub("^bio", "", names(selected_cmip6))
+        existing_nums <- suppressWarnings(as.integer(selected_names[
+          !is.na(selected_cmip6) & nzchar(selected_cmip6)
+        ]))
+        manifest_ok <- tryCatch(check_manifest_for_biovars(
+          base_dir, "cmip6", requested, actual_files = selected_cmip6,
+          expected_res = paste(gcm, ssp, period, sep = "_")
+        ), error = function(e) integer(0))
+        if (!is.null(manifest_ok)) existing_nums <- intersect(manifest_ok, existing_nums)
       }
     }
 
@@ -433,9 +649,9 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
 # already on disk and verifies as a valid GeoTIFF. Otherwise NULL.
 preflight_climate_download <- function(body, app_dir) {
   type <- tolower(as.character(body$type %||% "cmip6"))
-  if (!type %in% c("worldclim", "chelsa")) {
-    return(list(error = "invalid_climate_type", message = paste0("type must be 'worldclim' or 'chelsa', got '", type, "'")))
-  }
+  # CMIP6 is handled by the background producer. Only current climate sources
+  # have a synchronous cache pre-flight here.
+  if (!type %in% c("worldclim", "chelsa")) return(NULL)
 
   if (!exists("match_worldclim_biovars", inherits = TRUE)) {
     stop("match_worldclim_biovars not loaded: R/covariates/match_climate_layers.R is missing from the module loader", call. = FALSE)

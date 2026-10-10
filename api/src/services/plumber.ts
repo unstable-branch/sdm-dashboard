@@ -2,6 +2,8 @@ import type {
   PlumberUploadResponse,
   PlumberJobLogs,
 } from "@sdm/shared";
+import { createHmac, randomUUID } from "node:crypto";
+import { PlumberUpstreamError } from "./plumber-errors.js";
 
 export interface PlumberJobStatus {
   [key: string]: unknown;
@@ -30,6 +32,11 @@ export interface PlumberModelStatus {
   completed_at?: string;
 }
 
+export type PlumberPrincipal = Readonly<{
+  id: string;
+  role: "admin" | "editor" | "viewer";
+}>;
+
 export interface PlumberModelStatus {
   status: string;
   progress_log?: string[];
@@ -45,13 +52,15 @@ export interface PlumberModelStatus {
 }
 
 const PLUMBER_URL = process.env.PLUMBER_URL || "http://localhost:8000";
+const PUBLIC_GET_PATHS = new Set([
+  "/api/v1/covariates/check",
+]);
 const PLUMBER_INTERNAL_KEY = process.env.PLUMBER_INTERNAL_KEY || "";
 const PLUMBER_MAX_CONCURRENT = parseInt(process.env.PLUMBER_MAX_CONCURRENT || "8", 10);
 const PLUMBER_DEFAULT_TIMEOUT_MS = parseInt(process.env.PLUMBER_TIMEOUT_MS || "30000", 10);
 const TIMEOUT_UPLOAD = parseInt(process.env.PLUMBER_UPLOAD_TIMEOUT_MS || "120000", 10);
 const TIMEOUT_MODEL_RUN = parseInt(process.env.PLUMBER_MODEL_RUN_TIMEOUT_MS || "300000", 10);
 const TIMEOUT_CLIMATE = parseInt(process.env.PLUMBER_CLIMATE_TIMEOUT_MS || "300000", 10);
-const TIMEOUT_NORMAL = PLUMBER_DEFAULT_TIMEOUT_MS;
 
 // Promise-based semaphore: resolves when a slot is available
 let plumberQueue: Array<() => void> = [];
@@ -118,59 +127,94 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
 
 export class PlumberClient {
   private baseUrl: string;
-  private forwardedUser: string | null = null;
-  private forwardedRole: string | null = null;
+  private readonly principal: { id: string; role: PlumberPrincipal["role"] | null } | null;
 
-  constructor(baseUrl: string = PLUMBER_URL) {
+  constructor(baseUrl: string = PLUMBER_URL, principal: { id: string; role: PlumberPrincipal["role"] | null } | null = null) {
     this.baseUrl = baseUrl;
+    this.principal = principal;
   }
 
   withUser(userId: string): PlumberClient {
-    const client = new PlumberClient(this.baseUrl);
-    client.forwardedUser = userId;
-    client.forwardedRole = this.forwardedRole;
-    return client;
+    if (this.principal?.id && this.principal.id !== userId) {
+      return new PlumberClient(this.baseUrl, null);
+    }
+    return new PlumberClient(this.baseUrl, this.principal
+      ? { ...this.principal, id: userId }
+      : { id: userId, role: null });
   }
 
   withRole(role: string): PlumberClient {
-    const client = new PlumberClient(this.baseUrl);
-    client.forwardedUser = this.forwardedUser;
-    client.forwardedRole = role;
-    return client;
+    if (!this.principal || (this.principal.role && this.principal.role !== role)) {
+      return new PlumberClient(this.baseUrl, null);
+    }
+    if (role !== "admin" && role !== "editor" && role !== "viewer") {
+      return new PlumberClient(this.baseUrl, null);
+    }
+    return new PlumberClient(this.baseUrl, { ...this.principal, role });
   }
 
   private headers(): Record<string, string> {
     const h: Record<string, string> = {};
     if (PLUMBER_INTERNAL_KEY) h["X-Hono-Internal"] = PLUMBER_INTERNAL_KEY;
-    if (this.forwardedUser) h["X-Forwarded-User"] = this.forwardedUser;
-    if (this.forwardedRole) h["X-Forwarded-Role"] = this.forwardedRole;
+    if (this.principal?.id) h["X-Forwarded-User"] = this.principal.id;
+    if (this.principal?.role) h["X-Forwarded-Role"] = this.principal.role;
     return h;
   }
 
-  private async _fetch(url: string, options?: RequestInit, timeoutMs?: number): Promise<Response> {
+  private requirePrincipal(): void {
+    if (!this.principal?.id || !this.principal.role) {
+      throw new Error("Verified Plumber principal required for protected operation");
+    }
+  }
+
+  private executionHeaders(body: string): Record<string, string> {
+    const executionKey = process.env.PLUMBER_EXECUTION_KEY;
+    if (!executionKey) throw new Error("PLUMBER_EXECUTION_KEY is required for model execution");
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const nonce = randomUUID();
+    const signature = createHmac("sha256", executionKey)
+      .update(`${timestamp}\n${nonce}\n${this.principal?.id}\n${body}`)
+      .digest("hex");
+    return {
+      ...this.headers(),
+      "Content-Type": "application/json",
+      "X-SDM-Execution-Timestamp": timestamp,
+      "X-SDM-Execution-Nonce": nonce,
+      "X-SDM-Execution-Signature": signature,
+    };
+  }
+
+  private async _fetch(
+    url: string,
+    options?: RequestInit,
+    timeoutMs?: number,
+    protectedRequest = true,
+    retries = 2,
+  ): Promise<Response> {
+    if (protectedRequest) this.requirePrincipal();
     const ms = timeoutMs ?? PLUMBER_DEFAULT_TIMEOUT_MS;
     const opts: RequestInit = { ...options };
     // Default to internal-proxy headers so GET reads (climate check, config
     // defaults, models, health) authenticate against the Plumber gate, which
     // requires X-Hono-Internal even with PLUMBER_AUTH_DISABLED=true.
     if (!opts.headers) opts.headers = this.headers();
-    return plumberSemaphore(() => fetchWithRetry(url, opts, 2, ms));
+    return plumberSemaphore(() => fetchWithRetry(url, opts, retries, ms));
   }
 
   async healthCheck(): Promise<{ status: string; r_version: string; timestamp: string }> {
-    const res = await this._fetch(`${this.baseUrl}/health`);
+    const res = await this._fetch(`${this.baseUrl}/health`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Plumber health check failed: ${res.status}`);
     return res.json();
   }
 
   async getConfigDefaults(): Promise<Record<string, unknown>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/config/defaults`);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/config/defaults`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Failed to get config defaults: ${res.status}`);
     return res.json();
   }
 
   async getModels(): Promise<Array<{ id: string; label: string }>> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/models`);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/models`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Failed to get models: ${res.status}`);
     return res.json();
   }
@@ -251,11 +295,12 @@ export class PlumberClient {
   }
 
   async runModel(data: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const body = JSON.stringify(data);
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/run`, {
       method: "POST",
-      headers: { ...this.headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }, TIMEOUT_MODEL_RUN);
+      headers: this.executionHeaders(body),
+      body,
+    }, TIMEOUT_MODEL_RUN, true, 0);
     if (!res.ok) {
       let errorMsg = `Failed to run model: ${res.status}`;
       try {
@@ -325,7 +370,7 @@ export class PlumberClient {
     return res.json();
   }
 
-  async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; base_directory: string; message?: string }> {
+  async getFutureScenarios(): Promise<{ available_scenarios: Array<Record<string, unknown>>; message?: string }> {
     const res = await this._fetch(`${this.baseUrl}/api/v1/future/scenarios`);
     if (!res.ok) throw new Error(`Failed to get future scenarios: ${res.status}`);
     return res.json();
@@ -337,14 +382,6 @@ export class PlumberClient {
     return res.json();
   }
 
-  async deleteClimateScenario(scenarioId: string): Promise<{ ok: boolean; message: string }> {
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/delete/${scenarioId}`, {
-      method: "POST",
-      headers: this.headers(),
-    }, TIMEOUT_NORMAL);
-    if (!res.ok) throw new Error(`Failed to delete scenario: ${res.status}`);
-    return res.json();
-  }
 
   async getUploads(limit?: number): Promise<{ uploads: Array<Record<string, unknown>> }> {
     const params = limit ? `?limit=${limit}` : "";
@@ -504,9 +541,10 @@ export class PlumberClient {
   }
 
   async get(path: string): Promise<Record<string, unknown>> {
+    const publicRead = PUBLIC_GET_PATHS.has(path.split("?", 1)[0]);
     const res = await this._fetch(`${this.baseUrl}${path}`, {
       headers: this.headers(),
-    });
+    }, undefined, !publicRead);
     if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
     return res.json();
   }
@@ -517,7 +555,7 @@ export class PlumberClient {
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+    if (!res.ok) throw new PlumberUpstreamError(res.status, path);
     return res.json();
   }
 
@@ -534,11 +572,12 @@ export class PlumberClient {
   // ── Targets pipeline ───────────────────────────────────────────────────
 
   async targetsRun(data: { configs: Record<string, unknown>[] }): Promise<Record<string, unknown>> {
+    const body = JSON.stringify(data);
     const res = await this._fetch(`${this.baseUrl}/api/v1/models/targets-run`, {
       method: "POST",
-      headers: { ...this.headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    }, TIMEOUT_MODEL_RUN);
+      headers: this.executionHeaders(body),
+      body,
+    }, TIMEOUT_MODEL_RUN, true, 0);
     if (!res.ok) throw new Error(`Failed to start targets run: ${res.status}`);
     return res.json();
   }
@@ -579,7 +618,7 @@ export class PlumberClient {
 
   async getClimateCheck(params: Record<string, string>): Promise<Record<string, unknown>> {
     const qs = new URLSearchParams(params).toString();
-    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/check?${qs}`);
+    const res = await this._fetch(`${this.baseUrl}/api/v1/climate/check?${qs}`, undefined, undefined, false);
     if (!res.ok) throw new Error(`Failed to check climate: ${res.status}`);
     return res.json();
   }
@@ -643,6 +682,16 @@ export class PlumberClient {
     }
     return res.json() as Promise<{ value: number | null }>;
   }
+}
+
+export function plumberForPrincipal(principal: PlumberPrincipal, baseUrl: string = PLUMBER_URL): PlumberClient {
+  if (!principal || typeof principal.id !== "string" || principal.id.trim() === "") {
+    throw new Error("Verified Plumber principal required");
+  }
+  if (principal.role !== "admin" && principal.role !== "editor" && principal.role !== "viewer") {
+    throw new Error("Verified Plumber principal role required");
+  }
+  return new PlumberClient(baseUrl, Object.freeze({ id: principal.id, role: principal.role }));
 }
 
 export const plumberClient = new PlumberClient();

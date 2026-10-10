@@ -24,17 +24,20 @@ handle_models_list <- function(res, app_dir) {
     spec <- get_sdm_model(id)
     tier <- COMPLEXITY_MODEL_TIERS[id]
     if (is.na(tier)) tier <- "moderate"
+    unavailable <- tryCatch(sdm_model_unavailable_reason(id), error = function(e) NULL)
+    notes <- if (length(spec$notes) > 0) paste(spec$notes, collapse = " ") else ""
+    if (!is.null(unavailable)) notes <- trimws(paste(notes, unavailable))
     list(
       id = id,
       label = spec$label,
       maturity = spec$maturity,
       min_records = if (!is.na(spec$min_records)) spec$min_records else NULL,
       packages = spec$packages,
-      notes = if (length(spec$notes) > 0) paste(spec$notes, collapse = " ") else "",
+      notes = notes,
       complexity_tier = tier,
       enmeval_compatible = isTRUE(spec$enmeval_compatible),
       enmeval_algorithm = spec$enmeval_algorithm %||% NULL,
-      available = TRUE,
+      available = is.null(unavailable),
       supports_uncertainty = isTRUE(spec$supports_uncertainty)
     )
   })

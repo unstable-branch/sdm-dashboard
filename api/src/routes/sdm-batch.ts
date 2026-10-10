@@ -8,11 +8,11 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import { modelRateLimit } from "../middleware/rate-limit.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
-import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
+import { getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload, type ModelConfigRecord } from "../services/model-payload.js";
-import { enqueueSdmJob } from "../services/queue.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+import { projectSafeScienceConfig, publicConfigValidationError, UnsafeExecutionConfigError, findForbiddenConfigKey } from "../services/execution-config.js";
+import { TARGETS_DURABLE_EXECUTION_UNAVAILABLE } from "./sdm-targets.js";
 
 export const sdmBatchRoutes = new Hono<AppEnv>();
 
@@ -23,10 +23,29 @@ sdmBatchRoutes.use("/runs", authMiddleware);
 sdmBatchRoutes.use("/runs/delete/*", authMiddleware);
 sdmBatchRoutes.use("/runs/clear-all", authMiddleware);
 
+// Public by design (owner decision, Oct 2026): the model catalog is static
+// metadata with no user, run or occurrence data. Project to an allowlist so a
+// future Plumber field cannot widen what anonymous callers see.
+const PUBLIC_MODEL_FIELDS = [
+  "id", "label", "maturity", "min_records", "packages", "notes", "complexity_tier",
+  "enmeval_compatible", "enmeval_algorithm", "available", "supports_uncertainty",
+] as const;
+
+export function toPublicModelCatalog(models: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(models)) return [];
+  return models
+    .filter((m): m is Record<string, unknown> => !!m && typeof m === "object" && !Array.isArray(m))
+    .map((m) => {
+      const out: Record<string, unknown> = {};
+      for (const key of PUBLIC_MODEL_FIELDS) if (key in m) out[key] = m[key];
+      return out;
+    });
+}
+
 sdmBatchRoutes.get("/models", async (c) => {
   try {
     const models = await plumberClient.getModels();
-    return c.json(models);
+    return c.json(toPublicModelCatalog(models));
   } catch {
     return c.json([
       { id: "glm", label: "GLM / Logistic Regression", maturity: "stable", available: true },
@@ -155,7 +174,7 @@ sdmBatchRoutes.post("/cancel-all", async (c) => {
         } catch { /* best effort */ }
       }
       if (run.jobId) {
-        await       plumberClient.cancelModel(run.jobId).catch((e: unknown) =>
+        await       plumberClient.withUser(user.id).withRole(user.role).cancelModel(run.jobId).catch((e: unknown) =>
         console.warn(`[batch] Cancel model run ${run.jobId} failed:`, e instanceof Error ? e.message : String(e))
       );
       }
@@ -183,9 +202,8 @@ sdmBatchRoutes.post("/batch", async (c) => {
   try {
     const body = await c.req.json().catch(() => null);
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
-    const { configs, name } = body;
-    const user = c.get("user");
-    const projectId = await ensureDefaultProject(user);
+    if (findForbiddenConfigKey(body)) return c.json(publicConfigValidationError(), 400);
+    const { configs } = body;
 
     if (!Array.isArray(configs) || configs.length === 0) {
       return c.json({ error: "configs must be a non-empty array" }, 400);
@@ -195,67 +213,18 @@ sdmBatchRoutes.post("/batch", async (c) => {
       return c.json({ error: "Batch limited to 50 configs per request" }, 400);
     }
 
-    const parsedConfigs = configs.map((config) => {
-      const parsed = modelConfigSchema.safeParse(config);
-      if (!parsed.success) throw new Error(`Invalid config: ${parsed.error.message}`);
-      return parsed;
-    });
-
-    const [batch] = await db
-      .insert(batches)
-      .values({
-        projectId,
-        userId: user.id,
-        name: name || `Batch ${new Date().toLocaleDateString()}`,
-        totalJobs: parsedConfigs.length,
-        status: "running",
-      })
-      .returning();
-
-    const plumberPayload = await plumberClient.targetsRun({ configs: parsedConfigs.map(p => p.data) });
-
-    const targetsJobId = plumberPayload.job_id as string | undefined;
-
-    if (!targetsJobId) {
-      throw new Error("Targets pipeline did not return a job ID");
+    let parsedConfigs;
+    try {
+      parsedConfigs = configs.map((config) => {
+        const parsed = modelConfigSchema.safeParse(config);
+        if (!parsed.success) throw new UnsafeExecutionConfigError();
+        return parsed;
+      });
+    } catch {
+      return c.json(publicConfigValidationError(), 400);
     }
-
-    // Create per-species run records so batch status/cancel/retry can work
-    const runRecords = parsedConfigs.map((p) => ({
-      projectId,
-      parentRunId: batch.id,
-      speciesName: p.data.species,
-      modelId: p.data.modelId,
-      config: p.data as unknown as Record<string, unknown>,
-      status: "queued" as const,
-      jobId: targetsJobId,
-    }));
-
-    if (runRecords.length > 0) {
-      await db.insert(runs).values(runRecords);
-    }
-
-    await db
-      .update(batches)
-      .set({ jobId: targetsJobId })
-      .where(eq(batches.id, batch.id));
-
-    const client = extractClientInfo(c);
-    await logAction({
-      userId: user.id,
-      action: "batch_created",
-      entity: "batches",
-      entityId: batch.id,
-      ...client,
-      details: { name: name || `Batch ${new Date().toLocaleDateString()}`, totalJobs: configs.length },
-    });
-
-    return c.json({
-      batch_id: batch.id,
-      job_id: targetsJobId,
-      total: configs.length,
-      message: `Batch of ${configs.length} configs started via targets pipeline`,
-    });
+    parsedConfigs.forEach((parsed) => projectSafeScienceConfig(parsed.data));
+    return c.json(TARGETS_DURABLE_EXECUTION_UNAVAILABLE, 503);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Batch run failed";
     return c.json({ error: message }, 500);
@@ -341,7 +310,7 @@ sdmBatchRoutes.post("/batch/:batchId/cancel", async (c) => {
     await Promise.allSettled(cancellable.map(async (r) => {
       if (r.bullmqId && queue) await queue.remove(r.bullmqId).catch((e: unknown) =>
         console.warn(`[batch] Remove queue job ${r.bullmqId} failed:`, e instanceof Error ? e.message : String(e)));
-      if (r.jobId) await plumberClient.cancelModel(r.jobId).catch((e: unknown) =>
+      if (r.jobId) await plumberClient.withUser(user.id).withRole(user.role).cancelModel(r.jobId).catch((e: unknown) =>
         console.warn(`[batch] Cancel model run ${r.jobId} failed:`, e instanceof Error ? e.message : String(e)));
       jobEventBus.emitJobStatus({
         jobId: r.id,
@@ -371,108 +340,7 @@ sdmBatchRoutes.post("/batch/:batchId/cancel", async (c) => {
 });
 
 sdmBatchRoutes.post("/batch/:batchId/retry", async (c) => {
-  try {
-    const batchId = c.req.param("batchId");
-    const user = c.get("user");
-
-    const [batch] = await db.select().from(batches).where(eq(batches.id, batchId));
-    if (!batch) return c.json({ error: "Batch not found" }, 404);
-
-    const projectIds = await getUserProjectIds(user);
-    if (projectIds !== null && !projectIds.includes(batch.projectId)) return c.json({ error: "Batch not found" }, 404);
-
-    const failedRuns = await db
-      .select()
-      .from(runs)
-      .where(and(eq(runs.parentRunId, batchId), eq(runs.status, "failed")));
-
-    if (failedRuns.length === 0) {
-      return c.json({ ok: true, retried: 0, message: "No failed runs to retry" });
-    }
-
-    // Check if this batch was a targets pipeline batch (all runs share the same jobId)
-    const targetsJobId = batch.jobId;
-    const isTargetsBatch = targetsJobId != null && targetsJobId.startsWith("targets-");
-
-    if (isTargetsBatch) {
-      // Cancel any still-running old targets job before starting a new one
-      if (targetsJobId && targetsJobId !== "targets-none") {
-        try {
-          await plumberClient.cancelModel(targetsJobId);
-        } catch (e: unknown) {
-          console.warn(`[batch-retry] Cancel old targets job ${targetsJobId}:`,
-            e instanceof Error ? e.message : String(e));
-        }
-      }
-
-      // For targets batches, re-submit all failed configs as a new targets run
-      const configs = failedRuns.map((r) => (r.config as unknown as ModelConfigRecord));
-
-      const plumberPayload = await plumberClient.targetsRun({ configs });
-      const newTargetsJobId = plumberPayload.job_id as string | undefined;
-      if (!newTargetsJobId) throw new Error("Targets pipeline did not return a job ID");
-
-      // Bulk-update all failed runs with the new targets job ID
-      const retriedIds = failedRuns.map((r) => r.id);
-      await db.update(runs).set({
-        status: "queued",
-        error: null,
-        jobId: newTargetsJobId,
-        bullmqId: null,
-      }).where(inArray(runs.id, retriedIds));
-      for (const id of retriedIds) {
-        jobEventBus.emitJobStatus({
-          jobId: id,
-          state: "queued",
-          progress: 0,
-          logs: ["Targets pipeline re-submitted for retry..."],
-        });
-      }
-
-      await db.update(batches).set({
-        status: "running",
-        jobId: newTargetsJobId,
-        failedJobs: 0,
-      }).where(eq(batches.id, batchId));
-
-      return c.json({ ok: true, retried: retriedIds.length, job_id: newTargetsJobId });
-    }
-
-    // Legacy single-species batch retry: re-enqueue individual runs
-    const retriedIds = failedRuns.map((r) => r.id);
-    const bullmqIds = new Map<string, string>();
-    await db.update(runs).set({ status: "queued", error: null, jobId: null, bullmqId: null }).where(inArray(runs.id, retriedIds));
-    for (const r of failedRuns) {
-      const queuedJobId = await enqueueSdmJob(
-        { type: "model", payload: buildModelPayload((r.config as unknown as ModelConfigRecord), r.id) },
-        user.id,
-      );
-      if (queuedJobId) {
-        bullmqIds.set(r.id, queuedJobId);
-      }
-      jobEventBus.emitJobStatus({
-        jobId: r.id,
-        state: "queued",
-        progress: 0,
-        logs: ["Model run queued for retry..."],
-      });
-    }
-    // Bulk-update bullmqId for runs that were enqueued
-    const bullmqUpdates = Array.from(bullmqIds.entries());
-    if (bullmqUpdates.length > 0) {
-      await Promise.all(bullmqUpdates.map(([runId, bullmqId]) =>
-        db.update(runs).set({ bullmqId }).where(eq(runs.id, runId))
-      ));
-    }
-    if (retriedIds.length > 0) {
-      await db.update(batches).set({ status: "running", failedJobs: 0 }).where(eq(batches.id, batchId));
-    }
-
-    return c.json({ ok: true, retried: retriedIds.length, job_ids: retriedIds });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Batch retry failed";
-    return c.json({ error: message }, 500);
-  }
+  return c.json(TARGETS_DURABLE_EXECUTION_UNAVAILABLE, 503);
 });
 
 sdmBatchRoutes.delete("/runs/delete/:runId", async (c) => {
@@ -504,7 +372,7 @@ sdmBatchRoutes.delete("/runs/delete/:runId", async (c) => {
     }
 
     if (run.jobId) {
-      await plumberClient.deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Failed to delete Plumber outputs for run", run.jobId));
+      await plumberClient.withUser(user.id).withRole(user.role).deleteModelOutputs(run.jobId).catch(() => console.warn("[sdm] Failed to delete Plumber outputs for run", run.jobId));
     }
 
     await db.delete(runs).where(eq(runs.id, runId));
@@ -568,7 +436,7 @@ sdmBatchRoutes.post("/runs/clear-all", async (c) => {
       await Promise.allSettled(
         runsToDelete.map((run) =>
           run.jobId
-            ? plumberClient.deleteModelOutputs(run.jobId).catch((e: unknown) =>
+            ? plumberClient.withUser(user.id).withRole(user.role).deleteModelOutputs(run.jobId).catch((e: unknown) =>
               console.warn(`[batch] Delete outputs for ${run.jobId} failed:`, e instanceof Error ? e.message : String(e)))
             : Promise.resolve()
         )

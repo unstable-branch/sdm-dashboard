@@ -5,22 +5,29 @@
 #   - X-Hono-Internal header + X-Forwarded-User (Hono-proxied requests with valid JWT)
 # Open endpoints (health, reads) bypass auth
 
-# Fatal error handler: dump stack + variables to crash log so OOM/segfault leaves a trail.
-# Auth rejections from the preroute filter set res directly and return FALSE — these
-# do NOT trigger this handler. This only fires for genuine crashes.
+# Fatal errors must not serialize frames, variables, provider URLs, or credentials.
+# Auth rejections from the preroute filter THROW a `sdm_auth_denial` condition, which
+# short-circuits the router: plumber 1.3.3 runs every step (preroute, route,
+# serialize) unconditionally, so returning FALSE from a hook does NOT abort and the
+# denied handler would still execute. The custom error handler below converts the
+# condition into the denial response before any route or serializer runs. This
+# options(error=) handler only fires for genuine crashes.
 options(error = function() {
   cond <- tryCatch(get("condition", envir = .GlobalEnv, inherits = FALSE), error = function(e) NULL)
   if (is.null(cond)) return(invisible(NULL))
-  crash_file <- file.path(tempdir(), "sdm_crash_dump.rda")
+  message_text <- unname(tryCatch(conditionMessage(cond), error = function(e) "unavailable"))
+  configured <- Sys.getenv("OPENTOPOGRAPHY_API_KEY", unset = "")
+  if (nzchar(configured)) message_text <- gsub(configured, "[redacted]", message_text, fixed = TRUE)
+  message_text <- gsub("(?i)(api[_-]?key|access[_-]?token|token|secret|password|credential)([=:][^&[:space:]]+)",
+                        "\\1=[redacted]", message_text, perl = TRUE)
+  message_text <- gsub("(?i)https?://[^[:space:]]*opentopography[^[:space:]]*",
+                        "OpenTopography provider request", message_text, perl = TRUE)
   tryCatch({
-    dump.frames("sdm_crash_dump", to.file = TRUE)
-    cat("FATAL: R process crashed at", format(Sys.time()), "\n",
-      "  Error:", conditionMessage(cond), "\n",
-      "  Dump written to:", crash_file, "\n",
-      file = file.path(Sys.getenv("SDM_CRASH_LOG", tempdir()), "sdm_crash.log"),
-      append = TRUE)
+    crash_log <- file.path(Sys.getenv("SDM_CRASH_LOG", tempdir()), "sdm_crash.log")
+    cat("FATAL: R process error at ", format(Sys.time()), ": ", message_text, "\n",
+        "Crash frames withheld to protect execution data.\n", file = crash_log, append = TRUE, sep = "")
   }, error = function(e) NULL)
-  # Signal to the Plumber health check process monitor
+  # Signal to the Plumber health check process monitor.
   cat("FATAL: Unrecoverable R error — process terminating\n")
 })
 
@@ -45,6 +52,10 @@ source(file.path(app_dir, "plumber", "R", "helpers", "plumber_helpers.R"), local
 # Source error codes and classification
 source(file.path(app_dir, "plumber", "R", "error_codes.R"), local = FALSE)
 
+# Source the typed auth-denial mechanism (must be defined before the preroute
+# hook and error-handler registration below).
+source(file.path(app_dir, "plumber", "R", "auth_denial.R"), local = FALSE)
+
 # Load .env before connecting so local deployments use the same retry path as containers.
 env_file <- file.path(app_dir, ".env")
 if (file.exists(env_file)) {
@@ -57,6 +68,23 @@ if (file.exists(env_file)) {
       }
     }
   }
+}
+
+# Validate the dedicated execution key before opening external resources or
+# registering routes. It is separate from the general internal proxy key so a
+# captured proxy credential cannot mint model execution attestations.
+source(file.path(app_dir, "plumber", "R", "startup_validation.R"), local = FALSE)
+internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
+data_encryption_key <- Sys.getenv("DATA_ENCRYPTION_KEY", "")
+production_secret_issues <- sdm_production_secret_issues(
+  internal_key = internal_key,
+  execution_key = Sys.getenv("PLUMBER_EXECUTION_KEY", ""),
+  data_encryption_key = data_encryption_key
+)
+if (length(production_secret_issues) > 0L) {
+  cat("FATAL: missing or weak required secrets in production:", paste(production_secret_issues, collapse = ", "), "\n")
+  cat("  Set these environment variables before starting Plumber.\n")
+  quit(status = 1)
 }
 
 # PostgreSQL can lag behind the container process even when Compose is starting
@@ -73,6 +101,15 @@ if (!is.null(db_pool)) {
 # Create plumber router (this sets global `pr`)
 pr <- plumber::pr(file.path(app_dir, "plumber", "R", "plumber.R"))
 
+# NOTE: We use pr$registerHook("preroute", ...) for the auth gate (see run_server.R
+# preroute hook), NOT #* @filter Auth. The @filter path triggers an empty/false body bug
+# in Plumber 1.3.0–1.3.3 with serializer_json(auto_unbox=TRUE); see rstudio/plumber#1022.
+# Denial aborts via the `sdm_auth_denial` condition thrown by sdm_auth_deny().
+
+# Router error handler: turn auth-denial conditions into their denial response
+# and keep genuine errors redacted — see auth_denial.R.
+pr$setErrorHandler(sdm_auth_error_handler)
+
 # Unbox single-element vectors so JSON primitives are returned instead of arrays
 # e.g. "file_path" remains string, "n_rows" remains number, not [value]
 # na="null" preserves NA values as JSON null instead of omitting them
@@ -86,30 +123,9 @@ if (tolower(Sys.getenv("PLUMBER_DOCS_ENABLED", "false")) == "true") {
   tryCatch(pr$setDocs(FALSE), error = function(e) NULL)
 }
 
-# Internal auth key set by Hono when proxying authenticated requests
-internal_key <- Sys.getenv("PLUMBER_INTERNAL_KEY", "")
-data_encryption_key <- Sys.getenv("DATA_ENCRYPTION_KEY", "")
-
-# In production, refuse to start if required secrets are missing or weak.
-if (identical(Sys.getenv("NODE_ENV"), "production")) {
-  issues <- character(0)
-  if (!nzchar(internal_key) || nchar(internal_key) < 32L) {
-    issues <- c(issues, "PLUMBER_INTERNAL_KEY (>=32 chars)")
-  }
-  if (!nzchar(data_encryption_key) || nchar(data_encryption_key) < 32L) {
-    issues <- c(issues, "DATA_ENCRYPTION_KEY (>=32 chars)")
-  }
-  if (length(issues) > 0L) {
-    cat("FATAL: missing or weak required secrets in production:", paste(issues, collapse = ", "), "\n")
-    cat("  Set these environment variables before starting Plumber.\n")
-    quit(status = 1)
-  }
-}
-
 auth_fail <- function(res, status, msg) {
-  res$status <- status
-  res$body <- msg
-  FALSE
+  # Abort the request pipeline via the typed denial condition — see auth_denial.R
+  sdm_auth_deny(res, status, msg)
 }
 
 get_hdr <- function(req, name) {
@@ -161,12 +177,23 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     }
     fwd_user <- get_hdr(req, "x-forwarded-user")
     fwd_role <- get_hdr(req, "x-forwarded-role")
-    if (!is.null(fwd_user) && nzchar(fwd_user)) {
-      req$user_id <- fwd_user
+    if (is.null(fwd_user) || !nzchar(fwd_user)) {
+      return(auth_fail(res, 401L, '{"error":"Forwarded user required."}'))
     }
-    if (!is.null(fwd_role) && nzchar(fwd_role)) {
-      req$user_role <- fwd_role
+    if (is.null(fwd_role) || !nzchar(fwd_role)) {
+      return(auth_fail(res, 401L, '{"error":"Forwarded role required."}'))
     }
+    if (!fwd_role %in% c("admin", "editor", "viewer")) {
+      return(auth_fail(res, 401L, '{"error":"Invalid forwarded principal."}'))
+    }
+    # Plumber rechecks its boundary: the forwarded identity must still resolve
+    # to a current database principal before any protected handler runs.
+    principal <- sdm_validate_forwarded_principal(fwd_user, fwd_role, pool = sdm_get_db_pool(db_pool), app_dir = app_dir)
+    if (!isTRUE(principal$ok)) {
+      return(auth_fail(res, principal$status, principal$message))
+    }
+    req$user_role <- fwd_role
+    req$user_id <- fwd_user
     return(NULL)
   }
 
@@ -179,16 +206,21 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
     if (!is.null(hono_internal) && identical(hono_internal, internal_key)) {
       fwd_user <- get_hdr(req, "x-forwarded-user")
       fwd_role <- get_hdr(req, "x-forwarded-role")
-      if (!is.null(fwd_user) && nzchar(fwd_user)) {
-        req$user_id <- fwd_user
-        return(NULL)
+      if (is.null(fwd_user) || !nzchar(fwd_user)) {
+        return(auth_fail(res, 401L, '{"error":"Forwarded user required."}'))
       }
-      if (requires_auth(path)) {
-        return(auth_fail(res, 401L, '{"error":"API key required. Provide X-API-Key header."}'))
+      if (is.null(fwd_role) || !nzchar(fwd_role)) {
+        return(auth_fail(res, 401L, '{"error":"Forwarded role required."}'))
       }
-      if (!is.null(fwd_role) && nzchar(fwd_role)) {
-        req$user_role <- fwd_role
+      if (!fwd_role %in% c("admin", "editor", "viewer")) {
+        return(auth_fail(res, 401L, '{"error":"Invalid forwarded principal."}'))
       }
+      principal <- sdm_validate_forwarded_principal(fwd_user, fwd_role, pool = sdm_get_db_pool(db_pool), app_dir = app_dir)
+      if (!isTRUE(principal$ok)) {
+        return(auth_fail(res, principal$status, principal$message))
+      }
+      req$user_role <- fwd_role
+      req$user_id <- fwd_user
       return(NULL)
     }
   }
@@ -211,7 +243,8 @@ plumber::pr_hook(pr, "preroute", function(data, req, res) {
   raw_rate_id <- api_key %||% user_info$user_id %||% fwd_user
   if (!is.null(raw_rate_id) && nzchar(raw_rate_id)) {
     rate_key <- if (!is.null(api_key) && nzchar(api_key)) {
-      substr(digest::digest(paste0("apikey:", api_key), algo = "sha256", serialize = FALSE), 1, 32)
+      rate_material <- paste("apikey", api_key, sep = ":")
+      substr(digest::digest(rate_material, algo = "sha256", serialize = FALSE), 1, 32)
     } else {
       raw_rate_id
     }

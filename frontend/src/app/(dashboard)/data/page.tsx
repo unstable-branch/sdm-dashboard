@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Cloud, Layers, Map, LayoutDashboard, AlertTriangle } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -13,7 +13,8 @@ import { CovariateTab } from "./covariate-tab";
 import { BoundaryTab } from "./boundary-tab";
 import { OverviewTab } from "./overview-tab";
 import type { UploadFile, ClimateScenarioResponse, ClimateCheckResponse } from "@/services/types";
-import type { WorkspaceFile } from "./types";
+import { addWorkspaceFile, type WorkspaceFile } from "./types";
+import { selectWorkspaceFileForModel } from "./model-handoff";
 
 export default function DataPage() {
   return (
@@ -41,6 +42,8 @@ function DataPageContent() {
   const activeTab = searchParams.get("tab") || "upload";
 
   const setOccurrenceFilePath = useSDMStore((s) => s.setOccurrenceFilePath);
+  const setRawAssetId = useSDMStore((s) => s.setRawAssetId);
+  const setCleanedAssetId = useSDMStore((s) => s.setCleanedAssetId);
   const setRecordCount = useSDMStore((s) => s.setRecordCount);
   const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
   const setPipelineRunId = useSDMStore((s) => s.setPipelineRunId);
@@ -75,27 +78,14 @@ function DataPageContent() {
   const setWorkspaceFiles = useSDMStore((s) => s.setWorkspaceFiles);
 
   const handleWorkspaceAdd = useCallback((file: UploadFile, speciesOverride?: string) => {
+    const rawAssetId = file.rawAssetId || file.raw_asset_id;
+    if (!rawAssetId) return;
     const allSpecies = (speciesOverride || file.species)
       ? (speciesOverride || file.species || "")
           .split(",").map((s: string) => s.trim()).filter(Boolean)
       : [];
     setWorkspaceFiles((prev) => {
-      if (prev.some(f => f.fileId === file.file_id)) return prev;
-      return [...prev, {
-        id: crypto.randomUUID(),
-        fileId: file.file_id,
-        fileName: file.file_name,
-        filePath: file.file_id,
-        fileFormat: file.format,
-        fileRows: file.n_rows,
-        fileCleaned: file.cleaned,
-        fileCleanedFileId: file.cleaned_file_id,
-        cleanedFileId: file.cleaned_file_id,
-        cleanValidRecords: file.cleaned_valid_records,
-        selectedSpecies: allSpecies,
-        cleanLoading: false,
-        cleanError: null,
-      }];
+      return addWorkspaceFile(prev, file, allSpecies);
     });
     if (allSpecies.length > 0) {
       useSDMStore.getState().setSpecies(allSpecies[0]);
@@ -118,25 +108,7 @@ function DataPageContent() {
   const handleOpenInModel = useCallback((cardId: string) => {
     const card = workspaceFiles.find(f => f.id === cardId);
     if (!card) return;
-    const store = useSDMStore.getState();
-    store.setOccurrenceFilePath(card.filePath);
-    store.setSpecies(card.selectedSpecies[0] || "Untitled species");
-    store.setDetectedSpecies(card.selectedSpecies);
-    store.setRecordCount(card.fileRows);
-    store.setUploadResult({
-      file_id: card.fileId,
-      n_rows: card.fileRows,
-      cleaned: card.cleanedFileId ? true : false,
-      cleaned_file_id: card.cleanedFileId,
-      cleaned_valid_records: card.cleanValidRecords,
-    });
-    if (card.cleanedFileId) {
-      store.setCleanedOccurrence({
-        filePath: card.cleanedFileId, df: [], sourceCounts: {},
-        nAbsentExcluded: 0, originalRows: card.fileRows,
-        validRecords: card.cleanValidRecords || card.fileRows,
-      });
-    }
+    selectWorkspaceFileForModel(card);
     router.push("/model");
   }, [workspaceFiles, router]);
 
@@ -221,19 +193,30 @@ function DataPageContent() {
 
   useEffect(() => { fetchScenarios(); }, [fetchScenarios]);
 
+  const climateCheckRequest = useRef(0);
   const fetchAvailableBiovars = useCallback(async () => {
+    const requestId = ++climateCheckRequest.current;
+    const source = climateSource;
+    const resolution = climateRes;
     const allBiovars = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19";
+    setAvailableBiovars(new Set());
+    setClimatePermissionIssues([]);
     try {
-      const data = await apiGet<ClimateCheckResponse>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${encodeURIComponent(allBiovars)}`);
+      const data = await apiGet<ClimateCheckResponse>(`/api/v1/climate/check?source=${source}&res=${resolution}&biovars=${encodeURIComponent(allBiovars)}`);
+      if (requestId !== climateCheckRequest.current) return;
       setAvailableBiovars(new Set(data.available || []));
       setClimatePermissionIssues(data.permission_issues ?? []);
     } catch {
+      if (requestId !== climateCheckRequest.current) return;
       setAvailableBiovars(new Set());
       setClimatePermissionIssues([]);
     }
   }, [climateSource, climateRes]);
 
-  useEffect(() => { fetchAvailableBiovars(); }, [fetchAvailableBiovars]);
+  useEffect(() => {
+    void fetchAvailableBiovars();
+    return () => { climateCheckRequest.current += 1; };
+  }, [fetchAvailableBiovars]);
 
   const handleDownloadComplete = useCallback((completedJobId: string) => {
     clearDownloadJob(completedJobId);
@@ -247,12 +230,6 @@ function DataPageContent() {
     fetchAvailableBiovars();
   }, [clearDownloadJob, fetchScenarios, fetchAvailableBiovars]);
 
-  const handleDeleteScenario = async (id: string) => {
-    try {
-      await apiPost(`/api/v1/climate/delete/${id}`);
-      setScenarios((prev) => prev.filter((s) => s.id !== id));
-    } catch { }
-  };
 
   // ── Upload ──────────────────────────────────────────────────
   const fetchUploads = useCallback(async () => {
@@ -261,14 +238,18 @@ function DataPageContent() {
       const data = await apiGet<{ uploads: Array<Record<string, unknown>> }>("/api/v1/data/occurrences/uploads");
       const mapped = (data.uploads || []).map((u) => ({
         id: u.id,
-        file_id: u.file_path,
+        rawAssetId: u.rawAssetId,
+        raw_asset_id: u.raw_asset_id,
+        file_id: u.rawAssetId || u.raw_asset_id,
         file_name: u.filename,
         file_size: u.file_size,
         n_rows: u.n_rows,
         species: u.species,
-        modified_at: u.created_at,
-        cleaned: u.is_cleaned,
-        cleaned_file_id: u.cleaned_file_path,
+        modified_at: u.modified_at,
+        cleaned: Boolean(u.cleanedAssetId || u.cleaned_asset_id),
+        cleaned_file_id: u.cleanedAssetId || u.cleaned_asset_id,
+        cleanedAssetId: u.cleanedAssetId,
+        cleaned_asset_id: u.cleaned_asset_id,
         cleaned_valid_records: u.cleaned_valid_records,
         format: u.format,
       }));
@@ -289,10 +270,12 @@ function DataPageContent() {
         "/api/v1/data/occurrences/upload", file, undefined, 600000
       );
       const fileId = (result.file_id as string) || null;
+      const rawAssetId = (result.rawAssetId || result.raw_asset_id) as string | undefined;
+      if (!rawAssetId) throw new Error("Upload completed without a canonical rawAssetId; please retry.");
       const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
       const detectedSpecies = (result.species_detected as string) || null;
       const pipelineRunId = (result.pipelineRunId as string) || null;
-      setUploadResult(result); setPipelineRunId(pipelineRunId);
+      setUploadResult(result); setPipelineRunId(pipelineRunId); setRawAssetId(rawAssetId); setCleanedAssetId(null);
       if (fileId) {
         setOccurrenceFilePath(fileId);
         setRecordCount(nRows);
@@ -305,6 +288,7 @@ function DataPageContent() {
         }
         const fakeFile: UploadFile = {
           file_id: fileId,
+          rawAssetId,
           file_name: file.name,
           file_size: file.size,
           n_rows: nRows,
@@ -326,7 +310,7 @@ function DataPageContent() {
   const handleDeleteUpload = async (fileId: string) => {
     try {
       await apiDelete(`/api/v1/data/uploads/${encodeURIComponent(fileId)}`);
-      setWorkspaceFiles((prev) => prev.filter(f => f.fileId !== fileId));
+      setWorkspaceFiles((prev) => prev.filter(f => f.fileId !== fileId && f.rawAssetId !== fileId));
       fetchUploads();
     } catch (err) {
       console.error("[data] Failed to delete upload:", err);
@@ -356,7 +340,7 @@ function DataPageContent() {
       )}
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
-        <TabsList className="flex w-full overflow-x-auto [&::-webkit-scrollbar]:hidden border-b border-sdm-border rounded-none bg-transparent p-0 gap-0">
+        <TabsList aria-label="Data sources" className="flex w-full overflow-x-auto [&::-webkit-scrollbar]:hidden border-b border-sdm-border rounded-none bg-transparent p-0 gap-0">
           <TabsTrigger value="overview" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
             <LayoutDashboard className="h-3 w-3" />
             Overview
@@ -379,6 +363,7 @@ function DataPageContent() {
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="upload">
         {activeTab === "upload" && (
           <UploadTab
             uploadResult={uploadResult}
@@ -399,7 +384,9 @@ function DataPageContent() {
             hasAlaCredentials={hasAlaCredentials}
           />
         )}
+        </TabsContent>
 
+        <TabsContent value="overview">
         {activeTab === "overview" && (
           <OverviewTab
             uploadResult={uploadResult}
@@ -414,7 +401,9 @@ function DataPageContent() {
             onTabChange={onTabChange}
           />
         )}
+        </TabsContent>
 
+        <TabsContent value="climate">
         {activeTab === "climate" && (
           <>
             {climatePermissionIssues && climatePermissionIssues.length > 0 && (
@@ -443,12 +432,13 @@ function DataPageContent() {
               onSetCmip6Gcm={setCmip6Gcm} onSetCmip6Ssp={setCmip6Ssp} onSetCmip6Period={setCmip6Period}
               onCmip6Download={handleCmip6Download} onToggleAvgGcm={toggleAvgGcm} onAvgDownload={handleAvgDownload}
               onDownloadComplete={handleDownloadComplete} onDownloadFailed={handleDownloadFailed} onCancelDownload={handleCancelDownload}
-              onFetchScenarios={fetchScenarios} onDeleteScenario={handleDeleteScenario} />
+              onFetchScenarios={fetchScenarios} />
           </>
         )}
+        </TabsContent>
 
-        {activeTab === "covariates" && <CovariateTab />}
-        {activeTab === "boundary" && <BoundaryTab />}
+        <TabsContent value="covariates">{activeTab === "covariates" && <CovariateTab />}</TabsContent>
+        <TabsContent value="boundary">{activeTab === "boundary" && <BoundaryTab />}</TabsContent>
       </Tabs>
     </div>
   );

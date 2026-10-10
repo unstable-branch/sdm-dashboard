@@ -6,11 +6,22 @@ import { users, apiKeys, projects, projectMembers, userSettings } from "../db/sc
 import { eq, and } from "drizzle-orm";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
-import { randomBytes, createHash, createHmac } from "crypto";
+import { randomBytes, createHash, createHmac, timingSafeEqual } from "crypto";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { sendPasswordResetEmail, generateToken, hashToken } from "../services/email.js";
 import type { AppEnv } from "../middleware/auth.js";
-import { refreshTokens } from "../db/schema.js";
+import {
+  consumePasswordReset,
+  invalidateBrowserSessions,
+  issueBrowserSession,
+  rotateRefreshToken,
+  updatePasswordAndInvalidate,
+} from "../services/sessions.js";
+import {
+  issuePersistentBrowserSession,
+  rotatePersistentBrowserRefresh,
+  revokePersistentBrowserSession,
+} from "../services/browser-session-lifecycle.js";
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -20,7 +31,7 @@ authRoutes.onError((err, c) => {
 });
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_ISSUER = process.env.JWT_ISSUER || "sdm-dashboard";
+const JWT_ISSUER = process.env.JWT_ISSUER?.trim() || "sdm-dashboard";
 const BCRYPT_ROUNDS = 12;
 const ACCESS_TOKEN_EXPIRY_S = 900; // 15 minutes
 const REFRESH_TOKEN_EXPIRY_DAYS = 30;
@@ -31,15 +42,88 @@ function hashRefreshToken(token: string): string {
   return createHmac("sha256", JWT_SECRET).update(token).digest("hex");
 }
 
-async function issueRefreshToken(userId: string): Promise<string> {
-  const token = randomBytes(REFRESH_TOKEN_BYTES).toString("hex");
-  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 86400000);
-  await db.insert(refreshTokens).values({
-    userId,
-    tokenHash: hashRefreshToken(token),
-    expiresAt,
-  });
-  return token;
+function createRefreshToken() {
+  const raw = randomBytes(REFRESH_TOKEN_BYTES).toString("hex");
+  return {
+    raw,
+    hash: hashRefreshToken(raw),
+    expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 86400000),
+  };
+}
+
+function createBrowserRefreshToken(rememberMe: boolean) {
+  const entropy = randomBytes(REFRESH_TOKEN_BYTES).toString("hex");
+  const persistence = rememberMe ? "p" : "s";
+  const proof = createHmac("sha256", JWT_SECRET as string).update(`${entropy}.${persistence}`).digest("hex");
+  const raw = `${entropy}.${persistence}.${proof}`;
+  return { raw, hash: hashRefreshToken(raw), expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 86400000) };
+}
+
+function browserRefreshPersistence(token: string): boolean | null {
+  const match = /^([a-f0-9]{64})\.([ps])\.([a-f0-9]{64})$/.exec(token);
+  if (!match || !JWT_SECRET) return null;
+  const expected = createHmac("sha256", JWT_SECRET).update(`${match[1]}.${match[2]}`).digest("hex");
+  const actualBytes = Buffer.from(match[3], "hex");
+  const expectedBytes = Buffer.from(expected, "hex");
+  if (actualBytes.length !== expectedBytes.length || !timingSafeEqual(actualBytes, expectedBytes)) return null;
+  return match[2] === "p";
+}
+
+function parseCookie(cookieHeader: string | undefined, names: string[]): string | null {
+  if (!cookieHeader) return null;
+  const cookies = cookieHeader.split(";").map((part) => part.trim());
+  for (const name of names) {
+    const prefix = `${name}=`;
+    const item = cookies.find((part) => part.startsWith(prefix));
+    if (!item) continue;
+    try { return decodeURIComponent(item.slice(prefix.length)) || null; } catch { return null; }
+  }
+  return null;
+}
+
+function isAllowedBrowserOrigin(origin: string | undefined): boolean {
+  if (!origin || origin === "null") return false;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.origin !== origin || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) return false;
+    const raw = process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:3000";
+    return raw.split(",").map((value) => value.trim()).filter(Boolean)
+      .some((value) => new URL(value).origin === parsed.origin);
+  } catch { return false; }
+}
+
+function browserCookieNames(c: { req: { url: string } }) {
+  const secure = process.env.NODE_ENV === "production" || new URL(c.req.url).protocol === "https:";
+  return secure
+    ? { access: "__Host-sdm_token", refresh: "__Host-sdm_refresh_token", secure: true }
+    : { access: "sdm_token", refresh: "sdm_refresh_token", secure: false };
+}
+
+function setBrowserSessionCookies(c: any, accessToken: string, refreshToken: string, rememberMe: boolean) {
+  const names = browserCookieNames(c);
+  const flags = `Path=/; HttpOnly; SameSite=Strict${names.secure ? "; Secure" : ""}`;
+  const accessAge = rememberMe ? `; Max-Age=${ACCESS_TOKEN_EXPIRY_S}` : "";
+  const refreshAge = rememberMe ? `; Max-Age=${REFRESH_TOKEN_EXPIRY_DAYS * 86400}` : "";
+  c.header("Set-Cookie", `${names.access}=${encodeURIComponent(accessToken)}; ${flags}${accessAge}`, { append: true });
+  c.header("Set-Cookie", `${names.refresh}=${encodeURIComponent(refreshToken)}; ${flags}${refreshAge}`, { append: true });
+}
+
+function clearBrowserSessionCookies(c: any) {
+  const names = browserCookieNames(c);
+  const flags = `Path=/; HttpOnly; SameSite=Strict${names.secure ? "; Secure" : ""}; Max-Age=0`;
+  for (const name of [names.access, names.refresh]) c.header("Set-Cookie", `${name}=; ${flags}`, { append: true });
+}
+
+function isBrowserSessionRequest(body: unknown): body is { browser_session: true; remember_me: boolean } {
+  return typeof body === "object" && body !== null && (body as Record<string, unknown>).browser_session === true;
+}
+
+async function issueAccessToken(user: { id: string; email: string; role: string; authVersion: number }, sessionId?: string): Promise<string> {
+  return sign(
+    { sub: user.id, email: user.email, role: user.role, av: user.authVersion, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S,
+      ...(sessionId ? { browser_session: true, sid: sessionId } : {}) },
+    JWT_SECRET as string,
+  );
 }
 
 export function validatePassword(password: string): string | null {
@@ -63,6 +147,10 @@ authRoutes.post("/register", async (c) => {
   try {
     const body = await c.req.json();
     const { email, password, name } = body;
+    const browserSession = isBrowserSessionRequest(body);
+    if (browserSession && (!isAllowedBrowserOrigin(c.req.header("Origin")) || typeof body.remember_me !== "boolean")) {
+      return c.json({ error: "Invalid browser session request" }, 403);
+    }
 
     if (!email || !password) {
       return c.json({ error: "Email and password are required" }, 400);
@@ -115,16 +203,17 @@ authRoutes.post("/register", async (c) => {
       ...client,
     });
 
-    const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
-      JWT_SECRET as string
-    );
-    const refreshToken = await issueRefreshToken(user.id);
+    const session = browserSession
+      ? await issuePersistentBrowserSession(user.id, passwordHash, createBrowserRefreshToken(body.remember_me), issueAccessToken)
+      : await issueBrowserSession(user.id, passwordHash, issueAccessToken, createRefreshToken);
+    if (!session) return c.json({ error: "Registration failed" }, 500);
+    const token = session.accessToken;
+    const refreshToken = session.refreshToken;
+    if (browserSession) setBrowserSessionCookies(c, token, refreshToken, body.remember_me);
 
     return c.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
-      token,
-      refresh_token: refreshToken,
+      ...(browserSession ? {} : { token, refresh_token: refreshToken }),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Registration failed";
@@ -183,6 +272,10 @@ authRoutes.post("/login", async (c) => {
   try {
     const body = await c.req.json();
     const { email, password } = body;
+    const browserSession = isBrowserSessionRequest(body);
+    if (browserSession && (!isAllowedBrowserOrigin(c.req.header("Origin")) || typeof body.remember_me !== "boolean")) {
+      return c.json({ error: "Invalid browser session request" }, 403);
+    }
 
     if (!email || !password) {
       return c.json({ error: "Email and password are required" }, 400);
@@ -216,39 +309,36 @@ authRoutes.post("/login", async (c) => {
 
     recordLoginAttempt(email, true);
 
-    await db
-      .update(users)
-      .set({ lastLoginAt: new Date() })
-      .where(eq(users.id, user.id));
+    const session = browserSession
+      ? await issuePersistentBrowserSession(user.id, user.passwordHash, createBrowserRefreshToken(body.remember_me), issueAccessToken)
+      : await issueBrowserSession(user.id, user.passwordHash, issueAccessToken, createRefreshToken);
+    if (!session) return c.json({ error: "Invalid credentials" }, 401);
+    const currentUser = session.user;
 
     const client = extractClientInfo(c);
     logAction({
-      userId: user.id,
+      userId: currentUser.id,
       action: "user_login",
       entity: "users",
-      entityId: user.id,
+      entityId: currentUser.id,
       ...client,
     });
 
-    const token = await sign(
-      { sub: user.id, email: user.email, role: user.role, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
-      JWT_SECRET as string
-    );
-    const refreshToken = await issueRefreshToken(user.id);
+    const token = session.accessToken;
+    const refreshToken = session.refreshToken;
 
-    const forwardedProto = c.req.header("X-Forwarded-Proto");
-    const isSecure = process.env.NODE_ENV === "production" || forwardedProto === "https";
-    const maxAge = ACCESS_TOKEN_EXPIRY_S;
-    if (isSecure) {
-      c.header("Set-Cookie", `__Host-sdm_token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`);
+    if (browserSession) {
+      setBrowserSessionCookies(c, token, refreshToken, body.remember_me);
     } else {
-      c.header("Set-Cookie", `sdm_token=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}`);
+      const isSecure = process.env.NODE_ENV === "production" || c.req.header("X-Forwarded-Proto") === "https";
+      const cookieName = isSecure ? "__Host-sdm_token" : "sdm_token";
+      const secureFlag = isSecure ? "; Secure" : "";
+      c.header("Set-Cookie", `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict${secureFlag}; Max-Age=${ACCESS_TOKEN_EXPIRY_S}`);
     }
 
     return c.json({
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
-      token,
-      refresh_token: refreshToken,
+      user: { id: currentUser.id, email: currentUser.email, name: "name" in currentUser ? currentUser.name : user.name, role: currentUser.role },
+      ...(browserSession ? {} : { token, refresh_token: refreshToken }),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Login failed";
@@ -257,56 +347,71 @@ authRoutes.post("/login", async (c) => {
 });
 
 authRoutes.post("/refresh", rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "refresh" }), async (c) => {
+  if (!JWT_SECRET) {
+    return c.json({ error: "Authentication unavailable (server not configured)" }, 503);
+  }
   try {
     const body = await c.req.json();
-    const { refresh_token } = body;
-    if (!refresh_token) {
-      return c.json({ error: "refresh_token is required" }, 400);
+    const browserSession = isBrowserSessionRequest(body);
+    if (browserSession && !isAllowedBrowserOrigin(c.req.header("Origin"))) {
+      return c.json({ error: "Invalid browser session origin" }, 403);
+    }
+    const refreshToken = browserSession
+      ? parseCookie(c.req.header("Cookie"), [browserCookieNames(c).refresh])
+      : body.refresh_token;
+    if (!refreshToken) {
+      return c.json({ error: browserSession ? "Browser refresh cookie is required" : "refresh_token is required" }, browserSession ? 401 : 400);
     }
 
-    const hashedToken = hashRefreshToken(refresh_token);
-    const [stored] = await db
-      .select({
-        id: refreshTokens.id,
-        userId: refreshTokens.userId,
-        expiresAt: refreshTokens.expiresAt,
-        revokedAt: refreshTokens.revokedAt,
-        userEmail: users.email,
-        userRole: users.role,
-      })
-      .from(refreshTokens)
-      .innerJoin(users, eq(users.id, refreshTokens.userId))
-      .where(eq(refreshTokens.tokenHash, hashedToken))
-      .limit(1);
-
-    if (!stored || stored.revokedAt) {
-      return c.json({ error: "Invalid or revoked refresh token" }, 401);
+    const persistence = browserSession ? browserRefreshPersistence(refreshToken) : null;
+    if (browserSession && persistence === null) return c.json({ error: "Invalid or revoked refresh token" }, 401);
+    if (!browserSession && browserRefreshPersistence(refreshToken) !== null) {
+      return c.json({ error: "Browser refresh credentials require cookie exchange" }, 401);
     }
-    if (new Date(stored.expiresAt) < new Date()) {
-      return c.json({ error: "Refresh token expired" }, 401);
-    }
+    const replacement = browserSession ? createBrowserRefreshToken(persistence === true) : createRefreshToken();
+    const stored = browserSession
+      ? await rotatePersistentBrowserRefresh(hashRefreshToken(refreshToken), replacement, issueAccessToken)
+      : await rotateRefreshToken(hashRefreshToken(refreshToken), replacement, issueAccessToken);
+    if (!stored) return c.json({ error: "Invalid or revoked refresh token" }, 401);
 
-    // Rotate: revoke old token, issue new pair
-    await db.update(refreshTokens).set({ revokedAt: new Date() }).where(eq(refreshTokens.id, stored.id));
-
-    const newToken = await sign(
-      { sub: stored.userId, email: stored.userEmail, role: stored.userRole, iss: JWT_ISSUER, exp: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_EXPIRY_S },
-      JWT_SECRET as string
-    );
-    const newRefreshToken = await issueRefreshToken(stored.userId);
-
-    return c.json({ token: newToken, refresh_token: newRefreshToken });
+    if (browserSession) setBrowserSessionCookies(c, stored.accessToken, stored.refreshToken, persistence === true);
+    return c.json(browserSession
+      ? { ok: true }
+      : { token: stored.accessToken, refresh_token: stored.refreshToken });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Refresh failed";
     return c.json({ error: message }, 500);
   }
 });
 
+authRoutes.post("/logout", async (c) => {
+  if (!isAllowedBrowserOrigin(c.req.header("Origin")) || c.req.header("X-API-Key") || c.req.header("Authorization")) {
+    return c.json({ error: "Invalid browser logout request" }, 403);
+  }
+  let body: unknown;
+  try { body = await c.req.json(); } catch { return c.json({ error: "Invalid browser logout request" }, 400); }
+  if (!isBrowserSessionRequest(body)) return c.json({ error: "Invalid browser logout request" }, 403);
+  const refreshToken = parseCookie(c.req.header("Cookie"), [browserCookieNames(c).refresh]);
+  if (!refreshToken || browserRefreshPersistence(refreshToken) === null) {
+    return c.json({ error: "Invalid or expired browser session credential" }, 401);
+  }
+  let revoked: boolean;
+  try {
+    revoked = await revokePersistentBrowserSession(hashRefreshToken(refreshToken));
+  } catch {
+    return c.json({ error: "Authentication service unavailable" }, 503);
+  }
+  if (!revoked) return c.json({ error: "Invalid or expired browser session credential" }, 401);
+  clearBrowserSessionCookies(c);
+  return c.json({ ok: true });
+});
+
 authRoutes.post("/revoke-all", authMiddleware, async (c) => {
   const user = c.get("user");
-  await db.update(refreshTokens).set({ revokedAt: new Date() }).where(
-    and(eq(refreshTokens.userId, user.id), eq(refreshTokens.revokedAt, null as unknown as Date))
-  );
+  await invalidateBrowserSessions(user.id);
+  const isSecure = process.env.NODE_ENV === "production" || c.req.header("X-Forwarded-Proto") === "https";
+  const cookieName = isSecure ? "__Host-sdm_token" : "sdm_token";
+  c.header("Set-Cookie", cookieName + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
   return c.json({ ok: true });
 });
 
@@ -407,10 +512,12 @@ authRoutes.post("/change-password", authMiddleware, rateLimit({ windowMs: 60_000
   }
 
   const newHash = await hash(newPassword, BCRYPT_ROUNDS);
-  await db
-    .update(users)
-    .set({ passwordHash: newHash, updatedAt: new Date() })
-    .where(eq(users.id, user.id));
+  const changed = await updatePasswordAndInvalidate(user.id, newHash, dbUser.passwordHash);
+  if (!changed) return c.json({ error: "Session changed; please sign in again" }, 401);
+
+  const isSecure = process.env.NODE_ENV === "production" || c.req.header("X-Forwarded-Proto") === "https";
+  const cookieName = isSecure ? "__Host-sdm_token" : "sdm_token";
+  c.header("Set-Cookie", cookieName + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
 
   const client = extractClientInfo(c);
   await logAction({
@@ -427,10 +534,31 @@ authRoutes.post("/change-password", authMiddleware, rateLimit({ windowMs: 60_000
 authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 5, keyPrefix: "apikey-create" }), async (c) => {
   const user = c.get("user");
   const body = await c.req.json();
-  const { name, expiresAt } = body;
+  const { name, expiresAt, scopeProjectId } = body;
 
   if (!name) {
     return c.json({ error: "Name is required" }, 400);
+  }
+
+  // Optional single-project scope: the creator must currently be a member (or
+  // the owner / a global admin) of the project they scope the key to. A stale
+  // or foreign projectId denies closed.
+  let scopedProjectId: string | null = null;
+  if (scopeProjectId !== undefined && scopeProjectId !== null) {
+    if (typeof scopeProjectId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(scopeProjectId)) {
+      return c.json({ error: "Invalid scopeProjectId" }, 400);
+    }
+    const [project] = await db.select({ id: projects.id, ownerId: projects.ownerId })
+      .from(projects).where(eq(projects.id, scopeProjectId)).limit(1);
+    if (!project) return c.json({ error: "Scope project not found" }, 404);
+    if (project.ownerId !== user.id && user.role !== "admin") {
+      const [membership] = await db.select({ id: projectMembers.id })
+        .from(projectMembers)
+        .where(and(eq(projectMembers.projectId, scopeProjectId), eq(projectMembers.userId, user.id)))
+        .limit(1);
+      if (!membership) return c.json({ error: "Not a member of the scope project" }, 403);
+    }
+    scopedProjectId = scopeProjectId;
   }
 
   const rawKey = `sdm_${randomBytes(32).toString("hex")}`;
@@ -443,6 +571,7 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
       keyPreview: rawKey.substring(0, 8),
       name,
       userId: user.id,
+      scopeProjectId: scopedProjectId,
       expiresAt: expiresAt ? new Date(expiresAt) : null,
     })
     .returning();
@@ -454,7 +583,7 @@ authRoutes.post("/api-keys", authMiddleware, rateLimit({ windowMs: 60_000, max: 
     entity: "api_keys",
     entityId: apiKey.id,
     ...client,
-    details: { name, expiresAt: apiKey.expiresAt ?? null },
+    details: { name, expiresAt: apiKey.expiresAt ?? null, scoped: scopedProjectId !== null },
   });
 
   return c.json({
@@ -585,11 +714,8 @@ authRoutes.post("/reset-password", async (c) => {
   }
 
   const newHash = await hash(password, BCRYPT_ROUNDS);
-
-  await db
-    .update(users)
-    .set({ passwordHash: newHash, resetToken: null, resetTokenExpiry: null, updatedAt: new Date() })
-    .where(eq(users.id, user.id));
+  const reset = await consumePasswordReset(user.id, hashedToken, newHash);
+  if (!reset) return c.json({ error: "Invalid or expired reset token" }, 400);
 
   const client = extractClientInfo(c);
   await logAction({

@@ -4,12 +4,15 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ModelConfigForm from "@/components/model/model-config-form";
+import { ModelDataSource } from "@/components/model/model-data-source";
 import { RunHistory } from "@/components/model/run-history";
 import { JobProgress } from "@/components/jobs/job-progress";
 import { useJobSSE } from "@/hooks/use-job-sse";
+import { useClimateScenarios } from "@/hooks/use-queries";
 import { useSDMStore } from "@/stores/sdm-store";
 import { apiPost, apiGet } from "@/services/api";
-import { Ban, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { buildCanonicalModelSubmission } from "@/services/climate-selection";
+import { Ban, Loader2, RefreshCw } from "lucide-react";
 import type { ModelConfig } from "@sdm/shared";
 
 interface ActiveRun {
@@ -25,9 +28,8 @@ export default function ModelPage() {
   const recordCount = useSDMStore((s) => s.recordCount);
   const species = useSDMStore((s) => s.species);
   const cleanedOccurrence = useSDMStore((s) => s.cleanedOccurrence);
-  const uploadResult = useSDMStore((s) => s.uploadResult);
-  const setCleanedOccurrence = useSDMStore((s) => s.setCleanedOccurrence);
-  const setRecordCount = useSDMStore((s) => s.setRecordCount);
+
+  const { data: climateData } = useClimateScenarios();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,21 +66,7 @@ export default function ModelPage() {
     fetchActiveRuns();
   }, [fetchActiveRuns]);
 
-  // Safety net: if upload was cleaned but store hasn't caught up, populate cleanedOccurrence
-  useEffect(() => {
-    if (!cleanedOccurrence && uploadResult?.cleaned_file_id) {
-      setCleanedOccurrence({
-        filePath: uploadResult.cleaned_file_id as string,
-        df: (uploadResult.cleaned_records || []) as Record<string, unknown>[],
-        sourceCounts: (uploadResult.source_counts || {}) as Record<string, number>,
-        nAbsentExcluded: (uploadResult.n_absent_excluded as number) || 0,
-        originalRows: (uploadResult.original_rows as number) || Number(uploadResult.n_rows || 0),
-        validRecords: (uploadResult.valid_records as number) || (uploadResult.cleaned_valid_records as number) || 0,
-      });
-      const count = (uploadResult.valid_records as number) || (uploadResult.cleaned_valid_records as number) || 0;
-      if (count) setRecordCount(count);
-    }
-  }, [cleanedOccurrence, uploadResult, setCleanedOccurrence, setRecordCount]);
+
 
   // SSE-driven updates: on terminal state transitions, refresh active runs
   useEffect(() => {
@@ -116,7 +104,11 @@ export default function ModelPage() {
 
     let submittedRunId: string | undefined;
     try {
-      const result = await apiPost<{ runId: string; jobId: string }>("/api/v1/sdm/run", { ...config, async: true });
+      const submittedConfig = buildCanonicalModelSubmission(
+        config as Partial<ModelConfig> & Record<string, unknown>,
+        climateData?.scenarios || [],
+      );
+      const result = await apiPost<{ runId: string; jobId: string }>("/api/v1/sdm/run", { ...submittedConfig, async: true });
       // Use runId (DB UUID) as the canonical identifier — SSE events and API endpoints use this
       const runId = result.runId || result.jobId;
       submittedRunId = runId;
@@ -253,35 +245,7 @@ export default function ModelPage() {
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-lg border border-sdm-border bg-sdm-surface p-4">
-            <h2 className="text-sm font-semibold text-sdm-heading mb-3">Data source</h2>
-            {cleanedOccurrence && cleanedOccurrence.filePath ? (
-              <div>
-                <p className="text-sm text-sdm-text font-medium">Cleaned occurrence data</p>
-                <p className="text-xs text-sdm-muted mt-1">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
-                <p className="text-xs text-sdm-accent mt-1"><Link href="/data?tab=upload" className="underline">Review on Data page</Link></p>
-                {species && species !== "Untitled species" && (
-                  <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
-                )}
-              </div>
-            ) : occurrenceFile ? (
-              <div>
-                <div className="flex items-center gap-2 text-sm text-sdm-warning">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  <p className="text-sm text-sdm-text font-mono truncate">{typeof occurrenceFile === "string" ? occurrenceFile.split("/").pop() : String(occurrenceFile)}</p>
-                </div>
-                <p className="text-xs text-sdm-muted mt-1">{recordCount.toLocaleString()} records loaded</p>
-                <p className="text-xs text-sdm-warning mt-1">Not cleaned. <Link href="/data?tab=upload" className="underline">Clean on Data page</Link> first.</p>
-                {species && species !== "Untitled species" && (
-                  <p className="text-xs text-sdm-accent mt-1">Species: {species}</p>
-                )}
-              </div>
-            ) : (
-              <Link href="/data?tab=upload" className="text-xs text-sdm-accent underline hover:no-underline">
-                Upload occurrence data in the Data tab first.
-              </Link>
-            )}
-          </div>
+          <ModelDataSource occurrenceFile={occurrenceFile} recordCount={recordCount} cleanedOccurrence={cleanedOccurrence} species={species} />
 
           {jobId && (
             <JobProgress

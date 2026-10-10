@@ -1,3 +1,30 @@
+if (!exists("project_root", inherits = TRUE)) {
+  # testthat normally supplies project_root via helper-load.R. Direct sourcing
+  # still needs to work when the caller's working directory is elsewhere.
+  starts <- c(getwd())
+  script_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
+  if (length(script_arg) > 0L) starts <- c(starts, dirname(sub("^--file=", "", script_arg[1])))
+  source_files <- vapply(sys.frames(), function(frame) {
+    if (!is.null(frame$ofile)) frame$ofile else NA_character_
+  }, character(1))
+  source_files <- source_files[!is.na(source_files)]
+  if (length(source_files) > 0L) starts <- c(starts, dirname(source_files))
+  bootstrap <- NULL
+  for (start in unique(starts)) {
+    candidate <- normalizePath(start, winslash = "/", mustWork = FALSE)
+    probes <- c(file.path(candidate, "R", "core", "bootstrap.R"),
+                file.path(candidate, "..", "..", "R", "core", "bootstrap.R"))
+    probes <- probes[file.exists(probes)]
+    if (length(probes) > 0L) {
+      bootstrap <- normalizePath(probes[1], winslash = "/", mustWork = TRUE)
+      break
+    }
+  }
+  if (is.null(bootstrap)) stop("Could not find SDM project bootstrap", call. = FALSE)
+  source(bootstrap, local = .GlobalEnv)
+  project_root <- sdm_find_project_root()
+}
+
 testthat::test_that("database pool startup retries and recovers", {
   pool_env <- new.env(parent = globalenv())
   sys.source(file.path(project_root, "plumber", "R", "db_pool.R"), envir = pool_env)
@@ -27,11 +54,13 @@ testthat::test_that("database pool startup retries and recovers", {
 testthat::test_that("missing async jobs set a controlled 404", {
   helper_env <- new.env(parent = globalenv())
   sys.source(file.path(project_root, "plumber", "R", "helpers", "plumber_helpers.R"), envir = helper_env)
+  # models/jobs handlers call the same strict authorization guard as runtime.
+  sys.source(file.path(project_root, "plumber", "R", "auth.R"), envir = helper_env)
   sys.source(file.path(project_root, "plumber", "R", "helpers", "models_helpers.R"), envir = helper_env)
   sys.source(file.path(project_root, "plumber", "R", "helpers", "jobs_helpers.R"), envir = helper_env)
 
   res <- new.env(parent = emptyenv())
-  req <- list(user_id = "user-1")
+  req <- list(user_id = "user-1", user_role = "viewer")
   status <- helper_env$handle_job_status(req, res, "missing-job", tempdir())
 
   testthat::expect_equal(res$status, 404L)
@@ -46,6 +75,8 @@ testthat::test_that("crashed async job diagnostics remain pollable", {
   testthat::skip_if_not_installed("jsonlite")
   helper_env <- new.env(parent = globalenv())
   sys.source(file.path(project_root, "plumber", "R", "helpers", "plumber_helpers.R"), envir = helper_env)
+  # handle_async_status is reached through the authenticated runtime helpers.
+  sys.source(file.path(project_root, "plumber", "R", "auth.R"), envir = helper_env)
   sys.source(file.path(project_root, "plumber", "R", "helpers", "models_helpers.R"), envir = helper_env)
   helper_env$sdm_redis_progress_clear <- function(...) NULL
   helper_env$sdm_redis_cancel_clear <- function(...) NULL

@@ -113,7 +113,7 @@ fit_cta_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
 
   importance_raw <- tryCatch({
     imp <- model$variable.importance
-    if (is.null(imp) || length(imp) == 0) return(NULL)
+    if (is.null(imp) || length(imp) == 0) stop("no importance")
     imp_df <- data.frame(
       variable = names(imp),
       importance = as.numeric(imp),

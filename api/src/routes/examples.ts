@@ -1,10 +1,12 @@
 import { Hono } from "hono";
-import { readFileSync, existsSync, writeFileSync, mkdirSync, copyFileSync } from "fs";
+import { readFileSync, existsSync, mkdirSync, copyFileSync, openSync, closeSync, unlinkSync, promises as fs } from "fs";
 import { writeAtomicSync } from "../services/storage.js";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { plumberClient } from "../services/plumber.js";
 import { optionalAuth, authMiddleware, type AppEnv } from "../middleware/auth.js";
+import { InputAssetRegistrationError, registerInputAssetFromServerPath, resolveInputAsset, type InputAssetRow } from "../services/input-assets.js";
+import { decryptToUploads } from "../services/upload-utils.js";
 import type { PlumberUploadResponse } from "@sdm/shared";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,6 +14,18 @@ const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "../../..");
 const EXAMPLES_DIR = join(PROJECT_ROOT, "data", "examples");
 const SAVED_META_PATH = join(EXAMPLES_DIR, "saved_examples_meta.json");
+
+async function removeProducerOutput(path: string | null | undefined): Promise<void> {
+  if (!path || typeof path !== "string") return;
+  const candidate = resolve(path);
+  const root = resolve(join(PROJECT_ROOT, "data", "uploads"));
+  if (candidate === root || !candidate.startsWith(root + "/")) return;
+  try {
+    const stat = await fs.lstat(candidate);
+    if (stat.isSymbolicLink() || !stat.isFile()) return;
+    await fs.unlink(candidate);
+  } catch { /* only a newly-created in-root producer output is passed */ }
+}
 
 const EXAMPLE_FILES: Record<string, string> = {
   multi_species_test: join(EXAMPLES_DIR, "multi_species_test.csv"),
@@ -23,25 +37,26 @@ interface ExampleInfo {
   name: string;
   fileName: string;
   species: number;
-  totalRecords: number;
-  cleanRecords: number;
-  dirtyRecords: number;
+  totalRecords: number | null;
+  cleanRecords: number | null;
+  dirtyRecords: number | null;
   description: string;
   isMultiSpecies: boolean;
-  hasCoordinateCleanerTests: boolean;
+  hasCoordinateCleanerTests: boolean | null;
 }
 
 interface SavedExampleMeta {
   name: string;
   fileName: string;
   species: number;
-  totalRecords: number;
-  cleanRecords: number;
-  dirtyRecords: number;
+  totalRecords: number | null;
+  cleanRecords: number | null;
+  dirtyRecords: number | null;
   description: string;
   isMultiSpecies: boolean;
-  hasCoordinateCleanerTests: boolean;
+  hasCoordinateCleanerTests: boolean | null;
   speciesNames?: string[];
+  ownerUserId?: string;
 }
 
 const EXAMPLE_METADATA: Record<string, ExampleInfo> = {
@@ -80,36 +95,41 @@ const EXAMPLE_METADATA: Record<string, ExampleInfo> = {
   },
 };
 
-function loadSavedMeta(): Record<string, SavedExampleMeta> {
+function loadSavedMeta(path = SAVED_META_PATH): Record<string, SavedExampleMeta> {
   try {
-    if (existsSync(SAVED_META_PATH)) {
-      return JSON.parse(readFileSync(SAVED_META_PATH, "utf-8"));
+    if (existsSync(path)) {
+      return JSON.parse(readFileSync(path, "utf-8"));
     }
   } catch {}
   return {};
 }
 
-function saveSavedMeta(meta: Record<string, SavedExampleMeta>): void {
-  try {
-    mkdirSync(EXAMPLES_DIR, { recursive: true });
-    writeAtomicSync(SAVED_META_PATH, JSON.stringify(meta, null, 2));
-  } catch {}
+function canReadSavedExample(meta: SavedExampleMeta, user: { id: string; role: string } | undefined): boolean {
+  return Boolean(user && (meta.ownerUserId === user.id || user.role === "admin"));
 }
 
-export const examplesRoutes = new Hono<AppEnv>();
+function saveSavedMeta(meta: Record<string, SavedExampleMeta>, path = SAVED_META_PATH): void {
+  writeAtomicSync(path, JSON.stringify(meta, null, 2));
+}
 
-examplesRoutes.use("*", optionalAuth);
+export function createExamplesRoutes(examplesDir = EXAMPLES_DIR): Hono<AppEnv> {
+  const savedMetaPath = join(examplesDir, "saved_examples_meta.json");
+  const routes = new Hono<AppEnv>();
 
-examplesRoutes.get("/list", async (c) => {
+  routes.use("*", optionalAuth);
+
+routes.get("/list", async (c) => {
   const available: Record<string, string> = {};
   for (const [name, path] of Object.entries(EXAMPLE_FILES)) {
     if (existsSync(path)) {
       available[name] = path;
     }
   }
-  const savedMeta = loadSavedMeta();
+  const savedMeta = loadSavedMeta(savedMetaPath);
+  const user = c.get("user");
   for (const [name, meta] of Object.entries(savedMeta)) {
-    const filePath = join(EXAMPLES_DIR, meta.fileName);
+    if (!canReadSavedExample(meta, user)) continue;
+    const filePath = join(examplesDir, meta.fileName);
     if (existsSync(filePath)) {
       available[name] = filePath;
     }
@@ -117,16 +137,18 @@ examplesRoutes.get("/list", async (c) => {
   return c.json({ examples: available });
 });
 
-examplesRoutes.get("/details", async (c) => {
+routes.get("/details", async (c) => {
   const available: ExampleInfo[] = [];
   for (const [name, path] of Object.entries(EXAMPLE_FILES)) {
     if (existsSync(path) && EXAMPLE_METADATA[name]) {
       available.push(EXAMPLE_METADATA[name]);
     }
   }
-  const savedMeta = loadSavedMeta();
+  const savedMeta = loadSavedMeta(savedMetaPath);
+  const user = c.get("user");
   for (const [, meta] of Object.entries(savedMeta)) {
-    const filePath = join(EXAMPLES_DIR, meta.fileName);
+    if (!canReadSavedExample(meta, user)) continue;
+    const filePath = join(examplesDir, meta.fileName);
     if (existsSync(filePath)) {
       available.push(meta);
     }
@@ -134,103 +156,146 @@ examplesRoutes.get("/details", async (c) => {
   return c.json({ examples: available });
 });
 
-examplesRoutes.post("/load", async (c) => {
+routes.post("/load", authMiddleware, async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const name = (body.name as string) || (body.example as string) || "multi_species_test";
 
-    // Check built-in examples first
+    // Built-in and saved examples are server-owned producers. The source
+    // path is never accepted from the client and is not an asset identity.
     let srcPath = EXAMPLE_FILES[name];
-
-    // Then check saved examples
     if (!srcPath || !existsSync(srcPath)) {
-      const savedMeta = loadSavedMeta();
+      const savedMeta = loadSavedMeta(savedMetaPath);
       const saved = savedMeta[name];
-      if (saved) {
-        srcPath = join(EXAMPLES_DIR, saved.fileName);
-      }
+      const user = c.get("user");
+      if (saved && canReadSavedExample(saved, user)) srcPath = join(examplesDir, saved.fileName);
     }
-
     if (!srcPath || !existsSync(srcPath)) {
       return c.json({ error: `Example '${name}' not found` }, 404);
     }
 
     const buffer = readFileSync(srcPath);
     const fileName = `${name}.csv`;
+    const user = c.get("user");
+    const plumberResponse: PlumberUploadResponse = await plumberClient.withUser(user.id).withRole(user.role).uploadOccurrence(buffer, fileName);
+    const producerPath = typeof plumberResponse.file_id === "string" && plumberResponse.file_id.startsWith("/")
+      ? plumberResponse.file_id
+      : typeof plumberResponse.file_path === "string" && plumberResponse.file_path.startsWith("/")
+        ? plumberResponse.file_path
+        : null;
+    if (!producerPath) return c.json({ error: "Example producer returned no registered output" }, 502);
 
-    const plumberResponse: PlumberUploadResponse = await plumberClient.uploadOccurrence(
-      buffer,
-      fileName,
-    );
+    let rawAsset: InputAssetRow;
+    try {
+      rawAsset = await registerInputAssetFromServerPath({
+        creatorUserId: user.id,
+        scope: "private",
+        kind: "raw_occurrence",
+        absolutePath: producerPath,
+      });
+    } catch (error) {
+      await removeProducerOutput(producerPath);
+      throw error;
+    }
 
-    // For saved examples, include species_names from metadata
-    const savedMeta = loadSavedMeta();
+    const savedMeta = loadSavedMeta(savedMetaPath);
     const saved = savedMeta[name];
     const speciesNames = saved?.speciesNames || [];
-
+    const publicResponse: Record<string, unknown> = { ...plumberResponse };
+    delete publicResponse.file_id;
+    delete publicResponse.file_path;
     return c.json({
-      ...plumberResponse,
+      ...publicResponse,
       example_name: name,
-      file_path: srcPath,
+      rawAssetId: rawAsset.id,
+      raw_asset_id: rawAsset.id,
+      file_id: rawAsset.id,
       species_names: speciesNames,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load example data";
+    if (err instanceof InputAssetRegistrationError) return c.json({ error: message }, 503);
     return c.json({ error: message }, 502);
   }
 });
-
-examplesRoutes.post("/save", authMiddleware, async (c) => {
+routes.post("/save", authMiddleware, async (c) => {
+  let newlyCreatedPath: string | null = null;
   try {
-    const body = await c.req.json().catch(() => ({}));
-    const fileId = body.file_id as string | undefined;
-    const cleanedFileId = body.cleaned_file_id as string | undefined;
-    const useCleaned = cleanedFileId || fileId;
-    if (!useCleaned) {
-      return c.json({ error: "file_id or cleaned_file_id is required" }, 400);
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const rawAssetId = (body.rawAssetId || body.raw_asset_id) as string | undefined;
+    const cleanedAssetId = (body.cleanedAssetId || body.cleaned_asset_id) as string | undefined;
+    if (typeof body.file_id === "string" || typeof body.file_path === "string" || typeof body.cleaned_file_id === "string" || typeof body.cleaned_file_path === "string") {
+      return c.json({ error: "Path-based example saving is no longer supported; use rawAssetId and cleanedAssetId." }, 400);
+    }
+    if (!rawAssetId) return c.json({ error: "rawAssetId is required" }, 400);
+    const user = c.get("user");
+    const raw = await resolveInputAsset({ assetId: rawAssetId, principal: { id: user.id, role: user.role }, action: "read", expectedKind: "raw_occurrence" });
+    if (!raw.ok) return c.json({ error: raw.reason === "unavailable" ? "Asset service unavailable" : "Raw asset not found" }, raw.reason === "unavailable" ? 503 : 404);
+    let sourcePath = raw.absolutePath;
+    if (cleanedAssetId) {
+      const cleaned = await resolveInputAsset({ assetId: cleanedAssetId, principal: { id: user.id, role: user.role }, action: "read", expectedKind: "cleaned_occurrence", expectedParentAssetId: rawAssetId });
+      if (!cleaned.ok) return c.json({ error: cleaned.reason === "unavailable" ? "Asset service unavailable" : "Cleaned asset not found" }, cleaned.reason === "unavailable" ? 503 : 404);
+      sourcePath = cleaned.absolutePath;
+      if (sourcePath.endsWith(".enc")) {
+        const plaintextPath = decryptToUploads(sourcePath);
+        if (!plaintextPath) return c.json({ error: "Cleaned asset content is unavailable" }, 503);
+        sourcePath = plaintextPath;
+      }
     }
 
-    // The generated file is in data/uploads/ — look for it
-    const uploadsDir = join(PROJECT_ROOT, "data", "uploads");
-    let srcPath = join(uploadsDir, useCleaned);
-    if (!existsSync(srcPath)) {
-      return c.json({ error: `File not found: ${useCleaned}` }, 404);
+    const meta = body.metadata as Record<string, unknown> | undefined;
+    const speciesNames = (meta?.species_names as string[]) || [];
+    const nSpecies = (meta?.n_species as number) || speciesNames.length || 1;
+    const countFields = ["n_records", "n_errors", "valid_records", "original_rows", "n_species"] as const;
+    for (const key of countFields) {
+      const value = meta?.[key];
+      if (value !== undefined && value !== null && (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)) {
+        return c.json({ error: `metadata.${key} must be a non-negative integer or null` }, 400);
+      }
+    }
+    const nRecords = (meta?.n_records as number | undefined) ?? 0;
+    const nErrors = (meta?.n_errors as number | undefined) ?? 0;
+    const isSavedCleaned = Boolean(cleanedAssetId);
+    const validRecords = isSavedCleaned ? (meta?.valid_records as number | null | undefined) ?? null : nRecords;
+    const originalRowsKnown = (meta?.original_rows as number | undefined) ?? (meta?.n_records as number | undefined) ?? null;
+    if (isSavedCleaned && validRecords != null && originalRowsKnown != null && validRecords > originalRowsKnown) {
+      return c.json({ error: "metadata.valid_records cannot exceed metadata.original_rows" }, 400);
     }
 
     // Build a saved name
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const savedName = `saved_${useCleaned.replace(/\.csv$/i, "")}_${timestamp}`;
+    const savedName = `saved_${sourcePath.split("/").pop()?.replace(/\.csv(?:\.enc)?$/i, "") || "occurrences"}_${timestamp}`;
     const savedFileName = `${savedName}.csv`;
-    const destPath = join(EXAMPLES_DIR, savedFileName);
+    const destPath = join(examplesDir, savedFileName);
 
-    mkdirSync(EXAMPLES_DIR, { recursive: true });
-    copyFileSync(srcPath, destPath);
-
-    const meta = body.metadata as Record<string, unknown> | undefined;
-    const speciesNames = (meta?.species_names as string[]) || [];
-    const nSpecies = (meta?.n_species as number) || (speciesNames.length) || 1;
-    const nRecords = (meta?.n_records as number) || 0;
-    const nErrors = (meta?.n_errors as number) || 0;
-    const validRecords = (meta?.valid_records as number) || nRecords;
-    const originalRows = (meta?.original_rows as number) || nRecords;
-    const isSavedCleaned = !!cleanedFileId;
+    mkdirSync(examplesDir, { recursive: true });
+    const reservedFd = openSync(destPath, "wx");
+    newlyCreatedPath = destPath;
+    closeSync(reservedFd);
+    copyFileSync(sourcePath, destPath);
 
     const exampleMeta: SavedExampleMeta = {
       name: savedName,
       fileName: savedFileName,
       species: nSpecies,
-      totalRecords: isSavedCleaned ? originalRows : nRecords,
+      totalRecords: isSavedCleaned ? originalRowsKnown : nRecords,
       cleanRecords: isSavedCleaned ? validRecords : nRecords,
-      dirtyRecords: isSavedCleaned ? (originalRows - validRecords) : nErrors,
-      description: (meta?.description as string) || `Saved synthetic data (${nSpecies} species, ${nRecords} records)`,
+      dirtyRecords: isSavedCleaned ? (validRecords == null || originalRowsKnown == null ? null : originalRowsKnown - validRecords) : nErrors,
+      description: isSavedCleaned && (validRecords == null || originalRowsKnown == null)
+        ? `${(meta?.description as string) || `Saved cleaned data (${nSpecies} species)`} (${validRecords == null ? "valid-record count unavailable" : "original-row count unavailable"})`
+        : (meta?.description as string) || (isSavedCleaned
+          ? `Saved cleaned data (${nSpecies} species, ${validRecords} valid records)`
+          : `Saved synthetic data (${nSpecies} species, ${nRecords} records)`),
       isMultiSpecies: nSpecies > 1 || speciesNames.length > 1,
-      hasCoordinateCleanerTests: (!isSavedCleaned && nErrors > 0) || (isSavedCleaned && originalRows > validRecords),
+      hasCoordinateCleanerTests: isSavedCleaned ? (validRecords == null || originalRowsKnown == null ? null : originalRowsKnown > validRecords) : nErrors > 0,
       speciesNames,
+      ownerUserId: user.id,
     };
 
-    const allMeta = loadSavedMeta();
+    const allMeta = loadSavedMeta(savedMetaPath);
     allMeta[savedName] = exampleMeta;
-    saveSavedMeta(allMeta);
+    saveSavedMeta(allMeta, savedMetaPath);
+    newlyCreatedPath = null;
 
     return c.json({
       file_name: savedFileName,
@@ -238,7 +303,14 @@ examplesRoutes.post("/save", authMiddleware, async (c) => {
       ...exampleMeta,
     });
   } catch (err) {
+    if (newlyCreatedPath) {
+      try { unlinkSync(newlyCreatedPath); } catch { /* preserve the save failure */ }
+    }
     const message = err instanceof Error ? err.message : "Failed to save example";
     return c.json({ error: message }, 500);
   }
 });
+  return routes;
+}
+
+export const examplesRoutes = createExamplesRoutes();

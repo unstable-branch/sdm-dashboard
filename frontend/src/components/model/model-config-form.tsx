@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useEffect, useRef, useDeferredValue, useMemo, useCallback } from "react";
-import { modelConfigSchema, type ModelConfig } from "@sdm/shared";
-import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG, buildFutureWorldclimPath } from "@sdm/shared";
+import { modelConfigDraftSchema, type ModelConfig } from "@sdm/shared";
+import { EXTENT_PRESETS, MODEL_BACKENDS, DEFAULT_CONFIG } from "@sdm/shared";
 import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
 import { TooltipInfo } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
-import { apiGet, fetchWithAuth } from "@/services/api";
+import { apiGet, apiUpload } from "@/services/api";
+import { currentSessionGeneration } from "@/services/session-coordinator";
 import { ModelSelector } from "./model-selector";
 import { SpeciesInput } from "./species-input";
 import { ModelConfigBiovars } from "./model-config-biovars";
@@ -27,7 +28,7 @@ interface ModelInfo {
 interface ModelConfigFormProps {
   occurrenceFile: string | null;
   recordCount: number;
-  cleanedOccurrence: { filePath: string; df: Record<string, unknown>[]; sourceCounts: Record<string, number>; nAbsentExcluded: number; originalRows: number; validRecords: number; } | null;
+  cleanedOccurrence: { filePath: string; cleanedAssetId?: string; df: Record<string, unknown>[]; sourceCounts: Record<string, number>; nAbsentExcluded: number; originalRows: number; validRecords: number | null; } | null;
   onSubmit: (config: Partial<ModelConfig>) => void;
   loading: boolean;
 }
@@ -35,6 +36,8 @@ interface ModelConfigFormProps {
 export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOccurrence, onSubmit, loading }: ModelConfigFormProps) {
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>(MODEL_BACKENDS);
   const species = useSDMStore((s) => s.species) || "Untitled species";
+  const rawAssetId = useSDMStore((s) => s.rawAssetId);
+  const cleanedAssetId = useSDMStore((s) => s.cleanedAssetId);
   const setSpecies = useSDMStore((s) => s.setSpecies);
   const storeDetectedSpecies = useSDMStore((s) => s.detectedSpecies);
   const workspaceFiles = useSDMStore((s) => s.workspaceFiles);
@@ -72,7 +75,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   const [maskCountry, setMaskCountry] = useState("all");
   const [countries, setCountries] = useState<string[]>([]);
   const [countriesLoading, setCountriesLoading] = useState(false);
-  const [customBoundaries, setCustomBoundaries] = useState<Array<{ file_path: string; file_name: string }>>([]);
+  const [customBoundaries, setCustomBoundaries] = useState<Array<{ boundaryAssetId: string; contentSize: number; createdAt: string }>>([]);
   const [autoExtentFromBoundary, setAutoExtentFromBoundary] = useState(false);
   const extentBeforeAutoRef = useRef<{ preset: string; custom: [number, number, number, number] } | null>(null);
   useEffect(() => {
@@ -84,7 +87,9 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   }, [autoExtentFromBoundary]);
   const prevBoundary = useRef(boundary);
   useEffect(() => {
-    if (prevBoundary.current === "custom" && boundary !== "custom") {
+    if (boundary === "custom" && prevBoundary.current !== "custom") {
+      setMaskCountry("");
+    } else if (prevBoundary.current === "custom" && boundary !== "custom") {
       setMaskCountry("all");
     }
     prevBoundary.current = boundary;
@@ -232,7 +237,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
   const [climateSource, setClimateSource] = useState<"worldclim" | "chelsa">("worldclim");
   const [climateRes, setClimateRes] = useState(10);
-  const [autoDownloadClimate, setAutoDownloadClimate] = useState(true);
+
   const [missingBiovars, setMissingBiovars] = useState<number[]>([]);
   const [climateCheckLoading, setClimateCheckLoading] = useState(false);
   const [climateCheckError, setClimateCheckError] = useState<string | null>(null);
@@ -279,7 +284,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
   useEffect(() => { useSettingsStore.getState().fetchSettings(); }, []);
   useEffect(() => { apiGet<{ species: { name: string }[] }>("/api/v1/data/species?limit=100").then((data) => { if (data && Array.isArray(data.species)) setSpeciesSuggestions(data.species.map((s: Record<string, unknown>) => s.name as string)); }).catch(() => {}); }, []);
   useEffect(() => {
-    apiGet<{ boundaries: Array<{ file_path: string; file_name: string }> }>("/api/v1/data/boundary/list")
+    apiGet<{ boundaries: Array<{ boundaryAssetId: string; contentSize: number; createdAt: string }> }>("/api/v1/data/boundary/list")
       .then((data) => setCustomBoundaries(data.boundaries || [])).catch(() => {});
   }, []);
 
@@ -303,7 +308,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       try {
         const params = new URLSearchParams();
         if (boundary === "custom") {
-          params.set("file_path", maskCountry);
+          params.set("boundaryAssetId", maskCountry);
         } else {
           params.set("type", boundary);
           params.set("resolution", maskResolution);
@@ -329,22 +334,24 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
   useEffect(() => {
     if (biovars.length < 2) return;
+    let current = true;
+    const generation = currentSessionGeneration();
+    const controller = new AbortController();
     const timer = setTimeout(() => {
       setClimateCheckLoading(true);
       setClimateCheckError(null);
-      fetchWithAuth(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`)
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      apiGet<{ available: number[] }>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${biovarKey}`, { signal: controller.signal })
         .then((data) => {
-          if (data && Array.isArray(data.available)) {
-            setMissingBiovars(biovars.filter((b) => !(data.available as number[]).includes(b)));
+          if (current && generation === currentSessionGeneration() && data && Array.isArray(data.available)) {
+            setMissingBiovars(biovars.filter((b) => !data.available.includes(b)));
           }
         })
         .catch((err) => {
-          setClimateCheckError(err instanceof Error ? err.message : String(err));
+          if (current && generation === currentSessionGeneration()) setClimateCheckError(err instanceof Error ? err.message : String(err));
         })
-        .finally(() => setClimateCheckLoading(false));
+        .finally(() => { if (current && generation === currentSessionGeneration()) setClimateCheckLoading(false); });
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { current = false; clearTimeout(timer); controller.abort(); };
   }, [biovarKey, climateSource, climateRes]);
 
   // Auto-select enmevalAlgorithm to match model. Always overwrites on model change.
@@ -374,13 +381,17 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     setBiomod2Models((prev) => prev.includes(a) ? prev.filter((x) => x !== a) : [...prev, a]);
   }, []);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setError(null);
     if (cleanedOccurrence && cleanedOccurrence.validRecords === 0) { setError("Cleaned data has 0 valid records. Cannot run model."); return; }
     const extent = extentPreset === "custom" ? customExtent : EXTENT_PRESETS[extentPreset]?.extent;
     if (!extent) { setError("Invalid extent preset"); return; }
-    const useCleaned = cleanedOccurrence && cleanedOccurrence.filePath;
-
+    const occurrenceAssetId = cleanedAssetId || rawAssetId;
+    if (!occurrenceAssetId) { setError("Select a canonical occurrence asset before running the model."); return; }
+    if (boundary === "custom" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(maskCountry)) {
+      setError("Select an uploaded custom boundary before running the model.");
+      return;
+    }
     // For multi-species models, join species names with comma
     let speciesText = multispeciesText;
     if (!speciesText.trim()) {
@@ -405,6 +416,9 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       return;
     }
 
+    const effectiveAggregationFactor = climateSource === "chelsa"
+      ? Math.max(aggregationFactor, Math.ceil(climateRes / 0.5))
+      : aggregationFactor;
     const config = {
       species: resolvedSpecies,
       speciesFilter: (modelId === "dnn_multispecies" || modelId === "gllvm") ? "" : species,
@@ -416,10 +430,10 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         : undefined,
       maskType: (boundary === "none" ? "none" : invertMask ? "ocean" : "landmass") as "none" | "landmass" | "ocean",
       maskBufferDeg,
-      maskFile: boundary === "custom" ? maskCountry : undefined,
+      maskAssetId: boundary === "custom" ? maskCountry : undefined,
       maskBoundaryType: boundary === "none" ? "admin0" : boundary,
       maskResolution,
-      maskCountry,
+      maskCountry: boundary === "custom" ? "all" : maskCountry,
       autoExtentFromBoundary,
       restrictBackground,
       backgroundN,
@@ -444,17 +458,21 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       useDrought,
       droughtPeriods: useDrought ? droughtPeriods : undefined,
       futureProjection,
-      futureWorldclimDir: futureProjection ? buildFutureWorldclimPath(futureGcm, futureSsp, futurePeriod) : undefined,
       futureLabel,
+      futureGcm,
+      futureSsp,
+      futurePeriod,
       futureProjection2: futureProjection && futureProjection2,
-      futureWorldclimDir2: futureProjection && futureProjection2 ? buildFutureWorldclimPath(futureGcm2, futureSsp2, futurePeriod2) : undefined,
       futureLabel2: futureProjection2 ? futureLabel2 : undefined,
+      futureGcm2,
+      futureSsp2,
+      futurePeriod2,
       vifReduction,
       vifThreshold: vifReduction ? vifThreshold : undefined,
       elevationDemtype: useElevation ? elevationDemtype : undefined,
       vegProducts: useVegetation ? [vegProduct] : undefined,
       lulcYear: useLulc ? lulcYear : undefined,
-      biasMethod: biasMethod === "target_group" ? "uniform" : biasMethod,
+      biasMethod,
       climateMatching,
       climateMatchingMethod: climateMatching ? climateMatchingMethod : undefined,
       thinByCell,
@@ -470,14 +488,13 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       enmevalSelectionMetric: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalSelectionMetric : undefined,
       enmevalTuneArgs: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalTuneArgs : undefined,
       enmevalNullIterations: modelId === "maxnet" && tuningMethod === "enmeval" ? enmevalNullIterations : undefined,
-      aggregationFactor,
+      aggregationFactor: effectiveAggregationFactor,
       nCores,
       seed,
-      occurrenceFile: useCleaned ? cleanedOccurrence!.filePath : (occurrenceFile || undefined),
-      cleanedFilePath: useCleaned ? cleanedOccurrence!.filePath : undefined,
+      occurrenceAssetId,
       source: climateSource,
       worldclimRes: climateRes,
-      autoDownloadClimate,
+
       multiEnsembleModels: modelId === "multi_ensemble" ? multiEnsembleModels : undefined,
       multiEnsembleWeighting: modelId === "multi_ensemble" ? multiEnsembleWeighting : undefined,
       multiEnsemblePower: modelId === "multi_ensemble" ? multiEnsemblePower : undefined,
@@ -497,7 +514,6 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       rangebagVarsPerBag: isRangebag ? rangebagVarsPerBag : undefined,
       analysisCrs,
       chelsaExtras: climateSource === "chelsa" ? chelsaExtras : undefined,
-      opentopoApiKey: opentopoApiKey ? opentopoApiKey : undefined,
       maxnetAutoTune: modelId === "maxnet" ? maxnetAutoTune : undefined,
       rfNumTrees: modelId === "rf" ? rfNumTrees : undefined,
       rfMtry: modelId === "rf" ? rfMtry : undefined,
@@ -524,9 +540,23 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
       generateCog,
     };
 
-    const parsed = modelConfigSchema.safeParse(config);
+    const parsed = modelConfigDraftSchema.safeParse(config);
     if (!parsed.success) { setError(parsed.error.errors[0].message); return; }
-    onSubmit(config as Partial<ModelConfig>);
+
+    let submittedConfig: Record<string, unknown> = config;
+    if (biasMethod === "target_group") {
+      if (!targetGroupFile) { setError("Select a target-group CSV before running the model."); return; }
+      try {
+        const uploaded = await apiUpload<{ targetGroupAssetId: string }>("/api/v1/data/target-groups/upload", targetGroupFile);
+        submittedConfig = { ...config, biasMethod: "target_group", targetGroupAssetId: uploaded.targetGroupAssetId };
+      } catch (uploadError) {
+        setError(uploadError instanceof Error ? uploadError.message : "Target-group upload failed");
+        return;
+      }
+    }
+    const finalParsed = modelConfigDraftSchema.safeParse(submittedConfig);
+    if (!finalParsed.success) { setError(finalParsed.error.errors[0].message); return; }
+    onSubmit(finalParsed.data as Partial<ModelConfig>);
   };
 
   const selectedModel = useMemo(() => availableModels.find((m) => m.id === modelId), [availableModels, modelId]);
@@ -557,12 +587,12 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
     <div className="space-y-6">
       {error && <div className="rounded-md border border-sdm-danger/30 bg-sdm-danger/5 p-3 text-sm text-sdm-danger">{error}</div>}
 
-      {cleanedOccurrence?.filePath ? (
+      {cleanedOccurrence?.cleanedAssetId ? (
         <div className="rounded-md border border-indigo-500/30 bg-indigo-500/5 px-4 py-3 flex items-center gap-3">
           <CheckCircle2 className="h-4 w-4 text-indigo-500 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-sdm-text">Cleaned occurrence data ready</p>
-            <p className="text-xs text-sdm-muted">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords.toLocaleString()} cleaned records</p>
+            <p className="text-xs text-sdm-muted">{cleanedOccurrence.originalRows.toLocaleString()} original → {cleanedOccurrence.validRecords === null ? "cleaned count unavailable" : `${cleanedOccurrence.validRecords.toLocaleString()} cleaned records`}</p>
           </div>
           <Link href="/data?tab=upload" className="text-xs font-medium text-sdm-accent hover:underline shrink-0">Review →</Link>
         </div>
@@ -737,8 +767,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         aggregationFactor={aggregationFactor}
         chelsaExtras={chelsaExtras}
         onChelsaExtrasChange={setChelsaExtras}
-        autoDownloadClimate={autoDownloadClimate}
-        onAutoDownloadClimateChange={setAutoDownloadClimate}
+
       />
 
       <ModelConfigExtent
@@ -1038,6 +1067,8 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
         onVifThresholdChange={setVifThreshold}
         biasMethod={biasMethod}
         onBiasMethodChange={setBiasMethod}
+        targetGroupFile={targetGroupFile}
+        onTargetGroupFileChange={setTargetGroupFile}
         thickeningDistanceKm={thickeningDistanceKm}
         onThickeningDistanceKmChange={setThickeningDistanceKm}
         climateMatching={climateMatching}
@@ -1052,7 +1083,7 @@ export default function ModelConfigForm({ occurrenceFile, recordCount, cleanedOc
 
       <button
         onClick={handleSubmit}
-        disabled={loading || !(occurrenceFile || cleanedOccurrence?.filePath) || biovars.length < 2}
+        disabled={loading || !(cleanedAssetId || rawAssetId) || biovars.length < 2}
         className="w-full rounded-md bg-sdm-accent px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-sdm-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading

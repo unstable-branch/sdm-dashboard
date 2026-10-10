@@ -1,6 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const CI = !!process.env.CI;
+const loopbackHttps = process.env.SDM_CI_LOOPBACK_HTTPS === "1";
+if (
+  loopbackHttps &&
+  !/^https:\/\/127\.0\.0\.1(?::\d+)?(?:\/|$)/.test(process.env.E2E_BASE_URL || "")
+) {
+  throw new Error("SDM_CI_LOOPBACK_HTTPS requires an explicit IPv4 loopback HTTPS E2E_BASE_URL");
+}
 
 export default defineConfig({
   testDir: "./e2e",
@@ -17,6 +24,7 @@ export default defineConfig({
   },
   use: {
     baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:3000",
+    ignoreHTTPSErrors: loopbackHttps,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: CI ? "on-first-retry" : "off",

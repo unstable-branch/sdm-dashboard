@@ -2,6 +2,17 @@
 
 `biomod2` should remain optional and non-default until it has been tested on a real R runtime, especially Windows.
 
+## Current adapter limits and package behavior
+
+- biomod2 4.3-4-6 resolves its built-in `ModelsTable` dataset unqualified from a foreach worker. Namespace-only loading fails; the supported package attachment path exposes the dataset. The optional adapter attaches biomod2 at first use rather than modifying its namespace or assigning global data.
+- CV: random k-fold (`cv_strategy` `"random"` from the app, or `"kfold"`) and CV Off are supported. Spatial-block CV is rejected with an explicit error, both for the standalone backend and for biomod2 components inside the multi-model ensemble; it is never silently replaced by random folds. The app default `spatial_blocks` therefore needs the user to choose random CV or CV Off for biomod2.
+- Unknown controls passed to `fit_biomod2_sdm()` through `...` are rejected by name.
+- In the multi-model ensemble, a biomod2 component whose full-data projection fails stops the ensemble with an error naming the component; it is not dropped.
+- Other controls: uniform background only (`target_group`/`thickened` rejected; the always-supplied default `thickening_distance_km` is ignored), `include_quadratic = FALSE`, default threshold 0.5, `cv_block_size_km` only as NA/NULL. `n_cores > 1` is accepted but fitting stays sequential (logged).
+- CV Off (0 folds) uses one all-data calibration split (`_allData_RUN1_`) and reports no validation metrics. Positive fold counts use biomod2 k-fold CV with held-out fold metrics and add a full-data model (`_allData_allRun_`); the full-data model is not a validation observation.
+- Each fit uses its own `tempfile("biomod2-run-")` workspace; modelling and projection restore the caller's working directory.
+- Native CPU evidence (biomod2 4.3-4-6, synthetic rasters): GLM Off/k3, GLM+GAM Off/k3 projection, ensemble biomod2 component, CV-strategy acceptance/rejection, and the legacy contract tests with the backend enabled. Not yet: RF/GBM/MAXNET (in `config$biomod2_default`), Windows, or lock-backed dependency provenance.
+
 ## Gating (IMPLEMENTED)
 
 - Do NOT add `biomod2` to base `sdm_setup_packages`.
@@ -46,11 +57,17 @@ list(
 
 ```r
 predict_biomod2_suitability <- function(fit, env_project_scaled, output_tif, n_cores, log_fun) {
-  # 1. BIOMOD_Projection(bm.mod = fit$model, new.env = env_project_scaled, proj.name = ..., output.dir = ...)
-  # 2. BIOMOD_EnsembleForecasting() when ensemble model exists
-  # 3. Extract final raster, write to output_tif, return SpatRaster
+  # 1. Resolve the exact full-data model name for EVERY requested algorithm
+  #    (CV Off: _allData_RUN1_<ALGO>; k-fold: _allData_allRun_<ALGO>).
+  #    Any missing requested model is an error; fold models are never used.
+  # 2. BIOMOD_Projection(models.chosen = those names) from the fit's directory.
+  # 3. get_predictions() / 1000, equal-weight arithmetic mean, 0-1 scale.
+  # 4. Write output_tif if given; return a single-layer SpatRaster.
 }
 ```
+
+Multi-model ensemble biomod2 components use the same predictor with that
+component's single algorithm.
 
 ## Bug Fixes Applied (v0.5-beta)
 
@@ -61,13 +78,13 @@ predict_biomod2_suitability <- function(fit, env_project_scaled, output_tif, n_c
 
 ## Working Files Location (IMPLEMENTED)
 
-biomod2 working files are now directed to `tempdir()` under a unique subdirectory per run.
-This prevents pollution of the project root.
+biomod2 working files go to a unique `tempfile("biomod2-run-")` directory per fit.
+This prevents pollution of the project root and cross-run collisions.
 
 ## Version Compatibility
 
-Tested with biomod2 v4.2+. API may vary across versions — the `requireNamespace` gate
-prevents loading a broken version, but real Windows testing is still needed.
+Native CPU tests ran against biomod2 4.3-4-6 only. API varies across versions (4.3
+removed `BIOMOD_Projection(output.dir=)`); real Windows testing is still needed.
 
 ## Next Steps for Phase B
 

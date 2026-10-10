@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0-rc.1] - 2026-10-10
+
+Release candidate for external testing of 3.0.0, the first stable release of the modern platform (Next.js, Hono, PostgreSQL, Redis, Plumber/R). Single Plumber replica and single queue worker only; multi-replica execution is planned after 3.0.0.
+
+Versioning note: `v2.1.0` was tagged on a `2.0.0-beta.7` commit but never released (its release workflow failed and no version files were bumped). No stable 2.x exists. 3.0.0 is a major release because it changes deployment and behaviour for anyone running the 2.0 betas.
+
+### Breaking changes
+
+- Production Compose publishes only nginx (80/443). Garage is internal; Prometheus, Grafana and exporters require `--profile monitoring` and bind to loopback.
+- Plumber memory limit raised from 8G to 12G.
+- Browser authentication uses cookie browser sessions; new database migrations (0043, 0044) must run on upgrade.
+- ESM models are opt-in (`SDM_ENABLE_ESM=true`).
+- Models the deployed image cannot run (for example Python bridges without Python) are reported unavailable and refused.
+- Targets/batch execution remains unavailable until durable execution ownership lands.
+
+### Prerelease candidate fixes (2026-10-10)
+
+End-to-end testing of the integrated stack (API, Plumber, PostgreSQL, Redis) on CPU, CUDA (RTX 3080) and ROCm (RX 6900 XT) found and fixed:
+
+- **Occurrence cleaning:** CoordinateCleaner test names were not mapped to the package's names, so the sea test never ran; urban flags were written to the wrong column; an unavailable reference layer failed the whole clean job instead of skipping that test.
+- **Darwin Core Archive uploads:** CPU/CUDA images lacked `libnode`, so V8/finch could not load; the upload handler lost the original filename and parsed archives as CSV. Images now load-check key R packages at build time.
+- **Models that always failed:** MARS (`nk = NULL`, non-exported `earth` predict), FDA (degenerate folds), CTA (trees without splits), MaxNet explanations, and all Python bridge models (lost model id on registry rebind; unquoted shell arguments made every Python module look missing).
+- **DNN constant prediction:** unbalanced presence/background training collapsed to a constant predictor (CV AUC 0.5) on real data. Presences are now replicated to class parity during training only; held-out folds are untouched.
+- **Run status honesty:** capacity/memory refusals were recorded as `completed` with no results; failed runs lost Plumber's reason when the failure was observed during polling.
+- **Script export** returned 500 for every run; user climate downloads were refused; Redis-backed features were disabled in GPU images; production Compose lacked the shared uploads volume.
+- Models that cannot run in the deployed image are reported `available: false` with a reason and refused up front. ESM models are opt-in (`SDM_ENABLE_ESM=true`) pending an ecospat/biomod2 incompatibility.
+- One GPU model run at a time (`SDM_MAX_GPU_CONCURRENT_RUNS=1`); extra GPU runs are refused visibly.
+- Plumber memory limit raised to 12G; the DNN memory estimate now uses measured peaks.
+- The anonymous model catalog returns only an allowlist of static fields.
+
+Known limitations: DNN is experimental (DNN_Small CV AUC about 0.80 vs GLM 0.87 on the reference data; larger architectures score lower); DNN CBI is not computed; built-in DNN architectures train on CPU even with a GPU attached; Python bridge models are unavailable in the CUDA image, and only the PyTorch DNN bridge is available in the ROCm image.
+
+### Boundary/target-group producer status typing and fresh-volume boundary root
+
+- `plumber/docker-entrypoint.sh` now normalizes `/app/data/boundaries` with the same shared-permission pass as `/app/data/uploads` and `/app/outputs`. A fresh named boundary volume is root-owned, so the unprivileged Plumber process could not create `custom/` and the first custom-boundary upload on a clean deployment failed closed (previously surfaced as a 502).
+- `api/src/routes/target-groups.ts`: a project-membership denial during target-group registration now returns a typed 403 (`Project membership does not permit target-group upload`) instead of a 502 upstream-style failure. The denial is tagged `not_authorized` by `register()` in `api/src/services/input-assets.ts`, and the same mapping was applied to the boundary upload/download registration catches. The current membership is now also checked *before* the upload writes anything via `authorizeProjectInputWrite()`: a viewer, a non-member, or an unanswerable membership lookup is denied with no file created on shared storage (registration keeps the identical check as its final recheck, and an unanswerable lookup fails closed rather than authorizing).
+- `api/src/routes/boundary.ts` + `plumber/R/helpers/boundary_helpers.R`: a hash-verified but invalid custom boundary asset is now a typed 422 content denial from both the default reader and the extent reader, and the API translates the producer's 400/404/422 statuses instead of collapsing every upstream reply into 502 `Boundary fetch failed`. The 422 classification is limited to demonstrable invalid client content: unparseable JSON, or a parsed JSON body that is deterministically not a GeoJSON document — a top-level type outside RFC 7946, a document that omits the exact `type` member (a misnamed member such as `typex` was previously read through R's partial `$` matching at the top level and in the nested Feature/Geometry validators), a document missing a member its type requires (`FeatureCollection.features`, `Feature.geometry`, `Feature.properties`, `Geometry.coordinates`, `GeometryCollection.geometries`), a nested member of the wrong JSON kind (e.g. a non-object `properties`), a coordinate/member shape that does not match the declared geometry type, a Polygon/MultiPolygon linear ring that is not closed or has fewer than four positions, an unsupported nested geometry type, a defining member of another GeoJSON type (RFC 7946 §7.1 — e.g. a `FeatureCollection` carrying `geometry`/`properties`/`coordinates`/`geometries`, a `Feature` or Geometry carrying `features`, or an `id` on a non-Feature), or a `Feature.id` that is not a string or number (including a present null) (validation recurses through FeatureCollection features, Features, GeometryCollections and coordinate arrays down to RFC 7946 Positions; foreign members such as the sf/GDAL `name`/`crs` members are not rejected). Server-side read/I/O failures, an unavailable JSON parser or geometry runtime, and unexpected processing faults keep their genuine 5xx status. Genuine producer 5xx and transport failures remain 502, and no producer body (which can name internal storage paths) is echoed.
+- New `PlumberClient.post()` failures carry the upstream status via `PlumberUpstreamError` (`api/src/services/plumber-errors.ts`); the thrown message is unchanged for existing callers.
+- Regression coverage: `scripts/verify_fresh_volume_boundary_upload.py` runs in the platform CI docker job against the freshly created stack volumes (upload + resolve), plus focused route/service/R tests for the positive, denied-viewer, corrupt-asset, foreign-principal, and genuine-upstream-failure cases.
+
+### Durable execution ownership — S1 schema slice (inert)
+
+- Migration `0041_durable_executions` adds the durable-execution schema from `docs/DESIGN_DURABLE_EXECUTION_OWNERSHIP.md` §2.2: `executions`, `execution_attempts`, `idempotency_requests`, `plumber_instances`, `plumber_instance_boots`, and `execution_events` plus the `execution_status` / `execution_attempt_kind` enums. Inert by design (Phase A of the §5 rollout): no existing table or column is touched and no behavior changes until later slices wire the execution state machine in behind `SDM_DURABLE_EXECUTION`.
+- Key schema invariants: at most one non-terminal execution per run, one open attempt per execution (partial unique indexes), and `(execution_id, attempt_no)` unique across all attempts — finalized or open — for gapless attempt lineage; external `plumber_job_id` and the owner `(instance, boot)` snapshot live on attempts only; `idempotency_requests` PK is `(principal, key)` with a unique `run_id` and a `DEFERRABLE INITIALLY DEFERRED` FK to `runs` so the reservation can be inserted before the run row and checked at commit; idempotency rows are permanent tombstones (never deleted, only `response_body` pruned) and restrict run deletion; `plumber_instance_boots` is append-only with `pid_chain_verified` defaulting to false.
+- Rollback for the slice: `api/drizzle/rollback/0041_durable_executions.down.sql` (drops the six tables and two enums; exercised in `api/src/db/execution-migration.test.ts`).
+
 ### GPU acceleration hardening (Groups Ph1–Ph4)
 
 #### Phase 1 — ABI contract, session cache, hybrid ROCm detection

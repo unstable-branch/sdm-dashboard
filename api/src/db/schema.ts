@@ -1,8 +1,12 @@
-import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, bigint, doublePrecision, jsonb, boolean, pgEnum, index, uniqueIndex, primaryKey, foreignKey, check, AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { relations } from "drizzle-orm";
 
 const statusEnum = pgEnum("run_status", ["queued", "running", "completed", "failed", "cancelled"]);
 const roleEnum = pgEnum("user_role", ["admin", "editor", "viewer"]);
+export const inputAssetScopeEnum = pgEnum("input_asset_scope", ["private", "project", "system"]);
+export const inputAssetKindEnum = pgEnum("input_asset_kind", ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group", "climate_collection"]);
+export const inputAssetStateEnum = pgEnum("input_asset_state", ["ready", "deleted", "quarantined"]);
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -18,6 +22,8 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at"),
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
+  // Incrementing this invalidates every access JWT for the user.
+  authVersion: integer("auth_version").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -48,11 +54,15 @@ export const apiKeys = pgTable("api_keys", {
   keyPreview: varchar("key_preview", { length: 16 }),
   name: varchar("name", { length: 255 }).notNull(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  // Optional single-project scope: a scoped key resolves to its principal only
+  // for resources inside that project. NULL preserves principal-wide behavior.
+  scopeProjectId: uuid("scope_project_id").references(() => projects.id, { onDelete: "cascade" }),
   lastUsedAt: timestamp("last_used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at"),
 }, (t) => [
   index("idx_api_keys_user").on(t.userId),
+  index("idx_api_keys_scope").on(t.scopeProjectId),
 ]);
 
 export const species = pgTable("species", {
@@ -237,12 +247,83 @@ export const uploads = pgTable("uploads", {
   index("idx_uploads_created").on(t.createdAt),
 ]);
 
+/** Canonical input resources; legacy tables are compatibility metadata only. */
+export const inputAssets = pgTable("input_assets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  creatorUserId: uuid("creator_user_id").references(() => users.id, { onDelete: "restrict" }).notNull(),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "restrict" }),
+  scope: inputAssetScopeEnum("scope").notNull(),
+  kind: inputAssetKindEnum("kind").notNull(),
+  storageLocator: text("storage_locator").notNull(),
+  parentAssetId: uuid("parent_asset_id").references((): AnyPgColumn => inputAssets.id, { onDelete: "restrict" }),
+  state: inputAssetStateEnum("state").notNull().default("ready"),
+  contentSha256: varchar("content_sha256", { length: 64 }),
+  contentSize: bigint("content_size", { mode: "number" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+  quarantinedAt: timestamp("quarantined_at"),
+}, (t) => [
+  uniqueIndex("input_assets_storage_locator_unique").on(t.storageLocator),
+  index("input_assets_creator_idx").on(t.creatorUserId),
+  index("input_assets_project_idx").on(t.projectId),
+  index("input_assets_scope_state_idx").on(t.scope, t.state),
+  index("input_assets_kind_state_idx").on(t.kind, t.state),
+  index("input_assets_parent_idx").on(t.parentAssetId),
+  check("input_assets_scope_project_ck", sql`("scope" = 'private' AND "project_id" IS NULL) OR ("scope" = 'project' AND "project_id" IS NOT NULL) OR ("scope" = 'system' AND "project_id" IS NULL)`),
+  check("input_assets_locator_nonempty_ck", sql`length(btrim("storage_locator")) > 0`),
+  check("input_assets_hash_ck", sql`"content_sha256" IS NULL OR "content_sha256" ~ '^[0-9a-fA-F]{64}$'`),
+  check("input_assets_size_ck", sql`"content_size" IS NULL OR "content_size" >= 0`),
+  check("input_assets_deleted_time_ck", sql`"state" <> 'deleted' OR "deleted_at" IS NOT NULL`),
+  check("input_assets_quarantined_time_ck", sql`"state" <> 'quarantined' OR "quarantined_at" IS NOT NULL`),
+]);
+
+/** Durable binding between a Plumber clean job and its canonical raw/derived assets. */
+export const occurrenceCleanJobs = pgTable("occurrence_clean_jobs", {
+  jobId: varchar("job_id", { length: 255 }).primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "restrict" }).notNull(),
+  rawAssetId: uuid("raw_asset_id").references(() => inputAssets.id, { onDelete: "restrict" }).notNull(),
+  cleanedAssetId: uuid("cleaned_asset_id").references(() => inputAssets.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("occurrence_clean_jobs_user_idx").on(t.userId),
+  index("occurrence_clean_jobs_raw_asset_idx").on(t.rawAssetId),
+  index("occurrence_clean_jobs_cleaned_asset_idx").on(t.cleanedAssetId),
+]);
+
+/** Unmapped or quarantined legacy rows can never be used as path aliases. */
+export const inputAssetLegacyMappings = pgTable("input_asset_legacy_mappings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  legacyTable: varchar("legacy_table", { length: 32 }).notNull(),
+  legacyRowId: uuid("legacy_row_id").notNull(),
+  legacyLocator: text("legacy_locator").notNull(),
+  legacyUserId: uuid("legacy_user_id").references(() => users.id, { onDelete: "set null" }),
+  legacyProjectId: uuid("legacy_project_id").references(() => projects.id, { onDelete: "set null" }),
+  inputAssetId: uuid("input_asset_id").references(() => inputAssets.id, { onDelete: "restrict" }),
+  mappingState: varchar("mapping_state", { length: 20 }).notNull().default("quarantined"),
+  quarantineReason: text("quarantine_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("input_asset_legacy_source_unique").on(t.legacyTable, t.legacyRowId),
+  index("input_asset_legacy_locator_idx").on(t.legacyLocator),
+  index("input_asset_legacy_asset_idx").on(t.inputAssetId),
+  index("input_asset_legacy_state_idx").on(t.mappingState),
+  check("input_asset_legacy_table_ck", sql`"legacy_table" IN ('uploads', 'uploaded_files')`),
+  check("input_asset_legacy_locator_ck", sql`length(btrim("legacy_locator")) > 0`),
+  check("input_asset_legacy_state_ck", sql`"mapping_state" IN ('verified', 'quarantined')`),
+  check("input_asset_legacy_verified_ck", sql`"mapping_state" <> 'verified' OR "input_asset_id" IS NOT NULL`),
+]);
+
 export const usersRelations = relations(users, ({ many }) => ({
   projects: many(projects),
   apiKeys: many(apiKeys),
   settings: many(userSettings),
   species: many(species),
   occurrences: many(occurrences),
+  inputAssets: many(inputAssets),
+  legacyInputAssetMappings: many(inputAssetLegacyMappings),
 }));
 
 export const userSettingsRelations = relations(userSettings, ({ one }) => ({
@@ -254,6 +335,8 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   members: many(projectMembers),
   species: many(species),
   runs: many(runs),
+  inputAssets: many(inputAssets),
+  legacyInputAssetMappings: many(inputAssetLegacyMappings),
 }));
 
 export const speciesRelations = relations(species, ({ one, many }) => ({
@@ -290,22 +373,194 @@ export const uploadedFilesRelations = relations(uploadedFiles, ({ one }) => ({
   project: one(projects, { fields: [uploadedFiles.projectId], references: [projects.id] }),
 }));
 
+export const inputAssetsRelations = relations(inputAssets, ({ one, many }) => ({
+  creator: one(users, { fields: [inputAssets.creatorUserId], references: [users.id] }),
+  project: one(projects, { fields: [inputAssets.projectId], references: [projects.id] }),
+  parent: one(inputAssets, { fields: [inputAssets.parentAssetId], references: [inputAssets.id], relationName: "input_asset_parent" }),
+  children: many(inputAssets, { relationName: "input_asset_parent" }),
+  legacyMappings: many(inputAssetLegacyMappings),
+}));
+
+export const inputAssetLegacyMappingsRelations = relations(inputAssetLegacyMappings, ({ one }) => ({
+  asset: one(inputAssets, { fields: [inputAssetLegacyMappings.inputAssetId], references: [inputAssets.id] }),
+  legacyUser: one(users, { fields: [inputAssetLegacyMappings.legacyUserId], references: [users.id] }),
+  legacyProject: one(projects, { fields: [inputAssetLegacyMappings.legacyProjectId], references: [projects.id] }),
+}));
+
 export const systemSettingsRelations = relations(systemSettings, ({ one }) => ({
   updatedByUser: one(users, { fields: [systemSettings.updatedBy], references: [users.id] }),
 }));
+
+export const browserSessions = pgTable("browser_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  authVersion: integer("auth_version").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (t) => [
+  index("browser_sessions_user_id_idx").on(t.userId),
+  index("browser_sessions_active_idx").on(t.userId, t.expiresAt).where(sql`revoked_at IS NULL`),
+]);
 
 export const refreshTokens = pgTable("refresh_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   tokenHash: text("token_hash").notNull(),
+  sessionId: uuid("session_id").references(() => browserSessions.id, { onDelete: "cascade" }),
   expiresAt: timestamp("expires_at").notNull(),
   revokedAt: timestamp("revoked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("idx_refresh_tokens_user").on(t.userId),
   index("idx_refresh_tokens_hash").on(t.tokenHash),
+  index("refresh_tokens_session_id_idx").on(t.sessionId),
+  uniqueIndex("refresh_tokens_token_hash_unique").on(t.tokenHash),
 ]);
 
 export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
   user: one(users, { fields: [refreshTokens.userId], references: [users.id] }),
 }));
+
+// ---------------------------------------------------------------------------
+// Durable execution ownership (docs/DESIGN_DURABLE_EXECUTION_OWNERSHIP.md §2.2,
+// migration 0043). Runs remain the scientific lineage; executions own dispatch
+// authorization, attempts are append-only invocation identity, and the compute
+// owner is the Plumber instance boot. These tables are inert until the durable
+// execution flag rolls out (§5 Phase A/B).
+// ---------------------------------------------------------------------------
+
+export const executionStatusEnum = pgEnum("execution_status", [
+  "reserved",
+  "dispatching",
+  "cancel_requested",
+  "accepted",
+  "lost_response",
+  "adopted",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+]);
+
+export const executionAttemptKindEnum = pgEnum("execution_attempt_kind", ["initial", "reconciliation"]);
+
+/** Dispatch authorization aggregate: one authorized dispatch lineage per run. */
+export const executions = pgTable("executions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  runId: uuid("run_id")
+    .references(() => runs.id, { onDelete: "cascade" })
+    .notNull(),
+  // Gapless per run, allocated under the runs-row lock (§2.2.3).
+  runSeq: integer("run_seq").notNull(),
+  status: executionStatusEnum("status").default("reserved").notNull(),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  // Durable cancel intent, orthogonal to status; never cleared once set (§2.4).
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  // Dispatch-replay identity within this execution.
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  // One-time 128-bit random hex value generated in the reserve transaction.
+  nonce128: text("nonce128").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  // Set only by authorized retry (§2.1); terminal executions are never reopened.
+  retryOfExecutionId: uuid("retry_of_execution_id").references((): AnyPgColumn => executions.id, { onDelete: "cascade" }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  reservedByPrincipal: uuid("reserved_by_principal").notNull(),
+  // Authorization scope for every downstream owner check (§2.2.4).
+  projectId: uuid("project_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("executions_open_per_run_uq").on(t.runId).where(sql`finalized_at IS NULL`),
+  index("executions_run_id_idx").on(t.runId),
+  index("executions_open_status_idx").on(t.status).where(sql`finalized_at IS NULL`),
+  uniqueIndex("executions_run_seq_unique").on(t.runId, t.runSeq),
+]);
+
+/** Append-only invocation identity; external job identity and owner snapshot live here. */
+export const executionAttempts = pgTable("execution_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  executionId: uuid("execution_id")
+    .references(() => executions.id, { onDelete: "cascade" })
+    .notNull(),
+  attemptNo: integer("attempt_no").notNull(),
+  attemptKey: text("attempt_key").notNull().unique(),
+  kind: executionAttemptKindEnum("kind").notNull(),
+  // External Plumber identity: written at most once per attempt (invariant 3).
+  plumberJobId: varchar("plumber_job_id", { length: 100 }).unique(),
+  // Owner snapshot of the Plumber instance boot that accepted this attempt.
+  ownerInstanceId: uuid("owner_instance_id"),
+  ownerBootId: uuid("owner_boot_id"),
+  outcome: text("outcome"),
+  errorCode: text("error_code"),
+  errorHint: text("error_hint"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+}, (t) => [
+  // Invariant 2: one non-final attempt per execution (the probe/adoption target).
+  uniqueIndex("execution_attempts_open_uq").on(t.executionId).where(sql`finalized_at IS NULL`),
+  // Gapless attempt lineage: (execution_id, attempt_no) is unique across ALL
+  // attempts, finalized or open (§2.2, review round 1).
+  uniqueIndex("execution_attempts_attempt_no_uq").on(t.executionId, t.attemptNo),
+]);
+
+/** Request-level idempotency tombstone: rows are never deleted (§2.2.2). */
+export const idempotencyRequests = pgTable("idempotency_requests", {
+  principal: uuid("principal").notNull(),
+  key: text("key").notNull(),
+  projectId: uuid("project_id").notNull(),
+  requestHash: text("request_hash").notNull(),
+  runId: uuid("run_id").notNull().unique(),
+  responseStatus: integer("response_status"),
+  responseBody: jsonb("response_body"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.principal, t.key], name: "idempotency_requests_pk" }),
+  index("idempotency_requests_expires_idx").on(t.expiresAt),
+  foreignKey({
+    name: "idempotency_requests_run_id_fk",
+    columns: [t.runId],
+    foreignColumns: [runs.id],
+  }).onDelete("restrict"),
+]);
+
+/** Stable Plumber deployment identity (SDM_PLUMBER_INSTANCE). */
+export const plumberInstances = pgTable("plumber_instances", {
+  id: uuid("id").primaryKey(),
+  apiBaseUrl: text("api_base_url").notNull(),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * Append-only boot registry: one row per Plumber process start; prior boots are
+ * never overwritten except last_seen_at heartbeats (§2.3, invariant 12).
+ */
+export const plumberInstanceBoots = pgTable("plumber_instance_boots", {
+  bootId: uuid("boot_id").primaryKey(),
+  instanceId: uuid("instance_id")
+    .references(() => plumberInstances.id, { onDelete: "restrict" })
+    .notNull(),
+  announcedAt: timestamp("announced_at", { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+  // Self-verified /proc container-lifetime chain (§2.2.4, invariant 14).
+  pidChainVerified: boolean("pid_chain_verified").default(false).notNull(),
+}, (t) => [
+  index("plumber_instance_boots_instance_idx").on(t.instanceId, t.announcedAt),
+]);
+
+/** Durable transition log; progress stays ephemeral (§2.6). */
+export const executionEvents = pgTable("execution_events", {
+  id: bigint("id", { mode: "number" }).generatedAlwaysAsIdentity().primaryKey(),
+  executionId: uuid("execution_id")
+    .references(() => executions.id, { onDelete: "cascade" })
+    .notNull(),
+  attemptNo: integer("attempt_no"),
+  seq: integer("seq").notNull(),
+  event: text("event").notNull(),
+  observed: jsonb("observed"),
+  emittedAt: timestamp("emitted_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("execution_events_execution_seq_unique").on(t.executionId, t.seq),
+]);

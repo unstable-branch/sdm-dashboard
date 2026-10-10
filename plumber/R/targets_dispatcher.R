@@ -22,7 +22,7 @@ heartbeat_file <- file.path(job_dir, "heartbeat.log")
 meta_file <- file.path(job_dir, "meta.json")
 
 log_fun <- function(...) {
-  msg <- paste0(format(Sys.time(), "%H:%M:%S"), " ", ...)
+  msg <- sdm_redact_sensitive_text(paste0(format(Sys.time(), "%H:%M:%S"), " ", ...))
   cat(msg, "\n")
   cat(msg, "\n", file = progress_file, append = TRUE)
 }
@@ -45,13 +45,14 @@ write_heartbeat <- function(stage = "") {
 
 source(file.path(app_dir, "R", "core", "bootstrap.R"))
 sdm_set_project_root(app_dir)
+source(file.path(app_dir, "plumber", "R", "helpers", "models_helpers.R"), local = FALSE)
 source(file.path(app_dir, "R", "engine_load.R"))
 
 # Source Redis helpers for progress reporting and cancel checks
 redis_path <- file.path(app_dir, "plumber", "R", "redis.R")
 if (file.exists(redis_path)) {
   tryCatch(source(redis_path), error = function(e) {
-    cat("Warning: Redis helpers not available (", conditionMessage(e), ")\n")
+    cat("Warning: Redis helpers not available (", sdm_redact_sensitive_text(conditionMessage(e)), ")\n")
   })
 }
 
@@ -59,6 +60,7 @@ ts_start <- Sys.time()
 write_heartbeat("start")
 
 progress_fun <- function(pct, detail) {
+  detail <- sdm_redact_sensitive_text(detail)
   msg <- paste0(format(Sys.time(), "%H:%M:%S"), " [", sprintf("%.0f", pct * 100), "%] ", detail)
   cat(msg, "\n")
   cat(msg, "\n", file = progress_file, append = TRUE)
@@ -67,6 +69,24 @@ progress_fun <- function(pct, detail) {
       jsonlite::toJSON(list(percent = pct, detail = detail, stage = "targets"), auto_unbox = TRUE)),
     error = function(e) NULL
   )
+}
+
+# A durable config can be retried or edited independently of HTTP ingress.
+# Refuse to start targets unless every CSV row still satisfies the R contract.
+config_validation_error <- NULL
+tryCatch(
+  sdm_validate_targets_config_csv(config_csv),
+  error = function(e) config_validation_error <<- conditionMessage(e)
+)
+if (!is.null(config_validation_error)) {
+  meta <- tryCatch(read_meta(), error = function(e) list(id = basename(job_dir)))
+  meta$status <- "failed"
+  meta$error <- "Stored targets configuration is unavailable for safe execution"
+  meta$error_code <- "UNSAFE_EXECUTION_CONFIG"
+  meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+  write_meta(meta)
+  log_fun("Targets configuration rejected before execution")
+  quit(save = "no", status = 1, runLast = TRUE)
 }
 
 log_fun("Targets pipeline starting for ", basename(job_dir))
@@ -90,7 +110,7 @@ if (file.exists(config_csv)) {
       }
     }
   }, error = function(e) {
-    log_fun("Could not detect multi-species mode: ", conditionMessage(e))
+    log_fun("Could not detect multi-species mode: ", sdm_redact_sensitive_text(conditionMessage(e)))
   })
 }
 
@@ -139,14 +159,14 @@ tryCatch({
   err_msg <- conditionMessage(e)
   meta <- read_meta()
   meta$status <- if (identical(err_msg, "CANCELLED")) "cancelled" else "failed"
-  meta$error <- err_msg
+  meta$error <- sdm_redact_sensitive_text(err_msg)
   meta$completed_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
   write_meta(meta)
   tryCatch(
     sdm_redis_progress_set(basename(job_dir),
-      jsonlite::toJSON(list(percent = 1.0, detail = err_msg, stage = "targets", status = meta$status), auto_unbox = TRUE)),
+      jsonlite::toJSON(list(percent = 1.0, detail = sdm_redact_sensitive_text(err_msg), stage = "targets", status = meta$status), auto_unbox = TRUE)),
     error = function(e) NULL
   )
-  cat("Targets pipeline", meta$status, ":", err_msg, "\n")
+  cat("Targets pipeline", meta$status, ":", sdm_redact_sensitive_text(err_msg), "\n")
 })
 write_heartbeat("exit")

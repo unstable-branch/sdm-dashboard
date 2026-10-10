@@ -1,0 +1,1036 @@
+import { createHash } from "node:crypto";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { and, eq } from "drizzle-orm";
+import { db } from "../db/index.js";
+import { auditLogs, inputAssetLegacyMappings, inputAssets, projectMembers, uploadedFiles, uploads } from "../db/schema.js";
+
+export const INPUT_ASSET_SCOPES = ["private", "project", "system"] as const;
+export const INPUT_ASSET_KINDS = ["raw_occurrence", "cleaned_occurrence", "custom_boundary", "target_group", "climate_collection"] as const;
+export const INPUT_ASSET_STATES = ["ready", "deleted", "quarantined"] as const;
+export type InputAssetScope = (typeof INPUT_ASSET_SCOPES)[number];
+export type InputAssetKind = (typeof INPUT_ASSET_KINDS)[number];
+export type InputAssetState = (typeof INPUT_ASSET_STATES)[number];
+export type InputAssetAction = "read" | "use";
+
+export const CLIMATE_COLLECTION_MANIFEST_VERSION = 1 as const;
+
+/** A v1 climate collection is an immutable JSON manifest, not a directory alias. */
+export interface ClimateCollectionManifestMember {
+  locator: string;
+  sha256: string;
+  size: number;
+  metadata: Record<string, string | number | boolean | null>;
+}
+
+export interface ClimateCollectionManifestV1 {
+  version: typeof CLIMATE_COLLECTION_MANIFEST_VERSION;
+  metadata: Record<string, string | number | boolean | null>;
+  members: ClimateCollectionManifestMember[];
+}
+
+export type ClimateCollectionManifest = ClimateCollectionManifestV1;
+export type ClimateManifestMember = ClimateCollectionManifestMember;
+
+export interface InputAssetPrincipal {
+  id: string;
+  role: string;
+}
+
+export interface InputAssetRootMap {
+  [rootName: string]: string;
+}
+
+export interface AssetFileSystem {
+  realpath(path: string): Promise<string>;
+  lstat(path: string): Promise<{ isSymbolicLink(): boolean; isFile(): boolean; size?: number }>;
+  readFile(path: string): Promise<Buffer>;
+}
+
+const fileSystem: AssetFileSystem = { realpath, lstat, readFile };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ROOT_NAME_RE = /^[a-z][a-z0-9_-]{0,31}$/;
+const HASH_RE = /^[0-9a-f]{64}$/i;
+const ASSET_ACTIONS = new Set<InputAssetAction>(["read", "use"]);
+const ASSET_KINDS = new Set<string>(INPUT_ASSET_KINDS);
+const ASSET_SCOPES = new Set<string>(INPUT_ASSET_SCOPES);
+const ASSET_STATES = new Set<string>(INPUT_ASSET_STATES);
+const PRINCIPAL_ROLES = new Set(["admin", "editor", "viewer"]);
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const MAX_CLIMATE_MANIFEST_BYTES = 1024 * 1024;
+const MAX_CLIMATE_MANIFEST_MEMBERS = 512;
+const CLIMATE_COLLECTION_ROOTS = new Set(["worldclim", "chelsa", "future_worldclim"]);
+
+export type InputAssetRow = typeof inputAssets.$inferSelect;
+
+type Database = typeof db;
+
+export interface InputAssetDependencies {
+  database?: Database;
+  roots?: InputAssetRootMap;
+  fs?: AssetFileSystem;
+  auditAdminAccess?: (entry: InputAssetAdminAuditEntry) => Promise<void>;
+}
+
+export interface InputAssetAdminAuditEntry {
+  principalId: string;
+  assetId: string;
+  action: InputAssetAction;
+  assetScope: InputAssetScope;
+  projectId: string | null;
+}
+
+export type InputAssetDenialReason =
+  | "invalid_request"
+  | "not_found"
+  | "not_authorized"
+  | "invalid_asset"
+  | "invalid_lineage"
+  | "unsafe_storage"
+  | "unavailable"
+  | "legacy_unmapped";
+
+export type InputAssetResolution =
+  | { ok: true; asset: InputAssetRow; absolutePath: string; adminAccess: boolean }
+  | { ok: false; reason: InputAssetDenialReason };
+
+export class InputAssetRegistrationError extends Error {
+  constructor(
+    message: string,
+    readonly reason: "deleted" | "conflict" | "invalid" | "not_authorized" = "invalid",
+  ) {
+    super(message);
+    this.name = "InputAssetRegistrationError";
+  }
+}
+
+export interface RegisterInputAssetInput {
+  creatorUserId: string;
+  scope: Exclude<InputAssetScope, "system">;
+  kind: InputAssetKind;
+  projectId?: string | null;
+  root: string;
+  relativePath: string;
+  contentSha256?: string;
+}
+
+export interface RegisterSystemInputAssetInput {
+  creatorUserId: string;
+  kind: InputAssetKind;
+  root: string;
+  relativePath: string;
+  contentSha256?: string;
+}
+
+export interface RegisterDerivedInputAssetInput extends RegisterInputAssetInput {
+  parentAssetId: string;
+  /** Principal performing the derivation; distinct from immutable child creator metadata. */
+  actorUserId?: string;
+}
+
+export interface RegisterServerPathInput {
+  creatorUserId: string;
+  scope: Exclude<InputAssetScope, "system">;
+  kind: InputAssetKind;
+  projectId?: string | null;
+  absolutePath: string;
+  contentSha256?: string;
+}
+
+export interface RegisterDerivedServerPathInput extends RegisterServerPathInput {
+  parentAssetId: string;
+  actorUserId?: string;
+}
+
+export interface ResolveInputAssetOptions {
+  assetId: string;
+  principal: InputAssetPrincipal;
+  action?: InputAssetAction;
+  expectedKind?: InputAssetKind;
+  allowedKinds?: readonly InputAssetKind[];
+  expectedParentAssetId?: string | null;
+  destinationProjectId?: string | null;
+}
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
+function isOneOf<T extends string>(value: unknown, values: readonly T[]): value is T {
+  return typeof value === "string" && values.includes(value as T);
+}
+
+function defaultRoots(): InputAssetRootMap {
+  const projectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  const configuredClimateRoot = (environmentName: string, defaultRelative: string): string => {
+    const configured = process.env[environmentName];
+    return resolve(projectRoot, configured || defaultRelative);
+  };
+  return {
+    uploads: process.env.SDM_INPUT_ASSET_UPLOAD_ROOT || join(projectRoot, "data", "uploads"),
+    boundaries: process.env.SDM_INPUT_ASSET_BOUNDARY_ROOT || join(projectRoot, "data", "boundaries"),
+    system: process.env.SDM_INPUT_ASSET_SYSTEM_ROOT || join(projectRoot, "data", "system"),
+    // Climate collections are rooted by source/scenario, not by a broad
+    // project/data directory. These names are shared with the Plumber
+    // producer's manifest locators and may be overridden for a colocated
+    // volume layout without changing client-visible contracts.
+    worldclim: configuredClimateRoot("SDM_INPUT_ASSET_WORLDCLIM_ROOT", process.env.SDM_WORLDCLIM_DIR || "Worldclim"),
+    chelsa: configuredClimateRoot("SDM_INPUT_ASSET_CHELSA_ROOT", process.env.SDM_CHELSA_DIR || "chelsa"),
+    future_worldclim: configuredClimateRoot("SDM_INPUT_ASSET_FUTURE_WORLDCLIM_ROOT", process.env.SDM_FUTURE_WORLDCLIM_DIR || "Worldclim_future"),
+  };
+}
+
+/** Return the configured uploads root only when its existing path is canonical and symlink-free. */
+export async function resolveInputAssetUploadRoot(): Promise<string | null> {
+  const root = defaultRoots().uploads;
+  if (!isAbsolute(root) || root !== resolve(root)) return null;
+  let current = root;
+  try {
+    while (true) {
+      try {
+        const stat = await lstat(current);
+        if (stat.isSymbolicLink() || !stat.isDirectory()) return null;
+        if (await realpath(current) !== current) return null;
+      } catch (error) {
+        if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") return null;
+      }
+      const parent = dirname(current);
+      if (parent === current) return root;
+      current = parent;
+    }
+  } catch {
+    return null;
+  }
+}
+
+function isContained(root: string, candidate: string): boolean {
+  const rootResolved = resolve(root);
+  const candidateResolved = resolve(candidate);
+  return candidateResolved === rootResolved || candidateResolved.startsWith(rootResolved + sep);
+}
+
+function parseLocator(locator: string): { root: string; segments: string[] } | null {
+  if (typeof locator !== "string" || locator.length === 0 || locator.length > 2048) return null;
+  if (locator !== locator.trim() || /[\u0000-\u001f\u007f]/.test(locator) || locator.includes("\\") || locator.includes(":")) return null;
+  if (locator.startsWith("/") || locator.includes("//")) return null;
+  const parts = locator.split("/");
+  const root = parts.shift() || "";
+  if (!ROOT_NAME_RE.test(root) || parts.length === 0 || parts.some((part) => !part || part === "." || part === "..")) return null;
+  return { root, segments: parts };
+}
+
+/** Convert a server-owned root and relative path into the only locator format accepted by the resolver. */
+export function makeInputAssetLocator(root: string, relativePath: string, roots: InputAssetRootMap = defaultRoots()): string | null {
+  if (!ROOT_NAME_RE.test(root) || typeof relativePath !== "string" || relativePath.length === 0) return null;
+  const parsed = parseLocator(root + "/" + relativePath);
+  if (!parsed || !Object.prototype.hasOwnProperty.call(roots, root)) return null;
+  return root + "/" + parsed.segments.join("/");
+}
+
+/**
+ * Resolve a canonical locator only under a configured root.  Realpath and an
+ * lstat walk reject symlink components, so an in-root name cannot redirect to
+ * another tenant's file.  Missing/non-regular files fail closed.
+ */
+export async function resolveInputAssetStorage(
+  locator: string,
+  roots: InputAssetRootMap = defaultRoots(),
+  fs: AssetFileSystem = fileSystem,
+): Promise<{ absolutePath: string; locator: string } | null> {
+  const parsed = parseLocator(locator);
+  if (!parsed) return null;
+  const configuredRoot = roots[parsed.root];
+  if (typeof configuredRoot !== "string" || configuredRoot.length === 0) return null;
+
+  // Uploads are shared with the worker. Reject process-CWD-dependent or
+  // noncanonical server roots rather than accept inputs the worker cannot use.
+  if (parsed.root === "uploads" && (!isAbsolute(configuredRoot) || configuredRoot !== resolve(configuredRoot))) return null;
+
+  try {
+    const configuredRootPath = resolve(configuredRoot);
+    const rootStat = await fs.lstat(configuredRootPath);
+    if (rootStat.isSymbolicLink() || rootStat.isFile()) return null;
+    const rootPath = await fs.realpath(configuredRootPath);
+    if (parsed.root === "uploads" && rootPath !== configuredRootPath) return null;
+    const candidate = resolve(rootPath, ...parsed.segments);
+    if (!isContained(rootPath, candidate)) return null;
+
+    let current = rootPath;
+    for (const segment of parsed.segments) {
+      current = join(current, segment);
+      const component = await fs.lstat(current);
+      if (component.isSymbolicLink()) return null;
+      if (current === candidate && !component.isFile()) return null;
+    }
+
+    const actualPath = await fs.realpath(candidate);
+    if (!isContained(rootPath, actualPath)) return null;
+    const actualStat = await fs.lstat(actualPath);
+    if (actualStat.isSymbolicLink() || !actualStat.isFile()) return null;
+    return { absolutePath: actualPath, locator: parsed.root + "/" + parsed.segments.join("/") };
+  } catch {
+    return null;
+  }
+}
+
+function validateRegistrationInput(input: RegisterInputAssetInput | RegisterSystemInputAssetInput, allowSystem: boolean): void {
+  if (!isUuid(input.creatorUserId) || !isOneOf(input.kind, INPUT_ASSET_KINDS)) {
+    throw new InputAssetRegistrationError("Invalid input asset identity");
+  }
+  if (!allowSystem && (!("scope" in input) || !isOneOf(input.scope, ["private", "project"] as const))) {
+    throw new InputAssetRegistrationError("System scope requires the server-only registration function");
+  }
+  if (!ROOT_NAME_RE.test(input.root) || typeof input.relativePath !== "string") {
+    throw new InputAssetRegistrationError("Invalid server-owned storage locator");
+  }
+  if (input.kind === "custom_boundary" && input.root !== "boundaries") {
+    throw new InputAssetRegistrationError("Custom boundaries must use the configured boundary root");
+  }
+  if (input.kind === "climate_collection" && !CLIMATE_COLLECTION_ROOTS.has(input.root)) {
+    throw new InputAssetRegistrationError("Climate collections must use an approved climate root");
+  }
+  if (input.contentSha256 !== undefined && !HASH_RE.test(input.contentSha256)) {
+    throw new InputAssetRegistrationError("Invalid content identity");
+  }
+}
+
+async function computeIdentity(path: string, fs: AssetFileSystem): Promise<{ contentSha256: string; contentSize: number }> {
+  const content = await fs.readFile(path);
+  return { contentSha256: createHash("sha256").update(content).digest("hex"), contentSize: content.length };
+}
+
+async function matchesContentIdentity(asset: InputAssetRow, path: string, fs: AssetFileSystem): Promise<boolean> {
+  if (asset.kind === "custom_boundary" && (asset.contentSize == null || asset.contentSha256 == null)) return false;
+  if (asset.contentSize == null && asset.contentSha256 == null) return true;
+  const identity = await computeIdentity(path, fs);
+  if (asset.contentSize != null && identity.contentSize !== asset.contentSize) return false;
+  return asset.contentSha256 == null || identity.contentSha256 === asset.contentSha256.toLowerCase();
+}
+
+function isSafeManifestMetadata(value: unknown): value is Record<string, string | number | boolean | null> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value);
+  if (entries.length > 64) return false;
+  return entries.every(([key, child]) =>
+    key.length > 0 && key.length <= 128 && /^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(key)
+    && (child === null || (typeof child === "string" && child.length <= 1024) || typeof child === "boolean"
+      || (typeof child === "number" && Number.isFinite(child))),
+  );
+}
+
+function parseClimateCollectionManifest(value: unknown): ClimateCollectionManifestV1 | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const manifest = value as Record<string, unknown>;
+  if (manifest.version !== CLIMATE_COLLECTION_MANIFEST_VERSION
+    || !Array.isArray(manifest.members)
+    || manifest.members.length === 0
+    || manifest.members.length > MAX_CLIMATE_MANIFEST_MEMBERS) return null;
+  const manifestMetadata = manifest.metadata === undefined ? {} : manifest.metadata;
+  if (!isSafeManifestMetadata(manifestMetadata)) return null;
+  const members: ClimateCollectionManifestMember[] = [];
+  const seenLocators = new Set<string>();
+  let memberRoot: string | null = null;
+  for (const memberValue of manifest.members) {
+    if (!memberValue || typeof memberValue !== "object" || Array.isArray(memberValue)) return null;
+    const member = memberValue as Record<string, unknown>;
+    const locator = typeof member.locator === "string" ? member.locator : member.storageLocator;
+    const sha256 = typeof member.sha256 === "string" ? member.sha256 : member.contentSha256;
+    const size = typeof member.size === "number" ? member.size : member.contentSize;
+    if (typeof locator !== "string" || locator.length === 0 || locator.length > 2048
+      || !HASH_RE.test(typeof sha256 === "string" ? sha256 : "")
+      || typeof size !== "number" || !Number.isSafeInteger(size) || size < 0
+      || !isSafeManifestMetadata(member.metadata)) return null;
+    const parsedLocator = parseLocator(locator);
+    if (!parsedLocator || seenLocators.has(locator) || (memberRoot !== null && parsedLocator.root !== memberRoot)) return null;
+    seenLocators.add(locator);
+    memberRoot = parsedLocator.root;
+    members.push({
+      locator,
+      sha256: sha256 as string,
+      size,
+      metadata: member.metadata,
+    });
+  }
+  return { version: CLIMATE_COLLECTION_MANIFEST_VERSION, metadata: manifestMetadata, members };
+}
+
+async function verifyClimateCollectionManifest(
+  manifestPath: string,
+  roots: InputAssetRootMap,
+  fs: AssetFileSystem,
+): Promise<ClimateCollectionManifestV1 | null> {
+  let manifest: ClimateCollectionManifestV1 | null;
+  try {
+    const raw = await fs.readFile(manifestPath);
+    if (raw.length > MAX_CLIMATE_MANIFEST_BYTES) return null;
+    manifest = parseClimateCollectionManifest(JSON.parse(raw.toString("utf8")));
+  } catch {
+    return null;
+  }
+  if (!manifest) return null;
+
+  for (const member of manifest.members) {
+    const storage = await resolveInputAssetStorage(member.locator, roots, fs);
+    if (!storage) return null;
+    try {
+      const stat = await fs.lstat(storage.absolutePath);
+      if (stat.isSymbolicLink() || !stat.isFile()) return null;
+      const identity = await computeIdentity(storage.absolutePath, fs);
+      if (identity.contentSize !== member.size || identity.contentSha256 !== member.sha256.toLowerCase()) return null;
+    } catch {
+      return null;
+    }
+  }
+  return manifest;
+}
+
+/** Validate a server-owned manifest file and all of its referenced members. */
+export async function validateClimateCollectionManifest(
+  manifestPath: string,
+  roots: InputAssetRootMap = defaultRoots(),
+  fs: AssetFileSystem = fileSystem,
+): Promise<boolean> {
+  return Boolean(await verifyClimateCollectionManifest(manifestPath, roots, fs));
+}
+
+/** Resolve a verified collection to the narrowest directory containing every immutable member. */
+export async function resolveClimateCollectionDirectory(
+  manifestPath: string,
+  dependencies: Pick<InputAssetDependencies, "roots" | "fs"> = {},
+): Promise<string | null> {
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  const manifest = await verifyClimateCollectionManifest(manifestPath, roots, fs);
+  if (!manifest) return null;
+  const memberPaths: string[] = [];
+  for (const member of manifest.members) {
+    const storage = await resolveInputAssetStorage(member.locator, roots, fs);
+    if (!storage) return null;
+    memberPaths.push(storage.absolutePath);
+  }
+  if (memberPaths.length === 0) return null;
+  let common = dirname(memberPaths[0]);
+  for (const memberPath of memberPaths.slice(1)) {
+    while (!isContained(common, memberPath)) {
+      const parent = dirname(common);
+      if (parent === common) return null;
+      common = parent;
+    }
+  }
+  return common;
+}
+
+async function assertRegistrationParent(
+  database: Database,
+  input: RegisterDerivedInputAssetInput,
+): Promise<void> {
+  if (!isUuid(input.parentAssetId)) throw new InputAssetRegistrationError("Invalid parent asset");
+  const [parent] = await database.select().from(inputAssets).where(eq(inputAssets.id, input.parentAssetId)).limit(1);
+  if (!parent || parent.state !== "ready") {
+    throw new InputAssetRegistrationError("Parent asset is not available");
+  }
+  const actorUserId = input.actorUserId || input.creatorUserId;
+  if (!isUuid(actorUserId)) throw new InputAssetRegistrationError("Invalid derivative actor");
+  if (parent.scope === "private" && (parent.creatorUserId !== actorUserId || input.creatorUserId !== actorUserId)) {
+    throw new InputAssetRegistrationError("Private parent asset is not available to this actor");
+  }
+  if (input.scope !== parent.scope || (input.projectId ?? null) !== (parent.projectId ?? null)) {
+    throw new InputAssetRegistrationError("Derived asset scope does not match its parent");
+  }
+  if (input.kind === "cleaned_occurrence" && parent.kind !== "raw_occurrence") {
+    throw new InputAssetRegistrationError("Cleaned occurrence must derive from a raw occurrence");
+  }
+}
+
+async function register(
+  input: RegisterInputAssetInput | RegisterSystemInputAssetInput,
+  dependencies: InputAssetDependencies,
+  allowSystem: boolean,
+  parentAssetId: string | null,
+): Promise<InputAssetRow> {
+  validateRegistrationInput(input, allowSystem);
+  const scopedInput = input as RegisterInputAssetInput;
+  const scope: InputAssetScope = allowSystem ? "system" : scopedInput.scope;
+  const projectId: string | null = scope === "project" ? (scopedInput.projectId ?? null) : null;
+  if (scope === "project" && !isUuid(projectId)) throw new InputAssetRegistrationError("Project scope requires a project");
+  if (scope !== "project" && scopedInput.projectId != null) throw new InputAssetRegistrationError("Private/system assets cannot name a project");
+
+  const roots = dependencies.roots || defaultRoots();
+  if (scope === "system" && input.root !== "system" && input.kind !== "climate_collection") {
+    throw new InputAssetRegistrationError("System assets must use the configured system root; only climate collections may use a source-specific root");
+  }
+  const locator = makeInputAssetLocator(input.root, input.relativePath, roots);
+  if (!locator) throw new InputAssetRegistrationError("Invalid server-owned storage locator");
+  const fs = dependencies.fs || fileSystem;
+  const resolved = await resolveInputAssetStorage(locator, roots, fs);
+  if (!resolved) throw new InputAssetRegistrationError("Input asset storage is unavailable or unsafe");
+
+  let identity: { contentSha256: string; contentSize: number };
+  try {
+    identity = await computeIdentity(resolved.absolutePath, fs);
+  } catch {
+    throw new InputAssetRegistrationError("Input asset content is unavailable");
+  }
+  if (input.contentSha256 && input.contentSha256.toLowerCase() !== identity.contentSha256) {
+    throw new InputAssetRegistrationError("Input asset content identity mismatch");
+  }
+  if (input.kind === "climate_collection"
+    && !(await verifyClimateCollectionManifest(resolved.absolutePath, roots, fs))) {
+    throw new InputAssetRegistrationError("Climate collection manifest is invalid or its members are unavailable");
+  }
+
+  const database = dependencies.database || db;
+  try {
+    if (parentAssetId) {
+      await assertRegistrationParent(database, { ...scopedInput, parentAssetId });
+    }
+    if (scope === "project") {
+      const authorizationUserId = parentAssetId && "actorUserId" in input && typeof input.actorUserId === "string"
+        ? input.actorUserId
+        : input.creatorUserId;
+      const [membership] = await database.select({ role: projectMembers.role })
+        .from(projectMembers)
+        .where(and(eq(projectMembers.projectId, projectId as string), eq(projectMembers.userId, authorizationUserId)))
+        .limit(1);
+      if (!membership || !["editor", "admin"].includes(membership.role)) {
+        throw new InputAssetRegistrationError("Asset creator cannot add project inputs", "not_authorized");
+      }
+    }
+  } catch (error) {
+    if (error instanceof InputAssetRegistrationError) throw error;
+    throw new InputAssetRegistrationError("Input asset registration storage is unavailable");
+  }
+
+  try {
+    const values = {
+      creatorUserId: input.creatorUserId,
+      projectId,
+      scope,
+      kind: input.kind,
+      storageLocator: locator,
+      parentAssetId,
+      state: "ready" as const,
+      contentSha256: identity.contentSha256,
+      contentSize: identity.contentSize,
+    };
+    const [asset] = await database.insert(inputAssets).values(values)
+      .onConflictDoNothing({ target: inputAssets.storageLocator })
+      .returning();
+    if (asset) return asset;
+
+    const [existing] = await database.select().from(inputAssets)
+      .where(eq(inputAssets.storageLocator, locator)).limit(1);
+    if (existing?.state === "deleted") {
+      throw new InputAssetRegistrationError("Input asset was deleted", "deleted");
+    }
+    if (!existing
+      || existing.state !== "ready"
+      || (values.scope !== "system" && existing.creatorUserId !== values.creatorUserId)
+      || existing.scope !== values.scope
+      || existing.kind !== values.kind
+      || existing.projectId !== values.projectId
+      || existing.parentAssetId !== values.parentAssetId
+      || existing.contentSha256 !== values.contentSha256
+      || existing.contentSize !== values.contentSize) {
+      throw new InputAssetRegistrationError("Input asset locator is already registered with different identity", "conflict");
+    }
+    return existing;
+  } catch (error) {
+    if (error instanceof InputAssetRegistrationError) throw error;
+    throw new InputAssetRegistrationError("Input asset registration failed");
+  }
+}
+
+/** Register a private or explicitly project-scoped asset.  There is no locator update API. */
+export async function registerInputAsset(input: RegisterInputAssetInput, dependencies: InputAssetDependencies = {}): Promise<InputAssetRow> {
+  return register(input, dependencies, false, null);
+}
+
+/** Register a derivative after verifying its immutable parent and scope. */
+export async function registerDerivedInputAsset(input: RegisterDerivedInputAssetInput, dependencies: InputAssetDependencies = {}): Promise<InputAssetRow> {
+  return register(input, dependencies, false, input.parentAssetId);
+}
+
+/**
+ * Translate a path produced by this server (or its colocated Plumber worker)
+ * into a canonical root/relative locator.  This is intentionally separate
+ * from the HTTP request shape: callers must obtain the path from a server
+ * producer, never from a client field.  The registration path re-checks the
+ * realpath, every component, and the content identity before inserting.
+ */
+export async function registerInputAssetFromServerPath(
+  input: RegisterServerPathInput,
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetRow> {
+  if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
+    throw new InputAssetRegistrationError("Server producer returned an invalid storage path");
+  }
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  let producerPath = resolve(input.absolutePath);
+  // Docker's colocated services use /app while local API tests use the
+  // checkout root.  This translation is only for an internal producer path.
+  const configuredProjectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  if (producerPath.startsWith("/app/") && configuredProjectRoot !== "/app") {
+    producerPath = resolve(configuredProjectRoot, producerPath.slice("/app/".length));
+  }
+
+  let pathParts: { root: string; relativePath: string } | null = null;
+  try {
+    const actualProducerPath = await fs.realpath(producerPath);
+    for (const [rootName, configuredRoot] of Object.entries(roots)) {
+      if (typeof configuredRoot !== "string" || configuredRoot.length === 0) continue;
+      const actualRoot = await fs.realpath(resolve(configuredRoot));
+      const rel = relative(actualRoot, actualProducerPath);
+      if (rel && !rel.startsWith("..") && !rel.includes(".." + sep) && !rel.startsWith(sep)) {
+        pathParts = { root: rootName, relativePath: rel.split(sep).join("/") };
+        break;
+      }
+    }
+  } catch {
+    // The common registration path below turns this into a stable denial.
+  }
+  if (!pathParts) throw new InputAssetRegistrationError("Server producer output is unavailable or unsafe");
+
+  return register({ ...input, root: pathParts.root, relativePath: pathParts.relativePath }, dependencies, false, null);
+}
+
+/** Register a server-generated v1 climate manifest as the canonical collection ID. */
+export async function registerClimateCollectionFromServerPath(
+  input: Omit<RegisterServerPathInput, "kind">,
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetRow> {
+  if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
+    throw new InputAssetRegistrationError("Server producer returned an invalid storage path");
+  }
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  let producerPath = resolve(input.absolutePath);
+  const configuredProjectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  if (producerPath.startsWith("/app/") && configuredProjectRoot !== "/app") {
+    producerPath = resolve(configuredProjectRoot, producerPath.slice("/app/".length));
+  }
+
+  let pathParts: { root: string; relativePath: string } | null = null;
+  try {
+    const actualProducerPath = await fs.realpath(producerPath);
+    for (const [rootName, configuredRoot] of Object.entries(roots)) {
+      if (!CLIMATE_COLLECTION_ROOTS.has(rootName)) continue;
+      if (typeof configuredRoot !== "string" || configuredRoot.length === 0) continue;
+      const actualRoot = await fs.realpath(resolve(configuredRoot));
+      const rel = relative(actualRoot, actualProducerPath);
+      if (rel && !rel.startsWith("..") && !rel.includes(".." + sep) && !rel.startsWith(sep)) {
+        pathParts = { root: rootName, relativePath: rel.split(sep).join("/") };
+        break;
+      }
+    }
+  } catch {
+    // Stable fail-closed error below.
+  }
+  if (!pathParts) throw new InputAssetRegistrationError("Server producer output is outside an approved climate root");
+  const manifest = await verifyClimateCollectionManifest(producerPath, roots, fs);
+  if (!manifest) throw new InputAssetRegistrationError("Climate collection manifest is invalid or incomplete");
+  if (manifest.members.some((member) => parseLocator(member.locator)?.root !== pathParts.root)) {
+    throw new InputAssetRegistrationError("Climate collection member root does not match its approved manifest root");
+  }
+
+  return register({
+    ...input,
+    kind: "climate_collection",
+    root: pathParts.root,
+    relativePath: pathParts.relativePath,
+  }, dependencies, false, null);
+}
+
+/** Register a shared immutable climate collection under a source-specific system root. */
+export async function registerSystemClimateCollectionFromServerPath(
+  input: { creatorUserId: string; absolutePath: string; contentSha256?: string },
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetRow> {
+  if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
+    throw new InputAssetRegistrationError("Server producer returned an invalid storage path");
+  }
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  let producerPath = resolve(input.absolutePath);
+  const configuredProjectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  if (producerPath.startsWith("/app/") && configuredProjectRoot !== "/app") {
+    producerPath = resolve(configuredProjectRoot, producerPath.slice("/app/".length));
+  }
+
+  let pathParts: { root: string; relativePath: string } | null = null;
+  try {
+    const actualProducerPath = await fs.realpath(producerPath);
+    for (const [rootName, configuredRoot] of Object.entries(roots)) {
+      if (!CLIMATE_COLLECTION_ROOTS.has(rootName)) continue;
+      if (typeof configuredRoot !== "string" || configuredRoot.length === 0) continue;
+      const actualRoot = await fs.realpath(resolve(configuredRoot));
+      const rel = relative(actualRoot, actualProducerPath);
+      if (rel && !rel.startsWith("..") && !rel.includes(".." + sep) && !rel.startsWith(sep)) {
+        pathParts = { root: rootName, relativePath: rel.split(sep).join("/") };
+        break;
+      }
+    }
+  } catch {
+    // Stable fail-closed error below.
+  }
+  if (!pathParts) throw new InputAssetRegistrationError("Server producer output is outside an approved climate root");
+  const manifest = await verifyClimateCollectionManifest(producerPath, roots, fs);
+  if (!manifest) throw new InputAssetRegistrationError("Climate collection manifest is invalid or incomplete");
+  if (manifest.members.some((member) => parseLocator(member.locator)?.root !== pathParts.root)) {
+    throw new InputAssetRegistrationError("Climate collection member root does not match its approved manifest root");
+  }
+
+  return register({
+    creatorUserId: input.creatorUserId,
+    kind: "climate_collection",
+    root: pathParts.root,
+    relativePath: pathParts.relativePath,
+    contentSha256: input.contentSha256,
+  }, dependencies, true, null);
+}
+
+/** Descriptive alias for callers that name the server-produced JSON artifact. */
+export const registerClimateCollectionManifest = registerClimateCollectionFromServerPath;
+
+/** Register a cleaner output while enforcing immutable raw-parent lineage. */
+export async function registerDerivedInputAssetFromServerPath(
+  input: RegisterDerivedServerPathInput,
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetRow> {
+  if (typeof input.absolutePath !== "string" || !input.absolutePath.startsWith("/")) {
+    throw new InputAssetRegistrationError("Cleaner returned an invalid storage path");
+  }
+  const roots = dependencies.roots || defaultRoots();
+  const fs = dependencies.fs || fileSystem;
+  const producerPath = resolve(input.absolutePath);
+  const configuredProjectRoot = resolve(process.env.SDM_PROJECT_ROOT || PROJECT_ROOT);
+  const translatedPath = producerPath.startsWith("/app/") && configuredProjectRoot !== "/app"
+    ? resolve(configuredProjectRoot, producerPath.slice("/app/".length))
+    : producerPath;
+  let pathParts: { root: string; relativePath: string } | null = null;
+  try {
+    const actualProducerPath = await fs.realpath(translatedPath);
+    for (const [rootName, configuredRoot] of Object.entries(roots)) {
+      if (typeof configuredRoot !== "string" || configuredRoot.length === 0) continue;
+      const actualRoot = await fs.realpath(resolve(configuredRoot));
+      const rel = relative(actualRoot, actualProducerPath);
+      if (rel && !rel.startsWith("..") && !rel.includes(".." + sep) && !rel.startsWith(sep)) {
+        pathParts = { root: rootName, relativePath: rel.split(sep).join("/") };
+        break;
+      }
+    }
+  } catch {
+    // Stable fail-closed error below.
+  }
+  if (!pathParts) throw new InputAssetRegistrationError("Cleaner output is unavailable or unsafe");
+  return registerDerivedInputAsset({ ...input, root: pathParts.root, relativePath: pathParts.relativePath }, dependencies);
+}
+
+/** System scope is intentionally exposed as a separate server-only function. */
+export async function registerSystemInputAsset(input: RegisterSystemInputAssetInput, dependencies: InputAssetDependencies = {}): Promise<InputAssetRow> {
+  return register(input, dependencies, true, null);
+}
+
+export type ProjectInputWriteDecision =
+  | { allowed: true }
+  | { allowed: false; reason: "invalid_request" | "not_authorized" | "unavailable" };
+
+export interface ProjectInputWriteOptions {
+  principal: InputAssetPrincipal;
+  projectId: string;
+}
+
+/**
+ * Current-principal authorization to add a project input, evaluated BEFORE any
+ * server-side write.  The registration path rechecks the same membership
+ * immediately before the insert and remains the authoritative final check;
+ * this pre-check exists so a viewer, a removed member, or an unanswerable
+ * membership lookup can never cause a shared-storage write that only a
+ * best-effort cleanup would undo.
+ */
+export async function authorizeProjectInputWrite(
+  options: ProjectInputWriteOptions,
+  dependencies: InputAssetDependencies = {},
+): Promise<ProjectInputWriteDecision> {
+  const { principal, projectId } = options;
+  if (!isUuid(principal.id) || !PRINCIPAL_ROLES.has(principal.role) || !isUuid(projectId)) {
+    return { allowed: false, reason: "invalid_request" };
+  }
+  const database = dependencies.database || db;
+  try {
+    const [membership] = await database.select({ role: projectMembers.role })
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, principal.id)))
+      .limit(1);
+    // Deliberately identical to the registration recheck: only a current
+    // editor or admin membership permits adding to a project, and a global
+    // administrator does not bypass project membership.
+    if (!membership || !["editor", "admin"].includes(membership.role)) {
+      return { allowed: false, reason: "not_authorized" };
+    }
+    return { allowed: true };
+  } catch {
+    // Fail closed: an unanswerable lookup denies the write and is reported as
+    // an unavailable dependency, never as a successful authorization.
+    return { allowed: false, reason: "unavailable" };
+  }
+}
+
+/** Only lifecycle state can be changed after registration; ownership and locator are immutable. */
+export interface InputAssetStateAuthorization {
+  principal: InputAssetPrincipal;
+  expectedKind?: InputAssetKind;
+}
+
+export async function updateInputAssetState(
+  assetId: string,
+  state: Exclude<InputAssetState, "ready">,
+  dependencies: InputAssetDependencies = {},
+  authorization?: InputAssetStateAuthorization,
+): Promise<boolean> {
+  if (!isUuid(assetId) || !isOneOf(state, ["deleted", "quarantined"] as const)) return false;
+  const database = dependencies.database || db;
+  try {
+    if (authorization) {
+      if (typeof database.transaction !== "function") return false;
+      return await database.transaction(async (tx) => {
+        const txDependencies = { ...dependencies, database: tx as unknown as Database };
+        const resolved = await resolveInputAsset({
+          assetId,
+          principal: authorization.principal,
+          action: "use",
+          expectedKind: authorization.expectedKind,
+        }, txDependencies);
+        if (!resolved.ok) return false;
+        const now = new Date();
+        const [updated] = await tx.update(inputAssets).set({
+          state,
+          deletedAt: state === "deleted" ? now : null,
+          quarantinedAt: state === "quarantined" ? now : null,
+          updatedAt: now,
+        }).where(and(eq(inputAssets.id, assetId), eq(inputAssets.state, "ready"))).returning({ id: inputAssets.id });
+        return Boolean(updated);
+      });
+    }
+    const now = new Date();
+    const [updated] = await database.update(inputAssets).set({
+      state,
+      deletedAt: state === "deleted" ? now : null,
+      quarantinedAt: state === "quarantined" ? now : null,
+      updatedAt: now,
+    }).where(eq(inputAssets.id, assetId)).returning({ id: inputAssets.id });
+    return Boolean(updated);
+  } catch {
+    return false;
+  }
+}
+
+export async function quarantineInputAsset(assetId: string, dependencies: InputAssetDependencies = {}): Promise<boolean> {
+  return updateInputAssetState(assetId, "quarantined", dependencies);
+}
+
+/**
+ * Create a verified compatibility mapping only from a legacy row and a
+ * canonical asset already owned by the server. The legacy locator is read
+ * from the database, never supplied by a request. Every row sharing that
+ * locator must have the same owner/project tuple and the canonical real path
+ * must be identical; otherwise the row remains unmapped and denied.
+ */
+export async function registerVerifiedLegacyMapping(
+  legacyTable: "uploads" | "uploaded_files",
+  legacyRowId: string,
+  inputAssetId: string,
+  dependencies: InputAssetDependencies = {},
+): Promise<boolean> {
+  if ((legacyTable !== "uploads" && legacyTable !== "uploaded_files") || !isUuid(legacyRowId) || !isUuid(inputAssetId)) return false;
+  const database = dependencies.database || db;
+  try {
+    const legacyTableRef = legacyTable === "uploads" ? uploads : uploadedFiles;
+    const [legacy] = await database.select().from(legacyTableRef).where(eq(legacyTableRef.id, legacyRowId)).limit(1);
+    const [asset] = await database.select().from(inputAssets).where(eq(inputAssets.id, inputAssetId)).limit(1);
+    if (!legacy || !asset || asset.state !== "ready" || asset.kind !== "raw_occurrence") return false;
+    if (!isUuid(legacy.userId) || legacy.userId !== asset.creatorUserId || typeof legacy.filePath !== "string" || legacy.filePath.length === 0) return false;
+    const expectedProjectId = legacyTable === "uploaded_files" ? (legacy as unknown as { projectId: string }).projectId : null;
+    if ((asset.projectId ?? null) !== (expectedProjectId ?? null) || (legacyTable === "uploads" && asset.scope !== "private") || (legacyTable === "uploaded_files" && asset.scope !== "project")) return false;
+
+    const matchingUploads = await database.select().from(uploads).where(eq(uploads.filePath, legacy.filePath));
+    const matchingProjectUploads = await database.select().from(uploadedFiles).where(eq(uploadedFiles.filePath, legacy.filePath));
+    const ownershipTuples = [
+      ...matchingUploads.map((row) => (row.userId ?? "") + "|"),
+      ...matchingProjectUploads.map((row) => row.userId + "|" + row.projectId),
+    ];
+    const expectedTuple = legacy.userId + "|" + (expectedProjectId ?? "");
+    if (ownershipTuples.length === 0 || ownershipTuples.some((tuple) => tuple !== expectedTuple)) return false;
+
+    const storage = await resolveInputAssetStorage(asset.storageLocator, dependencies.roots || defaultRoots(), dependencies.fs || fileSystem);
+    if (!storage || resolve(legacy.filePath) !== storage.absolutePath) return false;
+    const values = {
+      legacyTable,
+      legacyRowId,
+      legacyLocator: legacy.filePath,
+      legacyUserId: legacy.userId,
+      legacyProjectId: expectedProjectId,
+      inputAssetId,
+      mappingState: "verified" as const,
+      quarantineReason: null,
+    };
+    await database.insert(inputAssetLegacyMappings).values(values);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function defaultAdminAudit(database: Database, entry: InputAssetAdminAuditEntry): Promise<void> {
+  await database.insert(auditLogs).values({
+    userId: entry.principalId,
+    action: "input_asset_admin_access",
+    entity: "input_asset",
+    entityId: entry.assetId,
+    statusCode: 200,
+    details: { action: entry.action, scope: entry.assetScope, projectId: entry.projectId },
+  });
+}
+
+async function authorizeAsset(
+  asset: InputAssetRow,
+  principal: InputAssetPrincipal,
+  action: InputAssetAction,
+  destinationProjectId: string | null,
+  database: Database,
+): Promise<{ allowed: boolean; adminAccess: boolean }> {
+  if (!isUuid(principal.id) || !PRINCIPAL_ROLES.has(principal.role) || !ASSET_SCOPES.has(asset.scope) || !ASSET_KINDS.has(asset.kind) || !ASSET_STATES.has(asset.state)) {
+    return { allowed: false, adminAccess: false };
+  }
+  if (!ASSET_ACTIONS.has(action) || asset.state !== "ready") return { allowed: false, adminAccess: false };
+  if ((asset.scope === "private" || asset.scope === "system") && asset.projectId !== null) return { allowed: false, adminAccess: false };
+  if (asset.scope === "project" && !isUuid(asset.projectId)) return { allowed: false, adminAccess: false };
+  if (destinationProjectId !== null && !isUuid(destinationProjectId)) return { allowed: false, adminAccess: false };
+  if (destinationProjectId !== null && asset.scope === "project" && asset.projectId !== destinationProjectId) return { allowed: false, adminAccess: false };
+
+  // Private assets are never implicitly shared, including with admins: only
+  // the immutable creator identity may read or use them.
+  if (asset.scope === "private") return { allowed: asset.creatorUserId === principal.id, adminAccess: false };
+
+  const adminAccess = principal.role === "admin";
+  if (adminAccess) return { allowed: true, adminAccess: true };
+  if (asset.scope === "system" && destinationProjectId === null) return { allowed: true, adminAccess: false };
+
+  // Project assets are governed by their own project. System assets used in a
+  // project run are governed by the destination project, never by a null
+  // project_id lookup. This keeps globally configured inputs usable without
+  // allowing a revoked/viewer member to submit project computation.
+  const authorizationProjectId = asset.scope === "project" ? asset.projectId : destinationProjectId;
+  if (!authorizationProjectId) return { allowed: false, adminAccess: false };
+  const [membership] = await database.select({ role: projectMembers.role })
+    .from(projectMembers)
+    .where(and(eq(projectMembers.projectId, authorizationProjectId), eq(projectMembers.userId, principal.id)))
+    .limit(1);
+  if (!membership || !PRINCIPAL_ROLES.has(membership.role)) return { allowed: false, adminAccess: false };
+  if (action === "use" && membership.role === "viewer") return { allowed: false, adminAccess: false };
+  return { allowed: true, adminAccess: false };
+}
+
+async function resolveInternal(
+  options: ResolveInputAssetOptions,
+  dependencies: InputAssetDependencies,
+  depth: number,
+): Promise<InputAssetResolution> {
+  if (depth > 4 || !isUuid(options.assetId) || !isUuid(options.principal.id)) return { ok: false, reason: "invalid_request" };
+  const action = options.action || "use";
+  if (!ASSET_ACTIONS.has(action)) return { ok: false, reason: "invalid_request" };
+  if (options.expectedKind && !ASSET_KINDS.has(options.expectedKind)) return { ok: false, reason: "invalid_request" };
+  if (options.allowedKinds && options.allowedKinds.some((kind) => !ASSET_KINDS.has(kind))) return { ok: false, reason: "invalid_request" };
+  if (options.expectedParentAssetId !== undefined && options.expectedParentAssetId !== null && !isUuid(options.expectedParentAssetId)) return { ok: false, reason: "invalid_request" };
+  if (options.destinationProjectId !== undefined && options.destinationProjectId !== null && !isUuid(options.destinationProjectId)) return { ok: false, reason: "invalid_request" };
+
+  const database = dependencies.database || db;
+  try {
+    const [asset] = await database.select().from(inputAssets).where(eq(inputAssets.id, options.assetId)).limit(1);
+    if (!asset) return { ok: false, reason: "not_found" };
+    if (options.expectedKind && asset.kind !== options.expectedKind) return { ok: false, reason: "invalid_asset" };
+    if (options.allowedKinds && !options.allowedKinds.includes(asset.kind)) return { ok: false, reason: "invalid_asset" };
+    if (asset.kind === "custom_boundary" && parseLocator(asset.storageLocator)?.root !== "boundaries") {
+      return { ok: false, reason: "unsafe_storage" };
+    }
+    if (options.expectedParentAssetId !== undefined && (asset.parentAssetId || null) !== (options.expectedParentAssetId || null)) {
+      return { ok: false, reason: "invalid_lineage" };
+    }
+    if (asset.kind === "cleaned_occurrence" && !asset.parentAssetId) return { ok: false, reason: "invalid_lineage" };
+
+    const auth = await authorizeAsset(asset, options.principal, action, options.destinationProjectId ?? null, database);
+    if (!auth.allowed) return { ok: false, reason: "not_authorized" };
+
+    if (asset.parentAssetId) {
+      if (!isUuid(asset.parentAssetId)) return { ok: false, reason: "invalid_lineage" };
+      const parent = await resolveInternal({
+        assetId: asset.parentAssetId,
+        principal: options.principal,
+        action,
+        destinationProjectId: options.destinationProjectId,
+      }, dependencies, depth + 1);
+      if (!parent.ok || parent.asset.projectId !== asset.projectId || parent.asset.scope !== asset.scope
+        || (asset.scope === "private" && parent.asset.creatorUserId !== asset.creatorUserId)) {
+        return { ok: false, reason: "invalid_lineage" };
+      }
+      if (asset.kind === "cleaned_occurrence" && parent.asset.kind !== "raw_occurrence") return { ok: false, reason: "invalid_lineage" };
+    }
+
+    const storage = await resolveInputAssetStorage(asset.storageLocator, dependencies.roots || defaultRoots(), dependencies.fs || fileSystem);
+    if (!storage) return { ok: false, reason: "unsafe_storage" };
+    if (asset.kind === "climate_collection" && (asset.contentSha256 == null || asset.contentSize == null)) {
+      return { ok: false, reason: "unsafe_storage" };
+    }
+    if (!(await matchesContentIdentity(asset, storage.absolutePath, dependencies.fs || fileSystem))) return { ok: false, reason: "unsafe_storage" };
+    if (asset.kind === "climate_collection"
+      && !(await verifyClimateCollectionManifest(storage.absolutePath, dependencies.roots || defaultRoots(), dependencies.fs || fileSystem))) {
+      return { ok: false, reason: "unsafe_storage" };
+    }
+
+    if (auth.adminAccess) {
+      try {
+        const entry = { principalId: options.principal.id, assetId: asset.id, action, assetScope: asset.scope, projectId: asset.projectId };
+        if (dependencies.auditAdminAccess) await dependencies.auditAdminAccess(entry);
+        else await defaultAdminAudit(database, entry);
+      } catch {
+        return { ok: false, reason: "unavailable" };
+      }
+    }
+    return { ok: true, asset, absolutePath: storage.absolutePath, adminAccess: auth.adminAccess };
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
+/** Resolve only an opaque canonical ID.  Path aliases and legacy rows are not accepted here. */
+export async function resolveInputAsset(options: ResolveInputAssetOptions, dependencies: InputAssetDependencies = {}): Promise<InputAssetResolution> {
+  return resolveInternal(options, dependencies, 0);
+}
+
+/**
+ * Resolve an explicitly verified legacy mapping.  This is deliberately not a
+ * path adapter: no mapping, quarantined mapping, duplicate source, or missing
+ * canonical asset can become usable through this function.
+ */
+export async function resolveLegacyInputAsset(
+  legacyTable: "uploads" | "uploaded_files",
+  legacyRowId: string,
+  options: Omit<ResolveInputAssetOptions, "assetId">,
+  dependencies: InputAssetDependencies = {},
+): Promise<InputAssetResolution> {
+  if ((legacyTable !== "uploads" && legacyTable !== "uploaded_files") || !isUuid(legacyRowId)) return { ok: false, reason: "invalid_request" };
+  const database = dependencies.database || db;
+  try {
+    const [mapping] = await database.select().from(inputAssetLegacyMappings).where(and(
+      eq(inputAssetLegacyMappings.legacyTable, legacyTable),
+      eq(inputAssetLegacyMappings.legacyRowId, legacyRowId),
+      eq(inputAssetLegacyMappings.mappingState, "verified"),
+    )).limit(1);
+    if (!mapping || !mapping.inputAssetId || !isUuid(mapping.inputAssetId)) return { ok: false, reason: "legacy_unmapped" };
+    return resolveInputAsset({ ...options, assetId: mapping.inputAssetId }, dependencies);
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
+}

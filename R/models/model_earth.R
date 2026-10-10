@@ -1,5 +1,17 @@
 # Multivariate Adaptive Regression Splines (MARS) SDM backend via the earth package.
 
+# earth::earth() rejects an explicit `nk = NULL` ("'nk' is NULL"); its own
+# default is computed from the number of predictors. Pass nk only when set.
+mars_earth_fit <- function(x, y, degree, nk = NULL, penalty = 3.0) {
+  args <- list(
+    x = x, y = y, degree = degree, penalty = penalty,
+    glm = list(family = stats::binomial), pmethod = "none",
+    keepxy = FALSE, trace = 0
+  )
+  if (!is.null(nk) && length(nk) == 1L && is.finite(as.numeric(nk))) args$nk <- as.integer(nk)
+  do.call(earth::earth, args)
+}
+
 cross_validate_mars <- function(model_data, covariates, degree, nk, penalty,
                                 k = sdm_default_cv_folds, seed = sdm_default_seed,
                                 n_cores = 1, cv_strategy = sdm_default_cv_strategy,
@@ -13,17 +25,8 @@ cross_validate_mars <- function(model_data, covariates, degree, nk, penalty,
     set.seed(seed)
 
     model <- tryCatch({
-      earth::earth(
-        x = train_sub[, covariates, drop = FALSE],
-        y = train_sub$presence,
-        degree = degree,
-        nk = nk,
-        penalty = penalty,
-        glm = list(family = stats::binomial),
-        pmethod = "none",
-        keepxy = FALSE,
-        trace = 0
-      )
+      mars_earth_fit(train_sub[, covariates, drop = FALSE], train_sub$presence,
+        degree = degree, nk = nk, penalty = penalty)
     }, error = function(e) {
       log_message(log_fun, "  MARS CV fold ", i, " failed: ", conditionMessage(e))
       NULL
@@ -37,7 +40,7 @@ cross_validate_mars <- function(model_data, covariates, degree, nk, penalty,
     }
 
     test_sub <- test_data[, covariates, drop = FALSE]
-    pred <- earth::predict(model, newdata = test_sub, type = "response")
+    pred <- stats::predict(model, newdata = test_sub, type = "response")
     pred <- pmin(pmax(as.numeric(pred), 0), 1)
     metrics_list_to_row(compute_binary_metrics(test_data$presence, pred, threshold = threshold), fold = i)
   }
@@ -89,17 +92,8 @@ fit_mars_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   set.seed(seed)
   model <- sdm_step("mars-fit", {
-    earth::earth(
-      x = mars_data[, covariates, drop = FALSE],
-      y = mars_data$presence,
-      degree = degree,
-      nk = nk,
-      penalty = penalty,
-      glm = list(family = stats::binomial),
-      pmethod = "none",
-      keepxy = FALSE,
-      trace = 0
-    )
+    mars_earth_fit(mars_data[, covariates, drop = FALSE], mars_data$presence,
+      degree = degree, nk = nk, penalty = penalty)
   })
 
   cv <- sdm_step("cross-validate",
@@ -118,7 +112,7 @@ fit_mars_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   importance_raw <- tryCatch({
     ev <- earth::evimp(model)
-    if (is.null(ev) || nrow(ev) == 0) return(NULL)
+    if (is.null(ev) || nrow(ev) == 0) stop("no importance")
     imp_df <- data.frame(
       variable = rownames(ev),
       importance = ev[, ncol(ev), drop = TRUE],
@@ -162,7 +156,7 @@ predict_mars_suitability <- function(fit, env_project_scaled, output_tif, n_core
 
   suit <- terra::app(env_subset, fun = function(vals) {
     sdm_apply_predict(vals, fit$covariates, function(df) {
-      pred <- earth::predict(fit$model, newdata = df, type = "response")
+      pred <- stats::predict(fit$model, newdata = df, type = "response")
       pmin(pmax(as.numeric(pred), 0), 1)
     })
   }, cores = normalize_core_count(n_cores))

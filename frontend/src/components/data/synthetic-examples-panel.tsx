@@ -9,12 +9,12 @@ interface ExampleInfo {
   name: string;
   fileName: string;
   species: number;
-  totalRecords: number;
-  cleanRecords: number;
-  dirtyRecords: number;
+  totalRecords: number | null;
+  cleanRecords: number | null;
+  dirtyRecords: number | null;
   description: string;
   isMultiSpecies: boolean;
-  hasCoordinateCleanerTests: boolean;
+  hasCoordinateCleanerTests: boolean | null;
 }
 
 interface SyntheticExamplesPanelProps {
@@ -32,7 +32,7 @@ export function SyntheticExamplesPanel({ onAddToWorkspace, reloadTrigger }: Synt
     apiGet<{ examples: ExampleInfo[] }>("/api/v1/data/examples/details")
       .then((data) => {
         if (data?.examples) {
-          setExamples(data.examples.filter((e) => e.totalRecords > 0));
+          setExamples(data.examples.filter((e) => e.totalRecords == null || e.totalRecords > 0));
         }
       })
       .catch(() => setError("Failed to load synthetic test data"))
@@ -45,6 +45,8 @@ export function SyntheticExamplesPanel({ onAddToWorkspace, reloadTrigger }: Synt
     try {
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/examples/load", { name });
       const fileId = (result.file_id as string) || (result.file_path as string) || "";
+      const rawAssetId = (result.rawAssetId || result.raw_asset_id) as string | undefined;
+      if (!rawAssetId) throw new Error("Example producer returned no canonical rawAssetId");
       const nRows = typeof result.n_rows === "number" ? result.n_rows : 0;
       const speciesDetected = (result.species_detected as string) || null;
       const speciesNames = (result.species_names as string[]) || [];
@@ -54,6 +56,7 @@ export function SyntheticExamplesPanel({ onAddToWorkspace, reloadTrigger }: Synt
 
       const file: UploadFile = {
         file_id: fileId,
+        rawAssetId,
         file_name: `${name}.csv`,
         file_size: 0,
         n_rows: nRows,
@@ -117,7 +120,7 @@ export function SyntheticExamplesPanel({ onAddToWorkspace, reloadTrigger }: Synt
                   multi-species
                 </span>
               )}
-              {ex.hasCoordinateCleanerTests && (
+              {ex.hasCoordinateCleanerTests === true && (
                 <span className="ml-1.5 inline-flex items-center rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-500">
                   CC tests
                 </span>
@@ -126,9 +129,9 @@ export function SyntheticExamplesPanel({ onAddToWorkspace, reloadTrigger }: Synt
             <p className="text-xs text-sdm-muted mt-0.5">{ex.description}</p>
             <div className="flex items-center gap-3 mt-1.5 text-xs text-sdm-muted">
               <span>{ex.species} species</span>
-              <span>{ex.totalRecords.toLocaleString()} records</span>
-              <span className="text-sdm-success">{ex.cleanRecords.toLocaleString()} clean</span>
-              <span className="text-sdm-warning">{ex.dirtyRecords} dirty</span>
+              <span>{ex.totalRecords == null ? "Total count unavailable" : `${ex.totalRecords.toLocaleString()} records`}</span>
+              <span className="text-sdm-success">{ex.cleanRecords == null ? "Clean count unavailable" : `${ex.cleanRecords.toLocaleString()} clean`}</span>
+              <span className="text-sdm-warning">{ex.dirtyRecords == null ? "Dirty count unavailable" : `${ex.dirtyRecords} dirty`}</span>
             </div>
           </div>
           <button

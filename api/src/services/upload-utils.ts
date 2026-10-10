@@ -94,12 +94,12 @@ export function resolveFilePath(fileId: string): { path: string } {
   return { path: normSafe };
 }
 
-export async function pollPlumberJob(jobId: string, timeout?: number): Promise<Record<string, unknown>> {
+export async function pollPlumberJob(jobId: string, timeout?: number, client: Pick<typeof plumberClient, "getJobStatus"> = plumberClient): Promise<Record<string, unknown>> {
   const deadline = timeout ? Date.now() + timeout : Infinity;
   let lastError: Error | undefined;
   while (Date.now() < deadline) {
     try {
-      const status = await plumberClient.getJobStatus(jobId);
+      const status = await client.getJobStatus(jobId);
       if (status?.status === "completed" || status?.status === "success") {
         return status as Record<string, unknown>;
       }

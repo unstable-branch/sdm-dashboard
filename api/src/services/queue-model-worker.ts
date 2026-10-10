@@ -9,6 +9,8 @@ import { syncOutputsToS3 } from "./storage.js";
 import { join } from "path";
 import { MODEL_RUN_POLL_INTERVAL_MS, MODEL_RUN_MAX_ATTEMPTS, SdmJobData, SdmJobResult } from "./queue.js";
 import { completedRunFields } from "./completed-run.js";
+import { resolveCurrentPrincipal } from "./auth-principal.js";
+import { resolveModelPayload, type ModelConfigRecord } from "./model-payload.js";
 
 export async function handleModelJob(
   job: Job<SdmJobData, SdmJobResult>,
@@ -16,8 +18,26 @@ export async function handleModelJob(
   _userId: string | undefined,
   cpuStart: NodeJS.CpuUsage | undefined,
 ): Promise<SdmJobResult> {
-  const { payload } = job.data;
-  const runId = payload.runId as string | undefined;
+  const queuedPayload = job.data.payload;
+  const runId = queuedPayload.runId as string | undefined;
+  const projectId = typeof queuedPayload.projectId === "string" ? queuedPayload.projectId : null;
+  const config = queuedPayload.config as ModelConfigRecord | undefined;
+  let payload: Record<string, unknown>;
+  try {
+    const principalId = job.data.userId ?? _userId;
+    const principal = principalId ? await resolveCurrentPrincipal(principalId) : null;
+    if (!principal || !config || !runId) throw new Error("Model input asset is unavailable");
+    payload = await resolveModelPayload(config, runId, principal, projectId);
+    payload.runId = runId;
+  } catch {
+    const message = "Model input asset is unavailable";
+    if (runId) {
+      await db.update(runs).set({ status: "failed", completedAt: new Date(), error: message })
+        .where(and(eq(runs.id, runId), or(eq(runs.status, "queued"), eq(runs.status, "failed"))));
+    }
+    jobEventBus.emitJobStatus({ jobId: runId ?? job.id ?? "unknown", runId, state: "failed", progress: 0, failedReason: message });
+    throw new Error(message);
+  }
 
   if (runId) {
     await db
@@ -50,6 +70,30 @@ export async function handleModelJob(
     throw err;
   }
   const plumberJobId = modelRes.job_id as string | undefined;
+
+  // Plumber reports capacity/memory refusals as a structured error body that can arrive
+  // with HTTP 200 and no job_id. Without this guard the run falls through to the
+  // "sync" branch below and is recorded as completed although no model ran.
+  if (!plumberJobId && typeof modelRes.error === "string" && modelRes.error) {
+    const refusal = modelRes.error;
+    console.error(`[queue] Plumber refused model run: ${refusal}`);
+    if (runId) {
+      await db
+        .update(runs)
+        .set({ status: "failed", completedAt: new Date(), error: refusal })
+        .where(eq(runs.id, runId));
+    }
+    jobEventBus.emitJobStatus({
+      jobId: runId ?? job.id ?? "unknown",
+      runId: runId,
+      state: "failed",
+      progress: 0,
+      failedReason: refusal,
+    });
+    const refusalErr = new Error(refusal);
+    (refusalErr as any).error_code = (modelRes.code as string | undefined) ?? "MODEL_RUN_REFUSED";
+    throw refusalErr;
+  }
 
   if (runId) {
     const cpuDelta = cpuStart ? process.cpuUsage(cpuStart) : undefined;
@@ -260,9 +304,14 @@ export async function handleModelJob(
           const failErr = new Error(errMsg);
           (failErr as any).error_code = errCode ?? undefined;
           (failErr as any).error_hint = errHint ?? undefined;
+          (failErr as any).terminalModelFailure = true;
           throw failErr;
         }
       } catch (pollErr) {
+        // A terminal failure reported by Plumber is not a polling error: rethrow
+        // it so the job fails with Plumber's message instead of being swallowed
+        // here and later overwritten with a generic "Job processing failed".
+        if ((pollErr as any)?.terminalModelFailure) throw pollErr;
         const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr);
         console.warn(`[queue] Polling error for model job ${job.id}: ${pollMsg}`);
       }

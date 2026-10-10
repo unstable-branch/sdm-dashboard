@@ -24,11 +24,15 @@ Imports:
     ggplot2,
     leaflet,
     mgcv,
+    pool,
     ranger,
+    RPostgres,
     sf,
     shiny,
     shinyjs,
-    terra
+    targets,
+    terra,
+    uuid
 Suggests:
     CoordinateCleaner,
     devtools,
@@ -40,7 +44,6 @@ Suggests:
     rgbif,
     rgee,
     testthat,
-    targets,
     tarchetypes,
     geotargets,
     crew,

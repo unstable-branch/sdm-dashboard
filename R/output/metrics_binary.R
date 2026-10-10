@@ -1,7 +1,14 @@
 # Shared binary classification metrics for SDM evaluation.
 
 auc_rank <- function(obs, score) {
-  ok <- is.finite(obs) & is.finite(score)
+  # Strict binary-label domain: labels outside {0,1} are neither presence nor
+  # background. They must not pair against anything and their scores must not
+  # enter the rank pool, or the AUC can exceed 1 (e.g. a stray label scoring
+  # highest pushes every presence rank up by one full group size). The domain
+  # check must run on the original numeric values: as.integer() truncates
+  # toward zero, so a fractional soft label (0.5) would silently become
+  # background and 1.9 would become presence.
+  ok <- is.finite(obs) & is.finite(score) & (obs %in% c(0, 1))
   obs <- as.integer(obs[ok])
   score <- as.numeric(score[ok])
   n1 <- sum(obs == 1)
@@ -11,10 +18,10 @@ auc_rank <- function(obs, score) {
   }
   r <- rank(score, ties.method = "average")
   result <- as.numeric((sum(r[obs == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0))
-  # Normalise for inverted predictions: SDM convention reports max(AUC, 1-AUC).
-  # Models that score presence points lower than background are penalised by
-  # subtracting from 1 rather than being ranked below random (AUC < 0.5).
-  if (!is.na(result) && result < 0.5) result <- 1 - result
+  # Keep the ROC direction fixed: larger suitability scores must indicate
+  # greater support for presence. Never use the observed labels to reverse
+  # the prediction direction. Consequently, an inverted model scores below
+  # random (and a perfectly inverted model scores 0), while ties score 0.5.
   if (n1 < 25 || n0 < 25) {
     attr(result, "unreliable") <- TRUE
   }
@@ -26,7 +33,9 @@ compute_binary_metrics <- function(obs, score, threshold = sdm_default_threshold
   if (!is.finite(threshold)) {
     threshold <- 0.5
   }
-  ok <- is.finite(obs) & is.finite(score)
+  # Preserve original labels until validation; integer conversion would turn
+  # fractional labels into apparently valid presence/background observations.
+  ok <- is.finite(obs) & is.finite(score) & (obs %in% c(0, 1))
   obs <- as.integer(obs[ok])
   score <- as.numeric(score[ok])
   if (length(obs) == 0) {

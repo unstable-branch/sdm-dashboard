@@ -32,7 +32,7 @@ export function WorkspaceCard({
     transition,
   };
 
-  const isCleaned = !!item.cleanedFileId;
+  const isCleaned = !!item.cleanedAssetId;
   const [savingExample, setSavingExample] = useState(false);
   const [savedExampleName, setSavedExampleName] = useState<string | null>(null);
 
@@ -41,15 +41,15 @@ export function WorkspaceCard({
     setSavedExampleName(null);
     try {
       const res = await apiPost<{ name: string }>("/api/v1/data/examples/save", {
-        file_id: item.fileId,
-        cleaned_file_id: item.cleanedFileId || undefined,
+        rawAssetId: item.rawAssetId,
+        cleanedAssetId: item.cleanedAssetId,
         metadata: {
           n_species: item.selectedSpecies.length,
           n_records: item.fileRows,
-          valid_records: item.cleanValidRecords || item.fileRows,
+          valid_records: item.cleanValidRecords ?? null,
           original_rows: item.fileRows,
           species_names: item.selectedSpecies,
-          description: `Cleaned data: ${item.selectedSpecies.length} species, ${item.cleanValidRecords?.toLocaleString() || item.fileRows.toLocaleString()} valid records`,
+          description: `Cleaned data: ${item.selectedSpecies.length} species, ${item.cleanValidRecords == null ? "valid-record count unavailable" : `${item.cleanValidRecords.toLocaleString()} valid records`}`,
         },
       });
       setSavedExampleName(res.name);
@@ -120,7 +120,7 @@ export function WorkspaceCard({
                 </span>
               ) : isCleaned ? (
                 <span className="flex items-center gap-1 text-xs text-sdm-success">
-                  <BadgeCheck className="h-3 w-3" /> Cleaned — {item.cleanValidRecords?.toLocaleString()} valid records
+                  <BadgeCheck className="h-3 w-3" /> Cleaned — {item.cleanValidRecords == null ? "Count unavailable" : item.cleanValidRecords.toLocaleString()} valid records
                 </span>
               ) : item.cleanError ? (
                 <span className="flex items-center gap-1 text-xs text-sdm-danger">

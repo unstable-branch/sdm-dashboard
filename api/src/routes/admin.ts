@@ -3,8 +3,8 @@ import { readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { db } from "../db/index.js";
-import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles, auditLogs, refreshTokens } from "../db/schema.js";
-import { eq, desc, sql, and, ilike, inArray, count, isNull } from "drizzle-orm";
+import { users, runs, systemSettings, occurrences, species, projects, uploadedFiles, auditLogs, uploads, batches, inputAssets, occurrenceCleanJobs, apiKeys, projectMembers } from "../db/schema.js";
+import { eq, desc, sql, and, ilike, inArray, count } from "drizzle-orm";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimit } from "../middleware/rate-limit.js";
 import { hash } from "bcrypt";
@@ -27,6 +27,7 @@ import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
 import { encryptString, decryptString, isEncryptionKeyConfigured } from "../services/encryption.js";
 import { validatePassword } from "./auth.js";
+import { updatePasswordAndInvalidate, updateUserAndMaybeInvalidate } from "../services/sessions.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -186,22 +187,18 @@ adminRoutes.put("/users/:id", async (c) => {
       return c.json({ error: "No valid fields to update" }, 400);
     }
 
-    const [target] = await db.select().from(users).where(eq(users.id, targetId)).limit(1);
-    if (!target) {
+    const updateResult = await updateUserAndMaybeInvalidate(targetId, updates);
+    if (!updateResult) {
       return c.json({ error: "User not found" }, 404);
     }
-
-    const [updated] = await db
-      .update(users)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(users.id, targetId))
-      .returning({
-        id: users.id, email: users.email, name: users.name, role: users.role,
-        avatarUrl: users.avatarUrl, bio: users.bio, organization: users.organization,
-        lastLoginAt: users.lastLoginAt, createdAt: users.createdAt,
-      });
+    const { updated, changedRole } = updateResult;
 
     const adminUser = c.get("user");
+    if (changedRole && targetId === adminUser.id) {
+      const isSecure = process.env.NODE_ENV === "production" || c.req.header("X-Forwarded-Proto") === "https";
+      const cookieName = isSecure ? "__Host-sdm_token" : "sdm_token";
+      c.header("Set-Cookie", cookieName + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+    }
     const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,
@@ -232,7 +229,43 @@ adminRoutes.delete("/users/:id", async (c) => {
       return c.json({ error: "User not found" }, 404);
     }
 
-    await db.delete(users).where(eq(users.id, targetId));
+    // Deletion is refused (not cascaded) while the account owns data: those
+    // records carry provenance and scientific evidence, so ownership must be
+    // transferred or the data removed through their own lifecycles first.
+    const blockingChecks = [
+      { resource: "projects", table: projects, column: projects.ownerId },
+      { resource: "species", table: species, column: species.userId },
+      { resource: "occurrences", table: occurrences, column: occurrences.userId },
+      { resource: "uploads", table: uploads, column: uploads.userId },
+      { resource: "batches", table: batches, column: batches.userId },
+      { resource: "input_assets", table: inputAssets, column: inputAssets.creatorUserId },
+      { resource: "occurrence_clean_jobs", table: occurrenceCleanJobs, column: occurrenceCleanJobs.userId },
+    ];
+    const blocking: Record<string, number> = {};
+    for (const check of blockingChecks) {
+      const [row] = await db.select({ total: count() }).from(check.table).where(eq(check.column, targetId));
+      const total = Number(row?.total ?? 0);
+      if (total > 0) blocking[check.resource] = total;
+    }
+    if (Object.keys(blocking).length > 0) {
+      return c.json(
+        {
+          error: "User still owns data. Transfer ownership or delete the listed resources before deleting the account.",
+          blocking,
+        },
+        409,
+      );
+    }
+
+    // Atomic revocation + removal: API keys and project memberships are
+    // credentials/access grants (NO ACTION foreign keys), so they are deleted
+    // with the account in one transaction. Browser sessions and personal
+    // settings are removed by ON DELETE CASCADE.
+    await db.transaction(async (tx) => {
+      await tx.delete(apiKeys).where(eq(apiKeys.userId, targetId));
+      await tx.delete(projectMembers).where(eq(projectMembers.userId, targetId));
+      await tx.delete(users).where(eq(users.id, targetId));
+    });
 
     const client = extractClientInfo(c);
     await logAction({
@@ -267,14 +300,15 @@ adminRoutes.post("/users/:id/reset-password", async (c) => {
     }
 
     const passwordHash = await hash(newPassword, BCRYPT_ROUNDS);
-    await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, targetId));
-
-    await db
-      .update(refreshTokens)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(refreshTokens.userId, targetId), isNull(refreshTokens.revokedAt)));
+    const reset = await updatePasswordAndInvalidate(targetId, passwordHash);
+    if (!reset) return c.json({ error: "User not found" }, 404);
 
     const adminUser = c.get("user");
+    if (targetId === adminUser.id) {
+      const isSecure = process.env.NODE_ENV === "production" || c.req.header("X-Forwarded-Proto") === "https";
+      const cookieName = isSecure ? "__Host-sdm_token" : "sdm_token";
+      c.header("Set-Cookie", cookieName + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+    }
     const client = extractClientInfo(c);
     await logAction({
       userId: adminUser.id,

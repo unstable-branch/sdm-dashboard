@@ -13,15 +13,71 @@ sdm_force_cpu_runtime_config <- function(body) {
   body
 }
 
+sdm_constant_time_equal <- function(left, right) {
+  left_raw <- charToRaw(tolower(as.character(left %||% "")[1]))
+  right_raw <- charToRaw(tolower(as.character(right %||% "")[1]))
+  if (length(left_raw) != length(right_raw) || length(left_raw) == 0L) return(FALSE)
+  difference <- 0L
+  for (index in seq_along(left_raw)) {
+    difference <- bitwOr(difference, bitwXor(as.integer(left_raw[index]), as.integer(right_raw[index])))
+  }
+  identical(difference, 0L)
+}
+
+sdm_consume_execution_nonce <- function(nonce, timestamp) {
+  if (!grepl("^[0-9a-fA-F-]{36}$", nonce %||% "")) return(FALSE)
+  nonce_root <- Sys.getenv("SDM_EXECUTION_NONCE_DIR", unset = "/app/outputs/.execution-nonces")
+  dir.create(nonce_root, recursive = TRUE, showWarnings = FALSE, mode = "0700")
+  existing <- list.dirs(nonce_root, recursive = FALSE, full.names = TRUE)
+  if (length(existing) > 0L) {
+    ages <- as.numeric(Sys.time() - file.info(existing)$mtime, units = "secs")
+    unlink(existing[is.finite(ages) & ages > 120], recursive = TRUE, force = TRUE)
+  }
+  nonce_key <- digest::digest(nonce, algo = "sha256", serialize = FALSE)
+  dir.create(file.path(nonce_root, nonce_key), recursive = FALSE, showWarnings = FALSE, mode = "0700")
+}
+
+sdm_require_canonical_execution <- function(req) {
+  execution_key <- Sys.getenv("PLUMBER_EXECUTION_KEY", unset = "")
+  signature <- get_hdr(req, "X-SDM-Execution-Signature")
+  timestamp_text <- get_hdr(req, "X-SDM-Execution-Timestamp")
+  nonce <- get_hdr(req, "X-SDM-Execution-Nonce")
+  principal <- as.character(req$user_id %||% "")[1]
+  timestamp <- suppressWarnings(as.numeric(timestamp_text))
+  if (!nzchar(execution_key) || is.null(signature) || !nzchar(signature) ||
+      is.null(nonce) || !nzchar(nonce) || !nzchar(principal) || !is.finite(timestamp) ||
+      abs(as.numeric(Sys.time()) - timestamp) > 60) {
+    return(FALSE)
+  }
+  message <- paste(timestamp_text, nonce, principal, req$postBody %||% "", sep = "\n")
+  expected <- digest::hmac(
+    key = execution_key,
+    object = message,
+    algo = "sha256",
+    serialize = FALSE
+  )
+  if (!sdm_constant_time_equal(signature, expected)) return(FALSE)
+  isTRUE(sdm_consume_execution_nonce(nonce, timestamp))
+}
+
 handle_model_run <- function(req, app_dir) {
+  if (!isTRUE(sdm_require_canonical_execution(req))) {
+    # Abort the router pipeline via the typed denial condition — see auth_denial.R.
+    # (Under plumber 1.3.x, merely setting req$res$status and returning a body
+    # still serializes handler output; only a throw short-circuits serve().)
+    sdm_auth_deny(req$res, 403L, list(error = "Canonical execution attestation required", code = "FORBIDDEN"))
+  }
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody, simplifyVector = FALSE),
     error = function(e) {
-      cat("JSON parse error:", conditionMessage(e), "\n")
+      cat("JSON parse error:", sdm_redact_sensitive_text(conditionMessage(e)), "\n")
       NULL
     }
   )
   if (is.null(body)) return(sdm_error_code(req, "INVALID_INPUT", "Request body is empty or not valid JSON"))
+
+  body <- tryCatch(sdm_project_safe_execution_config(body), error = function(e) NULL)
+  if (is.null(body)) return(sdm_error_code(req, "INVALID_INPUT", "Invalid execution configuration"))
 
   required <- c("species", "model_id", "occurrence_file")
   missing <- setdiff(required, names(body))
@@ -77,7 +133,11 @@ handle_model_run <- function(req, app_dir) {
     multiplier <- if (model_id %in% c("brms", "esm_brms")) {
       10.0
     } else if (model_id %in% c("dnn", "dnn_multispecies")) {
-      8.0
+      # Measured Oct 2026 (CUDA image, CPU training, 10K background, 5 folds):
+      # DNN_Large peaks at 1.42 GB RSS including a 0.89 GB R baseline. 5.0 ->
+      # 2.5 GB keeps headroom for full-extent prediction; 8.0 (4 GB) refused a
+      # second concurrent DNN run in an 8 GB container.
+      5.0
     } else {
       3.0
     }
@@ -193,12 +253,12 @@ handle_model_run <- function(req, app_dir) {
       user_id = user_id,
       status = "failed",
       started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-      config = as.list(body),
+      config = sdm_project_safe_execution_config(body),
       output_dir = job_dir,
-      error = spawn_error
+      error = sdm_redact_sensitive_text(spawn_error)
     ), file.path(job_dir, "meta.json"))
     return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
-      "Failed to start model run: ", spawn_error
+      "Failed to start model run: ", sdm_redact_sensitive_text(spawn_error)
     )))
   }
   device_tag <- if (is_gpu_model) gpu_backend else "cpu"
@@ -209,7 +269,7 @@ handle_model_run <- function(req, app_dir) {
     user_id = user_id,
     status = "pending",
     started_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    config = as.list(body),
+    config = sdm_project_safe_execution_config(body),
     output_dir = job_dir,
     process_pid = sdm_process_pid(proc)
   )
@@ -243,9 +303,10 @@ sdm_camel_to_snake <- list(
   futureProjection2 = "future_projection2",
   futureWorldclimDir = "future_worldclim_dir", futureLabel = "future_label",
   futureWorldclimDir2 = "future_worldclim_dir2", futureLabel2 = "future_label2",
+  autoDownloadClimate = "auto_download_climate", projectionExtent = "projection_extent",
   worldclimDir = "worldclim_dir", worldclimRes = "worldclim_res",
-  useElevation = "use_elevation", elevationDemtype = "elevation_demtype",
-  opentopoApiKey = "opentopo_api_key", useSoil = "use_soil",
+  useElevation = "use_elevation", elevationDemtype = "elevation_demtype", gpuEnabled = "gpu_enabled",
+  useSoil = "use_soil",
   soilVars = "soil_vars", soilDepths = "soil_depths",
   useUv = "use_uv", uvVars = "uv_vars", uvMonths = "uv_months",
   useVegetation = "use_vegetation", vegYear = "veg_year",
@@ -321,7 +382,7 @@ sdm_camel_to_snake <- list(
 )
 
 sdm_targets_config_field_types <- list(
-  logical = c("include_quadratic", "use_elevation", "use_soil", "use_uv",
+  logical = c("include_quadratic", "auto_download_climate", "use_elevation", "use_soil", "use_uv",
     "use_vegetation", "use_lulc", "use_hfp", "use_bioclim_season",
     "use_drought", "vif_reduction", "thin_by_cell", "merge_small_sources",
     "extrapolation_mask", "future_projection", "climate_matching",
@@ -345,7 +406,7 @@ sdm_targets_config_field_types <- list(
     "dnn_lambda", "mess_threshold", "multi_ensemble_min_auc",
     "multi_ensemble_min_tss", "esm_min_auc", "inla_mesh_max_edge",
     "inla_mesh_cutoff", "inla_prior_range", "inla_prior_sigma",
-    "opentopo_api_key", "learning_rate", "dropout", "validation_fraction"),
+    "learning_rate", "dropout", "validation_fraction"),
   comma_doubles = c("projection_extent", "training_extent",
     "future_projection_extent"),
   comma_ints = c("biovars", "esm_biovars", "hidden_layers"),
@@ -356,8 +417,194 @@ sdm_targets_config_field_types <- list(
   enmeval_json = c("enmeval_tune_args", "enmeval_other_settings")
 )
 
+# Keep this boundary in R as well as in the TypeScript ingress. Plumber has a
+# direct API-key surface, and historical jobs can be retried without passing
+# through Hono. Values are never included in validation errors or diagnostics.
+sdm_execution_forbidden_key <- function(name) {
+  key <- tolower(gsub("[^A-Za-z0-9]", "", as.character(name)[1]))
+  key %in% c(
+    "apikey", "accesskey", "token", "accesstoken", "secret", "password",
+    "credential", "credentials", "opentopoapikey", "opentopographyapikey",
+    "opentopokey", "opentopographytoken", "elevationapikey", "demapikey"
+  ) || grepl("apikey$|apitoken$|token|secret|credential|password", key)
+}
+
+sdm_redact_sensitive_text <- function(value) {
+  text <- unname(paste(as.character(value %||% ""), collapse = " "))
+  configured <- Sys.getenv("OPENTOPOGRAPHY_API_KEY", unset = "")
+  if (nzchar(configured)) text <- gsub(configured, "[redacted]", text, fixed = TRUE)
+  text <- gsub("(?i)(api[_-]?key|access[_-]?token|token|secret|password|credential)([=:][^&[:space:]]+)",
+               "\\1=[redacted]", text, perl = TRUE)
+  text <- gsub("(?i)https?://[^[:space:]]*opentopography[^[:space:]]*",
+               "OpenTopography provider request", text, perl = TRUE)
+  text
+}
+
+sdm_execution_config_keys <- function() {
+  unique(c(
+    "species", "threshold", "source", "seed", "biovars", "projection_extent", "training_extent",
+    "cleaned_file_id", "occurrence_file", "cleaned_file_path",
+    unname(unlist(sdm_camel_to_snake, use.names = FALSE))
+  ))
+}
+
+sdm_validate_tune_args <- function(value) {
+  if (is.null(value)) return(invisible(TRUE))
+  if (!is.list(value) || any(!names(value) %in% c("fc", "rm"))) {
+    stop("Invalid execution configuration", call. = FALSE)
+  }
+  if (!is.null(value$fc)) {
+    fc <- as.character(value$fc)
+    if (length(fc) < 1L || length(fc) > 20L || any(!grepl("^[LQHP]{1,5}$", fc))) {
+      stop("Invalid execution configuration", call. = FALSE)
+    }
+  }
+  if (!is.null(value$rm)) {
+    rm_values <- suppressWarnings(as.numeric(value$rm))
+    if (length(rm_values) < 1L || length(rm_values) > 20L || any(!is.finite(rm_values)) || any(rm_values < 0.01 | rm_values > 20)) {
+      stop("Invalid execution configuration", call. = FALSE)
+    }
+  }
+  invisible(TRUE)
+}
+
+sdm_project_safe_execution_config <- function(config) {
+  if (!is.list(config) || is.null(names(config))) stop("Invalid execution configuration", call. = FALSE)
+  # Reject secret-bearing names recursively before dropping unknown fields.
+  walk <- function(value) {
+    if (!is.list(value)) return(invisible(TRUE))
+    child_names <- names(value)
+    if (!is.null(child_names) && any(vapply(child_names, sdm_execution_forbidden_key, logical(1)))) {
+      stop("Invalid execution configuration", call. = FALSE)
+    }
+    for (child in value) walk(child)
+    invisible(TRUE)
+  }
+  walk(config)
+
+  allowed <- sdm_execution_config_keys()
+  projected <- list()
+  for (name in names(config)) {
+    if (sdm_execution_forbidden_key(name)) stop("Invalid execution configuration", call. = FALSE)
+    canonical <- sdm_camel_to_snake[[name]] %||% name
+    # Match the TS contract: unknown science keys are not persisted or executed.
+    if (!(canonical %in% allowed)) next
+    if (!is.null(projected[[canonical]]) && !identical(projected[[canonical]], config[[name]])) {
+      stop("Invalid execution configuration", call. = FALSE)
+    }
+    projected[[canonical]] <- config[[name]]
+  }
+  if (!is.null(projected$enmeval_tune_args)) sdm_validate_tune_args(projected$enmeval_tune_args)
+  projected
+}
+
+sdm_safe_historical_config <- function(config) {
+  tryCatch(sdm_project_safe_execution_config(config), error = function(e) NULL)
+}
+
+# Only the server-resolved Hono asset path persisted in the attested worker
+# payload reaches this private adapter. It is not a client path interface.
+sdm_load_target_group_occ <- function(target_group_file, app_dir, bias_method = "target_group",
+                                      reader = utils::read.csv) {
+  if (!identical(bias_method, "target_group")) return(NULL)
+  unavailable <- function() stop("Target-group input is unavailable or invalid", call. = FALSE)
+  if (!is.character(target_group_file) || length(target_group_file) != 1L ||
+      is.na(target_group_file) || !nzchar(target_group_file) ||
+      !grepl("^/", target_group_file) || grepl("(^|/)\\.\\.(/|$)", target_group_file) ||
+      !is.character(app_dir) || length(app_dir) != 1L || is.na(app_dir) || !nzchar(app_dir)) {
+    unavailable()
+  }
+  tryCatch({
+    configured_uploads <- Sys.getenv("SDM_INPUT_ASSET_UPLOAD_ROOT", unset = "")
+    if (nzchar(configured_uploads)) {
+      # Match the API's server-configured root; relative roots are ambiguous
+      # across the API and worker process working directories and fail closed.
+      if (!grepl("^/", configured_uploads) || grepl("(^|/)\\.\\.(/|$)", configured_uploads)) unavailable()
+      uploads_input <- configured_uploads
+    } else {
+      app_root <- normalizePath(app_dir, winslash = "/", mustWork = TRUE)
+      uploads_input <- file.path(app_root, "data", "uploads")
+    }
+    expected_uploads <- normalizePath(uploads_input, winslash = "/", mustWork = TRUE)
+    if (!identical(expected_uploads, uploads_input) || !dir.exists(expected_uploads) ||
+        file.access(expected_uploads, 4L) != 0L) unavailable()
+    # Reject symlinks at every existing component, including ancestors above
+    # the configured root and nested directories between root and the file.
+    has_symlink_component <- function(path) {
+      pieces <- strsplit(sub("^/", "", path), "/", fixed = TRUE)[[1L]]
+      current <- "/"
+      if (nzchar(Sys.readlink(current))) return(TRUE)
+      for (piece in pieces) {
+        if (!nzchar(piece)) next
+        current <- file.path(current, piece)
+        if (nzchar(Sys.readlink(current))) return(TRUE)
+      }
+      FALSE
+    }
+    if (has_symlink_component(expected_uploads) || has_symlink_component(target_group_file)) unavailable()
+    if (!file.exists(target_group_file) || file.info(target_group_file)$isdir ||
+        file.access(target_group_file, 4L) != 0L) unavailable()
+    canonical_file <- normalizePath(target_group_file, winslash = "/", mustWork = TRUE)
+    if (!startsWith(canonical_file, paste0(expected_uploads, "/"))) unavailable()
+    rows <- tryCatch(withCallingHandlers(
+      reader(canonical_file, stringsAsFactors = FALSE, check.names = FALSE),
+      warning = function(w) stop("invalid csv", call. = FALSE)
+    ), error = function(e) unavailable())
+    if (!is.data.frame(rows) || nrow(rows) < 1L ||
+        !all(c("longitude", "latitude") %in% names(rows))) unavailable()
+    longitude <- suppressWarnings(as.numeric(rows$longitude))
+    latitude <- suppressWarnings(as.numeric(rows$latitude))
+    if (length(longitude) != nrow(rows) || length(latitude) != nrow(rows) ||
+        any(!is.finite(longitude)) || any(!is.finite(latitude)) ||
+        any(longitude < -180 | longitude > 180) || any(latitude < -90 | latitude > 90)) unavailable()
+    data.frame(longitude = longitude, latitude = latitude)
+  }, error = function(e) unavailable())
+}
+
+# Status is a public DTO boundary, not a mirror of meta.json.  Keep only the
+# lifecycle fields the API promises and recursively remove credential-shaped
+# fields before redacting human-readable diagnostics.
+sdm_sanitize_status_value <- function(value) {
+  if (is.null(value)) return(NULL)
+  if (is.list(value)) {
+    if (is.null(names(value))) return(lapply(value, sdm_sanitize_status_value))
+    result <- list()
+    for (name in names(value)) {
+      if (sdm_execution_forbidden_key(name)) next
+      result[[name]] <- sdm_sanitize_status_value(value[[name]])
+    }
+    return(result)
+  }
+  if (is.character(value)) return(unname(vapply(unname(value), sdm_redact_sensitive_text, character(1))))
+  unname(value)
+}
+
+sdm_safe_status_meta <- function(meta) {
+  if (!is.list(meta)) return(list(error = "Run metadata unavailable"))
+  keep <- c("id", "status", "type", "n_species", "started_at", "completed_at",
+    "error", "error_code", "error_hint", "metrics", "output_files",
+    "progress_log", "targets_progress")
+  safe <- meta[intersect(names(meta), keep)]
+  sdm_sanitize_status_value(safe)
+}
+
+sdm_safe_async_params <- function(params) {
+  if (!is.list(params)) stop("Invalid async job parameters", call. = FALSE)
+  walk <- function(value) {
+    if (!is.list(value)) return(invisible(TRUE))
+    child_names <- names(value)
+    if (!is.null(child_names) && any(vapply(child_names, sdm_execution_forbidden_key, logical(1)))) {
+      stop("Invalid async job parameters", call. = FALSE)
+    }
+    for (child in value) walk(child)
+    invisible(TRUE)
+  }
+  walk(params)
+  params
+}
+
 normalize_targets_config <- function(cfg) {
-  cfg <- as.list(cfg)
+  cfg <- sdm_project_safe_execution_config(as.list(cfg))
   result <- list()
 
   # 1. Normalize camelCase keys to snake_case
@@ -424,11 +671,46 @@ normalize_targets_config <- function(cfg) {
   result
 }
 
+# Revalidate the durable CSV immediately before targets reads it.  This closes
+# the historical/tampered-config path that does not pass through HTTP ingress.
+sdm_validate_targets_config_csv <- function(path) {
+  if (!is.character(path) || length(path) != 1L || !file.exists(path)) {
+    stop("Stored targets configuration is unavailable", call. = FALSE)
+  }
+  rows <- tryCatch(
+    utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE),
+    error = function(e) stop("Stored targets configuration is unavailable", call. = FALSE)
+  )
+  if (nrow(rows) < 1L || any(vapply(names(rows), sdm_execution_forbidden_key, logical(1)))) {
+    stop("Stored targets configuration is unavailable", call. = FALSE)
+  }
+  for (i in seq_len(nrow(rows))) {
+    row <- as.list(rows[i, , drop = FALSE])
+    # targets uses its normalized spelling for this field; translate it back
+    # to the request contract before applying the same allowlist.
+    if (!is.null(row$occurrences_csv)) {
+      row$occurrence_file <- row$occurrences_csv
+      row$occurrences_csv <- NULL
+    }
+    tryCatch({
+      safe_row <- sdm_project_safe_execution_config(row)
+      if (is.null(safe_row$occurrence_file) || !nzchar(as.character(safe_row$occurrence_file)[1])) {
+        stop("missing occurrence file", call. = FALSE)
+      }
+    }, error = function(e) stop("Stored targets configuration is unavailable", call. = FALSE))
+  }
+  invisible(TRUE)
+}
+
 handle_targets_run <- function(req, app_dir) {
+  if (!isTRUE(sdm_require_canonical_execution(req))) {
+    # Abort the router pipeline via the typed denial condition — see auth_denial.R.
+    sdm_auth_deny(req$res, 403L, list(error = "Canonical execution attestation required", code = "FORBIDDEN"))
+  }
   body <- tryCatch(
     jsonlite::fromJSON(req$postBody, simplifyVector = FALSE),
     error = function(e) {
-      sdm_log_error("Targets run JSON parse failed: %s", conditionMessage(e))
+      sdm_log_error("Targets run JSON parse failed: %s", sdm_redact_sensitive_text(conditionMessage(e)))
       NULL
     }
   )
@@ -436,9 +718,15 @@ handle_targets_run <- function(req, app_dir) {
     return(sdm_error_code(req, "INVALID_INPUT", "Request body must contain a non-empty 'configs' array"))
   }
 
+  configs <- tryCatch(
+    lapply(body$configs, sdm_project_safe_execution_config),
+    error = function(e) NULL
+  )
+  if (is.null(configs)) return(sdm_error_code(req, "INVALID_INPUT", "Invalid execution configuration"))
+
   # Validate ENMeval algorithms in all configs
-  for (i in seq_along(body$configs)) {
-    c <- body$configs[[i]]
+  for (i in seq_along(configs)) {
+    c <- configs[[i]]
     tuning <- sdm_payload_coalesce(c$tuning_method, c$tuningMethod) %||% "none"
     if (identical(tuning, "enmeval")) {
       algo <- sdm_payload_coalesce(c$enmeval_algorithm, c$enmevalAlgorithm) %||% "maxnet"
@@ -454,7 +742,6 @@ handle_targets_run <- function(req, app_dir) {
 
   user_id <- if (!is.null(req$user_id) && nzchar(req$user_id %||% "")) req$user_id else "anonymous"
 
-  configs <- body$configs
   csv_rows <- lapply(seq_along(configs), function(i) {
     as.data.frame(normalize_targets_config(configs[[i]]), stringsAsFactors = FALSE)
   })
@@ -522,10 +809,11 @@ handle_targets_run <- function(req, app_dir) {
   )
   if (is.null(proc)) {
     job_meta$status <- "failed"
-    job_meta$error <- paste0("Failed to start targets run: ", spawn_error)
+    safe_spawn_error <- sdm_redact_sensitive_text(spawn_error)
+    job_meta$error <- paste0("Failed to start targets run: ", safe_spawn_error)
     sdm_write_json(job_meta, file.path(job_dir, "meta.json"))
     return(sdm_error_code(req, "INTERNAL_ERROR", paste0(
-      "Failed to start targets run: ", spawn_error
+      "Failed to start targets run: ", safe_spawn_error
     )))
   }
   target_backends <- vapply(configs, function(c) {
@@ -561,17 +849,20 @@ handle_targets_status <- function(req, res, job_id) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
+  # Authorize before returning any domain error or metadata-derived status.
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   meta <- tryCatch(
     jsonlite::fromJSON(meta_file, simplifyVector = FALSE),
     error = function(e) {
       res$status <- 500L
-      return(list(error = paste0("Corrupted meta.json: ", conditionMessage(e))))
+      return(list(error = "Run metadata unavailable"))
     }
   )
-  if (is.list(meta) && !is.null(meta$error)) return(meta)
-
-  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
-  if (!is.null(own_err)) return(own_err)
+  if (is.list(meta) && !is.null(meta$error)) {
+    return(sdm_safe_status_meta(meta))
+  }
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[job_id]]
@@ -669,7 +960,7 @@ handle_targets_status <- function(req, res, job_id) {
             type = tm$type[i] %||% "stem",
             status = tm$status[i] %||% "unknown",
             seconds = if (!is.null(tm$seconds[i]) && is.finite(tm$seconds[i])) tm$seconds[i] else NULL,
-            error = if (!is.null(tm$error[i]) && nzchar(tm$error[i] %||% "")) tm$error[i] else NULL
+            error = if (!is.null(tm$error[i]) && nzchar(tm$error[i] %||% "")) sdm_redact_sensitive_text(tm$error[i]) else NULL
           )
         })
       }
@@ -679,7 +970,7 @@ handle_targets_status <- function(req, res, job_id) {
   progress_log <- character(0)
   progress_file <- file.path(job_dir, "progress.log")
   if (file.exists(progress_file)) {
-    progress_log <- readLines(progress_file, warn = FALSE)
+    progress_log <- vapply(readLines(progress_file, warn = FALSE), sdm_redact_sensitive_text, character(1))
   }
 
   list(
@@ -688,10 +979,10 @@ handle_targets_status <- function(req, res, job_id) {
     n_species = meta$n_species %||% 0,
     started_at = meta$started_at,
     completed_at = meta$completed_at %||% NULL,
-    error = meta$error %||% NULL,
+    error = if (!is.null(meta$error)) sdm_redact_sensitive_text(meta$error) else NULL,
     error_code = meta$error_code %||% NULL,
-    error_hint = meta$error_hint %||% NULL,
-    targets_progress = targets_progress,
+    error_hint = if (!is.null(meta$error_hint)) sdm_redact_sensitive_text(meta$error_hint) else NULL,
+    targets_progress = sdm_sanitize_status_value(targets_progress),
     progress_log = progress_log
   )
 }
@@ -706,11 +997,12 @@ handle_targets_results <- function(req, res, job_id) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
-  meta <- sdm_read_meta_json(meta_file)
-  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
-
+  # Authorize before reading or returning any metadata-derived result.
   own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
   if (!is.null(own_err)) return(own_err)
+
+  meta <- sdm_read_meta_json(meta_file)
+  if (is.null(meta)) { res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
 
   store_path <- file.path(job_dir, "_targets")
 
@@ -748,7 +1040,7 @@ handle_targets_results <- function(req, res, job_id) {
           results[[species_name]] <- list(
             name = species_name,
             status = pr$status %||% "unknown",
-            error = if (!is.null(pr$error) && nzchar(pr$error[1] %||% "")) pr$error[1] else NULL,
+            error = if (!is.null(pr$error) && nzchar(pr$error[1] %||% "")) sdm_redact_sensitive_text(pr$error[1]) else NULL,
             metrics = tryCatch({
               if (!is.null(species_result)) {
                 list(
@@ -783,7 +1075,7 @@ handle_targets_results <- function(req, res, job_id) {
           results[["multi_species"]] <- list(
             name = composite_name,
             status = pr$status %||% "unknown",
-            error = if (!is.null(pr$error) && nzchar(pr$error[1] %||% "")) pr$error[1] else NULL,
+            error = if (!is.null(pr$error) && nzchar(pr$error[1] %||% "")) sdm_redact_sensitive_text(pr$error[1]) else NULL,
             metrics = tryCatch({
               if (!is.null(species_result)) {
                 list(
@@ -828,7 +1120,7 @@ handle_model_logs <- function(req, res, job_id) {
       if (length(lines) > max_lines) {
         lines <- tail(lines, max_lines)
       }
-      paste(lines, collapse = "\n")
+      sdm_redact_sensitive_text(paste(lines, collapse = "\n"))
     }, error = function(e) "")
   }
 
@@ -853,17 +1145,20 @@ handle_model_status <- function(req, res, job_id) {
     res$status <- 404L; return(list(error = "Run not found"))
   }
 
+  # Authorize before returning any domain error or metadata-derived status.
+  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
+  if (!is.null(own_err)) return(own_err)
+
   meta <- tryCatch(
     jsonlite::fromJSON(meta_file, simplifyVector = FALSE),
     error = function(e) {
       res$status <- 500L
-      return(list(error = paste0("Corrupted meta.json: ", conditionMessage(e))))
+      return(list(error = "Run metadata unavailable"))
     }
   )
-  if (is.list(meta) && !is.null(meta$error)) return(meta)
-
-  own_err <- sdm_verify_run_owner(req, res, job_id, app_dir)
-  if (!is.null(own_err)) return(own_err)
+  if (is.list(meta) && !is.null(meta$error)) {
+    return(sdm_safe_status_meta(meta))
+  }
 
   if (identical(meta$status, "running")) {
     entry <- sdm_process_registry[[job_id]]
@@ -1031,7 +1326,7 @@ handle_model_status <- function(req, res, job_id) {
   progress_lines <- character(0)
   last_stage <- NULL
   if (file.exists(progress_file)) {
-    progress_lines <- tail(readLines(progress_file, warn = FALSE), 200)
+    progress_lines <- vapply(tail(readLines(progress_file, warn = FALSE), 200), sdm_redact_sensitive_text, character(1))
     for (line in rev(progress_lines)) {
       stage <- gsub("^\\d{2}:\\d{2}:\\d{2}\\s*(\\[\\d+%\\]\\s*)?", "", line)
       stage <- trimws(stage)
@@ -1047,6 +1342,7 @@ handle_model_status <- function(req, res, job_id) {
     progress_json <- tryCatch({
       lines <- readLines(progress_json_file, warn = FALSE)
       entries <- lapply(lines[nzchar(lines)], function(l) jsonlite::fromJSON(l, simplifyVector = FALSE))
+      entries <- lapply(entries, sdm_sanitize_status_value)
       if (length(entries) > 0) entries else NULL
     }, error = function(e) NULL)
   }
@@ -1056,37 +1352,31 @@ handle_model_status <- function(req, res, job_id) {
     status = meta$status,
     started_at = meta$started_at,
     completed_at = meta$completed_at %||% NULL,
-    error = meta$error %||% NULL,
+    error = if (!is.null(meta$error)) sdm_redact_sensitive_text(meta$error) else NULL,
     error_code = meta$error_code %||% NULL,
-    error_hint = meta$error_hint %||% NULL,
-    metrics = meta$metrics %||% NULL,
-    output_files = meta$output_files %||% NULL,
+    error_hint = if (!is.null(meta$error_hint)) sdm_redact_sensitive_text(meta$error_hint) else NULL,
+    metrics = sdm_sanitize_status_value(meta$metrics %||% NULL),
+    output_files = sdm_sanitize_status_value(meta$output_files %||% NULL),
     progress_log = progress_lines,
     last_stage = last_stage,
     progress_json = progress_json
   )
   if (identical(Sys.getenv("PLUMBER_AUTH_DISABLED"), "true") && !is.null(meta$error_traceback)) {
-    result$error_traceback <- meta$error_traceback
+    result$error_traceback <- sdm_redact_sensitive_text(meta$error_traceback)
   }
   result
 }
 
 handle_model_cancel <- function(req, res, job_id) {
-  job_dir <- sdm_safe_job_dir(job_id)
+  auth <- sdm_load_authorized_job(req, res, job_id,
+                                  if (exists("app_dir", inherits = TRUE)) get("app_dir", inherits = TRUE) else NULL)
+  if (!isTRUE(auth$ok)) return(list(error = auth$error))
+  job_dir <- auth$job_dir
   if (is.null(job_dir)) {
     return(list(ok = FALSE, message = "Invalid job ID"))
   }
-  meta_file <- file.path(job_dir, "meta.json")
-
-  if (file.exists(meta_file)) {
-    meta <- sdm_read_meta_json(meta_file)
-    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to cancel this run"))
-      }
-    }
-  }
+  meta_file <- auth$meta_file
+  meta <- auth$meta
 
   cancel_result <- sdm_cancel_pid_first(job_id, meta_file)
   killed <- cancel_result$killed
@@ -1106,11 +1396,10 @@ handle_model_cancel <- function(req, res, job_id) {
 
   progress_log <- file.path(job_dir, "progress.log")
 
-  if (file.exists(meta_file)) {
-    # Set Redis cancel flag BEFORE writing meta.json so the child process
-    # exits gracefully on its next poll rather than writing a "completed" status.
-    sdm_redis_cancel_set(job_id)
+  # Set Redis cancel flag only after resource authorization and metadata validation.
+  sdm_redis_cancel_set(job_id)
 
+  if (file.exists(meta_file)) {
     # Re-read meta to detect if child already wrote a terminal status.
     meta <- sdm_read_meta_json(meta_file)
     if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
@@ -1140,22 +1429,13 @@ handle_model_cancel <- function(req, res, job_id) {
 }
 
 handle_model_delete <- function(req, res, job_id) {
-  job_dir <- sdm_safe_job_dir(job_id)
+  auth <- sdm_load_authorized_job(req, res, job_id,
+                                  if (exists("app_dir", inherits = TRUE)) get("app_dir", inherits = TRUE) else NULL)
+  if (!isTRUE(auth$ok)) return(list(error = auth$error))
+  job_dir <- auth$job_dir
   if (is.null(job_dir)) {
     return(list(ok = TRUE, message = "Invalid job ID", deleted = FALSE))
   }
-  meta_file <- file.path(job_dir, "meta.json")
-
-  if (file.exists(meta_file)) {
-    meta <- sdm_read_meta_json(meta_file)
-    if (is.null(meta)) { if (!is.null(res)) res$status <- 503L; return(list(error = "meta.json is unreadable; retry shortly")) }
-    if (!is.null(meta$user_id) && !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        return(sdm_error_code(req, "ACCESS_DENIED", "You do not have permission to delete this run"))
-      }
-    }
-  }
-
   if (!dir.exists(job_dir)) {
     return(list(ok = TRUE, message = "Run directory not found (already deleted)", deleted = FALSE))
   }
@@ -1164,7 +1444,7 @@ handle_model_delete <- function(req, res, job_id) {
     unlink(job_dir, recursive = TRUE, force = TRUE)
     list(ok = TRUE, message = "Run output files deleted", deleted = TRUE)
   }, error = function(e) {
-    list(ok = FALSE, message = paste("Failed to delete:", conditionMessage(e)), deleted = FALSE)
+    list(ok = FALSE, message = paste("Failed to delete:", sdm_redact_sensitive_text(conditionMessage(e))), deleted = FALSE)
   })
 }
 
@@ -1192,7 +1472,7 @@ handle_models_runs <- function(req, app_dir) {
         status = meta$status,
         started_at = meta$started_at,
         completed_at = meta$completed_at %||% NULL,
-        metrics = meta$metrics %||% NULL,
+        metrics = sdm_sanitize_status_value(meta$metrics %||% NULL),
         r_cpu_time_ms = meta$r_cpu_time_ms %||% NULL,
         r_peak_memory_mb = meta$r_peak_memory_mb %||% NULL
       )
@@ -1203,6 +1483,7 @@ handle_models_runs <- function(req, app_dir) {
 
 sdm_submit_async_job <- function(req, app_dir, job_type, params, user_id = "anonymous") {
   tryCatch({
+    params <- sdm_safe_async_params(params)
     job_id <- paste0("data-", format(Sys.time(), "%Y%m%d%H%M%S"), "-", sprintf("%04d", sample(9999, 1)))
     job_dir <- file.path(app_dir, "outputs", "jobs", job_id)
     dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
@@ -1247,7 +1528,7 @@ sdm_submit_async_job <- function(req, app_dir, job_type, params, user_id = "anon
 
     job_id
   }, error = function(e) {
-    cat(sprintf("[sdm_submit_async_job] ERROR: %s\n", conditionMessage(e)), stderr())
+    cat(sprintf("[sdm_submit_async_job] ERROR: %s\n", sdm_redact_sensitive_text(conditionMessage(e))), stderr())
     NULL
   })
 }
@@ -1267,7 +1548,7 @@ handle_async_status <- function(res, job_id, app_dir) {
     jsonlite::fromJSON(meta_file, simplifyVector = FALSE),
     error = function(e) {
       if (!is.null(res)) tryCatch(res$status <- 503L, error = function(ee) NULL)
-      return(list(available = FALSE, error = paste0("Corrupted meta.json: ", conditionMessage(e))))
+      return(list(available = FALSE, error = paste0("Corrupted meta.json: ", sdm_redact_sensitive_text(conditionMessage(e)))))
     }
   )
   if (is.list(meta) && !is.null(meta$available) && identical(meta$available, FALSE)) {
@@ -1279,7 +1560,7 @@ handle_async_status <- function(res, job_id, app_dir) {
     result <- tryCatch(
       jsonlite::fromJSON(result_file, simplifyVector = FALSE),
       error = function(e) {
-        result_read_error <<- conditionMessage(e)
+        result_read_error <<- sdm_redact_sensitive_text(conditionMessage(e))
         NULL
       }
     )
@@ -1289,8 +1570,8 @@ handle_async_status <- function(res, job_id, app_dir) {
     sdm_process_registry[[basename(job_id)]] <- NULL
     sdm_redis_progress_clear(basename(job_id))
     sdm_redis_cancel_clear(basename(job_id))
-    return(list(available = TRUE, status = "cancelled", error = meta$error %||% "Cancelled by user",
-                error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
+    return(list(available = TRUE, status = "cancelled", error = sdm_redact_sensitive_text(meta$error %||% "Cancelled by user"),
+                error_code = meta$error_code %||% NULL, error_hint = sdm_redact_sensitive_text(meta$error_hint %||% "")))
   }
   if (identical(meta$status, "completed") && is.null(result)) {
     sdm_process_registry[[basename(job_id)]] <- NULL
@@ -1303,8 +1584,8 @@ handle_async_status <- function(res, job_id, app_dir) {
     sdm_process_registry[[basename(job_id)]] <- NULL
     sdm_redis_progress_clear(basename(job_id))
     sdm_redis_cancel_clear(basename(job_id))
-    return(list(available = TRUE, status = "failed", error = meta$error %||% "Unknown error",
-                error_code = meta$error_code %||% NULL, error_hint = meta$error_hint %||% NULL))
+    return(list(available = TRUE, status = "failed", error = sdm_redact_sensitive_text(meta$error %||% "Unknown error"),
+                error_code = meta$error_code %||% NULL, error_hint = sdm_redact_sensitive_text(meta$error_hint %||% "")))
   }
 
   if (identical(meta$status, "running") && is.null(result)) {
@@ -1326,7 +1607,7 @@ handle_async_status <- function(res, job_id, app_dir) {
     if (!process_alive) {
       meta$status <- "failed"
       meta$error <- if (!is.null(result_read_error)) {
-        paste0("Process exited with an unreadable result: ", result_read_error)
+        paste0("Process exited with an unreadable result: ", sdm_redact_sensitive_text(result_read_error))
       } else {
         "Process crashed or was killed (OOM, segfault, or external signal)"
       }
@@ -1337,8 +1618,8 @@ handle_async_status <- function(res, job_id, app_dir) {
       sdm_process_registry[[basename(job_id)]] <- NULL
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "failed", error = meta$error,
-                  error_code = meta$error_code, error_hint = meta$error_hint))
+      return(list(available = TRUE, status = "failed", error = sdm_redact_sensitive_text(meta$error),
+                  error_code = meta$error_code, error_hint = sdm_redact_sensitive_text(meta$error_hint %||% "")))
     }
   }
 
@@ -1374,8 +1655,8 @@ handle_async_status <- function(res, job_id, app_dir) {
       sdm_process_registry[[basename(job_id)]] <- NULL
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "failed", error = meta$error,
-                  error_code = "RUNNER_LOAD_FAILED", error_hint = "The R process was killed while loading SDM modules. Check container memory limits, reduce covariates, or increase memory allocation."))
+      return(list(available = TRUE, status = "failed", error = sdm_redact_sensitive_text(meta$error),
+                  error_code = "RUNNER_LOAD_FAILED", error_hint = sdm_redact_sensitive_text("The R process was killed while loading SDM modules. Check container memory limits, reduce covariates, or increase memory allocation.")))
     }
   }
 
@@ -1412,7 +1693,7 @@ handle_async_status <- function(res, job_id, app_dir) {
       sdm_write_json(meta, meta_file)
       sdm_redis_progress_clear(basename(job_id))
       sdm_redis_cancel_clear(basename(job_id))
-      return(list(available = TRUE, status = "failed", error = result$error, error_code = error_code, error_hint = error_hint))
+      return(list(available = TRUE, status = "failed", error = sdm_redact_sensitive_text(result$error), error_code = error_code, error_hint = sdm_redact_sensitive_text(error_hint %||% "")))
     }
   }
 
@@ -1427,9 +1708,9 @@ handle_async_status <- function(res, job_id, app_dir) {
   } else {
     progress_lines <- character(0)
     if (file.exists(progress_file)) {
-      progress_lines <- tail(readLines(progress_file, warn = FALSE), 20)
+      progress_lines <- vapply(tail(readLines(progress_file, warn = FALSE), 20), sdm_redact_sensitive_text, character(1))
     }
   }
 
-  list(available = TRUE, status = "running", progress_log = progress_lines, error_code = error_code, error_hint = error_hint)
+  list(available = TRUE, status = "running", progress_log = progress_lines, error_code = error_code, error_hint = sdm_redact_sensitive_text(error_hint %||% ""))
 }

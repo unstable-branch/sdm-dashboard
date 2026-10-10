@@ -153,18 +153,63 @@ jobs:
           path: api/dist
           retention-days: 5
 
+  execution-migration:
+    name: PostgreSQL execution migration contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgis/postgis@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
+        env:
+          POSTGRES_USER: sdm
+          POSTGRES_PASSWORD: sdm_ci_only
+          POSTGRES_DB: sdm_migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sdm -d sdm_migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.30.3
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run required execution migration test against disposable PostgreSQL
+        env:
+          SDM_MIGRATION_TEST_DATABASE_URL: postgresql://sdm:sdm_ci_only@127.0.0.1:5432/sdm_migration_test
+          SDM_MIGRATION_TEST_REQUIRED: "1"
+          SDM_EXECUTION_PG_PROOF_OPT_IN: RUN_DISPOSABLE_CI_SERVICE_POSTGRES
+        run: pnpm --filter api exec vitest run src/db/execution-migration.test.ts --reporter=verbose
+
   docker:
     name: Docker build + integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: shared
     env:
+      FRONTEND_URL: https://127.0.0.1:3443
+      E2E_BASE_URL: https://127.0.0.1:3443
+      SDM_CI_LOOPBACK_HTTPS: "1"
       DATABASE_URL: postgresql://sdm:dummy@postgres:5432/sdm_platform
       JWT_SECRET: dummy-jwt-secret-at-least-32-characters
       CSRF_SECRET: dummy-csrf-secret-at-least-32-characters
       DATA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
       SDM_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
       PLUMBER_INTERNAL_KEY: dummy-plumber-internal-key-at-least-32-chars
+      PLUMBER_EXECUTION_KEY: dummy-plumber-execution-key-at-least-32-chars
       POSTGRES_PASSWORD: dummy
       GARAGE_ACCESS_KEY: dummy-access-key
       GARAGE_SECRET_KEY: dummy-secret-key-for-ci-only-1234567890
@@ -198,47 +243,37 @@ jobs:
           docker compose -f docker-compose.dev.yml config
           docker compose -f docker-compose.prod.yml config
 
-      - name: Build Plumber image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: plumber/Dockerfile
-          load: true
-          tags: |
-            sdm-dashboard-plumber:latest
-            sdm-plumber:test
-          cache-from: type=gha,scope=sdm-dashboard-plumber
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-plumber
-
+      # Shared dist must be present before the bake step: the API and
+      # frontend Dockerfiles consume it and skip the shared-package rebuild.
       - name: Download shared package artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: shared-dist
           path: packages/shared/dist
 
-      - name: Build API image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+      # Builds plumber, api and frontend images concurrently. The bake file
+      # carries the same contexts, Dockerfiles, tags and gha cache scopes as
+      # the sequential build-push-action steps this replaces, and the images
+      # are loaded into the local docker daemon for the compose integration,
+      # e2e, type-contract and scan steps.
+      # NOTE: the gha cache backend requires the cache-service env
+      # (ACTIONS_CACHE_URL / ACTIONS_RUNTIME_TOKEN), which run: steps do not
+      # expose on current runners — plain `run:` invocations of buildx
+      # (bake CLI and explicit --cache-from/--cache-to flags alike) silently
+      # skip gha cache entirely (PR #98 runs 35703111219 / 35705788390).
+      # bake-action runs in the action context and wires the cache env.
+      - name: Build images in parallel
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
         with:
-          context: .
-          file: Dockerfile.api
+          files: docker-bake.ci.hcl
+          targets: ci
           load: true
-          tags: |
-            sdm-dashboard-api:latest
-            sdm-api:test
-          cache-from: type=gha,scope=sdm-dashboard-api
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-api
 
-      - name: Build Frontend image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: Dockerfile.frontend
-          load: true
-          tags: |
-            sdm-dashboard-frontend:latest
-            sdm-frontend:test
-          cache-from: type=gha,scope=sdm-dashboard-frontend
-          cache-to: type=gha,mode=max,scope=sdm-dashboard-frontend
+      - name: Verify loaded images
+        run: docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^sdm-(dashboard-)?(plumber|api|frontend)'
+
+      - name: Test CI-only loopback HTTPS transport
+        run: SDM_CI_TRANSPORT_ONLY=1 node --test scripts/test-ci-loopback-https-proxy.cjs
 
       - name: Start services and verify health
         run: |
@@ -288,6 +323,39 @@ jobs:
           wait_for API http://localhost:4000/health
           wait_for Frontend http://localhost:3000/
 
+      - name: Start disposable CI loopback HTTPS terminator
+        run: |
+          set -eu
+          dir="${RUNNER_TEMP}/sdm-ci-loopback-https"
+          rm -rf "$dir"
+          mkdir -p "$dir"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "$dir/key.pem" -out "$dir/cert.pem" -days 1 -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 >/dev/null 2>&1
+          SDM_CI_TLS_KEY="$dir/key.pem" SDM_CI_TLS_CERT="$dir/cert.pem" SDM_CI_TLS_LISTEN=127.0.0.1:3443 SDM_CI_TLS_UPSTREAM=http://127.0.0.1:3000 node scripts/ci-loopback-https-proxy.cjs >"$dir/proxy.log" 2>&1 &
+          echo $! > "$dir/proxy.pid"
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl -kfsS https://127.0.0.1:3443/ >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then cat "$dir/proxy.log"; exit 1; fi
+
+      - name: Fresh-volume boundary upload/resolve regression
+        run: |
+          # Regression for the Phase 2 acceptance finding in
+          # acceptance/phase2/phase2_findings_r5.md ("The live built plumber
+          # runtime cannot CREATE its custom-boundary directory"): a fresh
+          # boundary-data volume stayed root-owned because the plumber
+          # entrypoint normalized the uploads/outputs/covariates volumes but
+          # not the boundaries volume, so the first custom-boundary upload on a
+          # clean deployment returned 500 {"error":"Custom boundary storage is
+          # unsafe"}. This check runs against the real built stack with its
+          # fresh CI volumes and only passes once the entrypoint fix is in the
+          # image; it also proves the boundary the API just registered reads
+          # back as GeoJSON.
+          set -eu
+          python3 scripts/verify_fresh_volume_boundary_upload.py \
+            --base-url http://localhost:4000
+
       - name: Memory stress check — verify Plumber can handle concurrent requests
         run: |
           compose() {
@@ -321,6 +389,23 @@ jobs:
           pnpm exec playwright install --with-deps
           pnpm run test:e2e
 
+      - name: Stop disposable CI loopback HTTPS terminator
+        if: always()
+        run: |
+          dir="${RUNNER_TEMP}/sdm-ci-loopback-https"
+          if [ -f "$dir/proxy.pid" ]; then
+            pid="$(cat "$dir/proxy.pid")"
+            if kill -0 "$pid" 2>/dev/null; then
+              kill -TERM "$pid" 2>/dev/null || true
+              for attempt in $(seq 1 20); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.25
+              done
+              if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+            fi
+          fi
+          rm -rf "$dir"
+
       - name: Type contract check (Plumber OpenAPI → TS types)
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
@@ -336,6 +421,11 @@ jobs:
           echo "Verifying generated types compile..."
           cd ../packages/shared && pnpm run build
 
+      # NOTE: parallel trivy scans were evaluated (one warm DB + three
+      # concurrent scans) but trivy v0.74's fs-cache lock makes concurrent
+      # processes fail fast ("cache may be in use by another process" — PR #98
+      # run 35705788390); per-scan cache dirs would save only ~20-45s and add
+      # fragility. Sequential scans retained.
       - name: Scan images for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

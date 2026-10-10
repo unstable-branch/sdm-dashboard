@@ -51,6 +51,70 @@ validate_api_key <- function(api_key, pool = NULL, app_dir = NULL) {
   })
 }
 
+# Recheck the CURRENT database principal behind a forwarded identity.
+#
+# AGENTS.md current-principal contract: Hono establishes the database-backed
+# principal per request and forwards it as request-scoped evidence; Plumber
+# rechecks its own boundary immediately before protected handling. A forwarded
+# user id / role is therefore never authority on its own: a nonexistent or
+# deleted user, or a role that no longer matches current storage, is denied
+# here instead of reaching any route handler.
+#
+# Fail closed: a malformed identity denies (401); an unavailable or unreadable
+# principal store denies (503) rather than falling through to handlers. The
+# check itself performs exactly one primary-key lookup on users — that lookup
+# is authorization infrastructure, not a protected read.
+sdm_validate_forwarded_principal <- function(user_id, role, pool = NULL, app_dir = NULL,
+                                             query_fn = NULL) {
+  uuid_re <- "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+  if (!is.character(user_id) || length(user_id) != 1L || is.na(user_id) ||
+      !grepl(uuid_re, user_id) ||
+      !identical(as.character(role), role) || length(role) != 1L ||
+      !role %in% c("admin", "editor", "viewer")) {
+    return(list(ok = FALSE, status = 401L,
+                message = '{"error":"Invalid forwarded principal."}'))
+  }
+
+  result <- if (!is.null(query_fn)) {
+    # Injected principal lookup (regression tests); same verdict contract.
+    tryCatch(query_fn(user_id), error = function(e) NULL)
+  } else {
+    tryCatch({
+      if (!is.null(pool) && inherits(pool, "Pool")) {
+        con <- pool::poolCheckout(pool)
+        on.exit(tryCatch(pool::poolReturn(con), error = function(e) NULL), add = TRUE)
+      } else {
+        db_url <- Sys.getenv("DATABASE_URL", "")
+        if (!nzchar(db_url)) {
+          return(list(ok = FALSE, status = 503L,
+                      message = '{"error":"Principal revalidation unavailable."}'))
+        }
+        con <- sdm_db_connect(db_url)
+        # A teardown error must never mask the authorization verdict.
+        on.exit(tryCatch(DBI::dbDisconnect(con), error = function(e) NULL), add = TRUE)
+      }
+      DBI::dbGetQuery(con,
+        "SELECT role FROM users WHERE id = $1 LIMIT 1",
+        params = list(user_id))
+    }, error = function(e) NULL)
+  }
+
+  if (is.null(result)) {
+    # Unreadable principal store must never proceed to protected handling.
+    return(list(ok = FALSE, status = 503L,
+                message = '{"error":"Principal revalidation unavailable."}'))
+  }
+  if (nrow(result) == 0L) {
+    return(list(ok = FALSE, status = 401L,
+                message = '{"error":"Forwarded principal no longer exists."}'))
+  }
+  if (!identical(as.character(result$role[1]), role)) {
+    return(list(ok = FALSE, status = 401L,
+                message = '{"error":"Stale forwarded principal."}'))
+  }
+  list(ok = TRUE)
+}
+
 #' Check if request requires authentication
 #' @param path Request path
 #' @return TRUE if auth required, FALSE if open
@@ -66,11 +130,10 @@ requires_auth <- function(path) {
   open_patterns <- c(
     "^/health$",
     "^/ready$",
-    "^/api/v1/climate/scenarios$",
     "^/api/v1/climate/check$",
     "^/api/v1/config/defaults$",
     "^/api/v1/models$",
-    "^/api/v1/future/scenarios$",
+
     "^/api/v1/covariates/check$"
   )
 
@@ -135,27 +198,61 @@ sdm_check_rate_limit <- function(key, max_requests = 60, window_seconds = 60) {
 # Returns NULL on success, or an error list (with `status` already set on `res`)
 # on ownership failure / missing run.
 # Admin role bypasses the ownership check (consistent with runs-table admin bypass).
-sdm_verify_run_owner <- function(req, res, run_id, app_dir) {
-  if (is.null(req$user_role) || req$user_role != "admin") {
-    job_dir <- tryCatch(sdm_safe_job_dir(run_id), error = function(e) NULL)
-    if (is.null(job_dir)) {
-      res$status <- 404L
-      return(list(error = "Run not found"))
-    }
-    meta_file <- file.path(job_dir, "meta.json")
-    if (!file.exists(meta_file)) {
-      res$status <- 404L
-      return(list(error = "Run not found"))
-    }
-    meta <- tryCatch(jsonlite::fromJSON(meta_file, simplifyVector = FALSE), error = function(e) NULL)
-    if (!is.null(meta) && !is.null(meta$user_id) && nzchar(meta$user_id %||% "") &&
-        !is.null(req$user_id) && nzchar(req$user_id %||% "")) {
-      if (as.character(meta$user_id) != as.character(req$user_id)) {
-        res$status <- 403L
-        return(list(error = sdm_error_code_direct("ACCESS_DENIED", "You do not have permission to view this run")))
-      }
-    }
+
+
+
+
+# Typed, fail-closed resource loader used by every protected job endpoint.
+# Validation happens before the admin membership bypass. A malformed principal,
+# missing owner metadata, unreadable metadata, or storage error is never treated
+# as an anonymous or admin request.
+sdm_load_authorized_job <- function(req, res, job_id, app_dir = NULL) {
+  deny <- function(status, message) {
+    if (!is.null(res)) res$status <- as.integer(status)
+    list(ok = FALSE, error = message, status = as.integer(status))
   }
-  NULL
+
+  user_id <- tryCatch(as.character(req$user_id %||% "")[1], error = function(e) "")
+  user_role <- tryCatch(as.character(req$user_role %||% "")[1], error = function(e) "")
+  if (!nzchar(user_id) || !nzchar(user_role) ||
+      !user_role %in% c("admin", "editor", "viewer")) {
+    return(deny(401L, "Authenticated principal required"))
+  }
+
+  job_dir <- tryCatch(sdm_safe_job_dir(job_id), error = function(e) NULL)
+  if (is.null(job_dir) || !is.character(job_dir) || length(job_dir) != 1L ||
+      !nzchar(job_dir) || !dir.exists(job_dir)) {
+    return(deny(404L, "Job not found"))
+  }
+
+  meta_file <- file.path(job_dir, "meta.json")
+  if (!file.exists(meta_file) || file.access(meta_file, 4L) != 0L) {
+    return(deny(404L, "Job metadata unavailable"))
+  }
+  meta <- tryCatch(sdm_read_meta_json(meta_file), error = function(e) NULL)
+  if (is.null(meta) || !is.list(meta)) {
+    return(deny(503L, "Job metadata is unreadable"))
+  }
+
+  owner_id <- tryCatch(as.character(meta$user_id %||% "")[1], error = function(e) "")
+  if (!nzchar(owner_id)) {
+    return(deny(503L, "Job owner metadata is unavailable"))
+  }
+
+  # Admin bypasses membership only after the resource and owner metadata have
+  # been validated above.
+  if (identical(user_role, "admin") || identical(owner_id, user_id)) {
+    return(list(ok = TRUE, job_dir = job_dir, meta_file = meta_file,
+                meta = meta, owner_id = owner_id))
+  }
+  deny(403L, "You do not have permission to access this job")
 }
 
+# Compatibility adapter for existing handlers. The loader above is the single
+# authorization implementation; callers still receive NULL on success or the
+# typed HTTP error object expected by legacy handlers.
+sdm_verify_run_owner <- function(req, res, run_id, app_dir) {
+  auth <- sdm_load_authorized_job(req, res, run_id, app_dir)
+  if (isTRUE(auth$ok)) return(NULL)
+  list(error = auth$error)
+}

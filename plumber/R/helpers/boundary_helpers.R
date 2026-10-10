@@ -1,17 +1,452 @@
-handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL) {
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+
+sdm_boundary_storage_root <- function(app_dir, configured_root = Sys.getenv("SDM_INPUT_ASSET_BOUNDARY_ROOT", unset = "")) {
+  root <- if (!is.null(configured_root) && nzchar(configured_root)) configured_root else file.path(app_dir, "data", "boundaries")
+  root <- path.expand(root)
+  root <- gsub("\\\\", "/", root, fixed = TRUE)
+  if (!startsWith(root, "/")) root <- file.path(getwd(), root)
+  if (!identical(root, "/")) root <- sub("/$", "", root)
+  root
+}
+
+sdm_boundary_path_has_parent_segment <- function(path) {
+  normalized <- gsub("\\\\", "/", path, fixed = TRUE)
+  grepl("(^|/)\\.\\.(/|$)", normalized, perl = TRUE)
+}
+
+sdm_boundary_path_has_symlink <- function(path, root) {
+  candidates <- unique(c(root, path))
+  for (candidate in candidates) {
+    candidate <- gsub("\\\\", "/", candidate, fixed = TRUE)
+    current <- if (startsWith(candidate, "/")) "/" else ""
+    for (segment in strsplit(candidate, "/", fixed = TRUE)[[1]]) {
+      if (!nzchar(segment)) next
+      current <- file.path(current, segment)
+      link_target <- Sys.readlink(current)
+      if (length(link_target) > 0L && !is.na(link_target) && nzchar(link_target)) return(TRUE)
+    }
+  }
+  FALSE
+}
+
+sdm_boundary_root_is_safe <- function(root) {
+  !sdm_boundary_path_has_symlink(root, root)
+}
+
+sdm_boundary_destination_is_safe <- function(path, root) {
+  !file.exists(path) && !dir.exists(path) && !sdm_boundary_path_has_symlink(path, root)
+}
+
+sdm_boundary_uuid_is_valid <- function(value) {
+  is.character(value) && length(value) == 1L &&
+    grepl("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", value, ignore.case = TRUE)
+}
+
+sdm_boundary_with_database <- function(callback) {
+  pool_obj <- tryCatch(get("db_pool", envir = .GlobalEnv), error = function(e) NULL)
+  if (exists("sdm_get_db_pool", mode = "function", inherits = TRUE)) {
+    pool_obj <- tryCatch(sdm_get_db_pool(pool_obj), error = function(e) NULL)
+  }
+  if (!is.null(pool_obj) && inherits(pool_obj, "Pool")) {
+    con <- tryCatch(pool::poolCheckout(pool_obj), error = function(e) NULL)
+    if (is.null(con)) return(NULL)
+    on.exit(tryCatch(pool::poolReturn(con), error = function(e) NULL), add = TRUE)
+    return(tryCatch(callback(con), error = function(e) NULL))
+  }
+  if (!exists("sdm_db_connect", mode = "function", inherits = TRUE)) return(NULL)
+  con <- tryCatch(sdm_db_connect(), error = function(e) NULL)
+  if (is.null(con)) return(NULL)
+  on.exit(tryCatch(DBI::dbDisconnect(con), error = function(e) NULL), add = TRUE)
+  tryCatch(callback(con), error = function(e) NULL)
+}
+
+sdm_boundary_asset_path <- function(req, boundary_asset_id, project_id = NULL, file_path = NULL,
+                                    boundary_root) {
+  user_id <- tryCatch(as.character(req$user_id %||% "")[1], error = function(e) "")
+  user_role <- tryCatch(as.character(req$user_role %||% "")[1], error = function(e) "")
+  if (!sdm_boundary_uuid_is_valid(boundary_asset_id) || !sdm_boundary_uuid_is_valid(user_id) ||
+      !user_role %in% c("admin", "editor", "viewer")) return(NULL)
+  if (!is.null(project_id) && !sdm_boundary_uuid_is_valid(project_id)) return(NULL)
+
+  sdm_boundary_with_database(function(con) {
+    assets <- DBI::dbGetQuery(con,
+      "SELECT id, creator_user_id, scope, project_id, kind, state, storage_locator,
+             content_sha256, content_size
+         FROM input_assets
+        WHERE id = $1 AND kind = 'custom_boundary' AND state = 'ready'
+        LIMIT 1",
+      params = list(boundary_asset_id)
+    )
+    if (nrow(assets) != 1L) return(NULL)
+    asset <- assets[1, , drop = FALSE]
+    asset_project_id <- if (is.na(asset$project_id[[1]])) "" else as.character(asset$project_id[[1]])
+    asset_scope <- if (is.na(asset$scope[[1]])) "" else as.character(asset$scope[[1]])
+    if (asset_scope == "private") {
+      if (!identical(as.character(asset$creator_user_id[[1]]), user_id)) return(NULL)
+    } else if (asset_scope == "project") {
+      if (!sdm_boundary_uuid_is_valid(asset_project_id) ||
+          (!is.null(project_id) && !identical(project_id, asset_project_id))) return(NULL)
+      if (!identical(user_role, "admin")) {
+        members <- DBI::dbGetQuery(con,
+          "SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2 LIMIT 1",
+          params = list(asset_project_id, user_id)
+        )
+        if (nrow(members) != 1L || !as.character(members$role[[1]]) %in% c("admin", "editor", "viewer")) return(NULL)
+      }
+    } else {
+      return(NULL)
+    }
+    locator <- if (is.na(asset$storage_locator[[1]])) "" else as.character(asset$storage_locator[[1]])
+    parts <- strsplit(locator, "/", fixed = TRUE)[[1]]
+    if (length(parts) < 2L || !identical(parts[[1]], "boundaries") ||
+        any(!nzchar(parts[-1]) | parts[-1] %in% c(".", "..")) ||
+        any(grepl("[[:cntrl:]\\\\:]", parts[-1]))) return(NULL)
+    candidate <- file.path(boundary_root, paste(parts[-1], collapse = "/"))
+    resolved <- sdm_resolve_boundary_path(candidate, boundary_root)
+    if (is.null(resolved)) return(NULL)
+    content_sha256 <- if (is.na(asset$content_sha256[[1]])) "" else tolower(as.character(asset$content_sha256[[1]]))
+    content_size <- suppressWarnings(as.numeric(asset$content_size[[1]]))
+    if (!grepl("^[0-9a-f]{64}$", content_sha256) || !is.finite(content_size) || content_size < 0) return(NULL)
+    actual_size <- suppressWarnings(as.numeric(file.info(resolved)$size))
+    actual_hash <- tryCatch(digest::digest(file = resolved, algo = "sha256", serialize = FALSE), error = function(e) NULL)
+    if (!is.finite(actual_size) || actual_size != content_size || is.null(actual_hash) ||
+        !identical(tolower(actual_hash), content_sha256)) return(NULL)
+    if (!is.null(file_path)) {
+      supplied <- tryCatch(normalizePath(file_path, winslash = "/", mustWork = FALSE), error = function(e) NULL)
+      if (is.null(supplied) || !identical(supplied, resolved)) return(NULL)
+    }
+    resolved
+  })
+}
+
+sdm_resolve_boundary_path <- function(path, root = NULL, app_dir = NULL) {
+  if (is.null(path) || length(path) != 1L || is.na(path) || !nzchar(path) || !startsWith(path, "/")) return(NULL)
+  if (grepl("[[:cntrl:]]", path) || sdm_boundary_path_has_parent_segment(path)) return(NULL)
+  root_path <- if (is.null(root)) {
+    sdm_boundary_storage_root(app_dir %||% getwd())
+  } else {
+    sdm_boundary_storage_root(getwd(), root)
+  }
+  candidate <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  if (!(identical(candidate, root_path) || startsWith(candidate, paste0(root_path, "/")))) return(NULL)
+  if (!file.exists(candidate) || dir.exists(candidate) || sdm_boundary_path_has_symlink(path, root_path)) return(NULL)
+  candidate
+}
+
+# Custom-boundary content classification.
+#
+# A canonical custom boundary asset is the requester's own hash-verified file.
+# Demonstrably invalid content (unparseable JSON, a body that is not a GeoJSON
+# document) is a client content-integrity denial and must not surface as a 5xx.
+# Server-side I/O failures, unavailable runtime dependencies and unexpected
+# processing faults must keep their genuine 5xx status.  The two are therefore
+# classified explicitly instead of collapsing every caught exception into one
+# status.
+
+sdm_boundary_read_asset_bytes <- function(path) {
+  size <- suppressWarnings(as.numeric(file.info(path)$size))
+  if (length(size) != 1L || !is.finite(size) || size < 0) stop("boundary asset is not readable")
+  readBin(path, what = "raw", n = size)
+}
+
+sdm_boundary_parser_available <- function() requireNamespace("jsonlite", quietly = TRUE)
+
+sdm_boundary_terra_available <- function() requireNamespace("terra", quietly = TRUE)
+
+sdm_boundary_is_json_format <- function(path) {
+  tryCatch(tolower(tools::file_ext(path)) %in% c("geojson", "json"), error = function(e) FALSE)
+}
+
+# RFC 7946 GeoJSON types.  A document that declares any other type, omits the
+# exact "type" member or a required member of the type it declares
+# (FeatureCollection.features, Feature.geometry, Feature.properties,
+# Geometry.coordinates or GeometryCollection.geometries), carries a defining
+# member of another type (RFC 7946 section 7.1), has a nested member of the
+# wrong JSON kind, or whose coordinate structure does not match the declared
+# geometry type (including a linear ring that is not closed) is demonstrably not
+# a GeoJSON document and therefore a client content denial rather than a server
+# fault.  Foreign members are allowed and are not rejected.
+sdm_boundary_geometry_types <- c(
+  "GeometryCollection",
+  "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"
+)
+sdm_boundary_geojson_types <- c("FeatureCollection", "Feature", sdm_boundary_geometry_types)
+
+# RFC 7946 section 7.1 ("Semantics of GeoJSON Members and Types Are Not
+# Changeable") keeps the meaning of the defined members fixed, so an object MUST
+# NOT carry the defining member of another GeoJSON type: a FeatureCollection or
+# Feature must not carry "coordinates"/"geometries", a FeatureCollection or
+# Geometry must not carry "geometry"/"properties", and a Feature or Geometry
+# must not carry "features".  "id" is defined for a Feature only.  The tables
+# below list the members RFC 7946 defines for each object type; "bbox" is an
+# optional member of every GeoJSON object (section 5).  Anything outside those
+# members (for example the sf/GDAL "name" and legacy "crs" members) is a foreign
+# member: it stays permitted and its value is not interpreted here. A present
+# "bbox" is defined by RFC 7946 section 5, so its structure is checked; the
+# geometry's actual envelope is left to the geometry runtime.
+sdm_boundary_feature_collection_members <- c("type", "features", "bbox")
+sdm_boundary_feature_members <- c("type", "geometry", "properties", "id", "bbox")
+sdm_boundary_geometry_collection_members <- c("type", "geometries", "bbox")
+sdm_boundary_geometry_members <- c("type", "coordinates", "bbox")
+sdm_boundary_defined_members <- c(
+  "type", "features", "geometry", "properties", "coordinates", "geometries", "id"
+)
+
+sdm_boundary_allowed_members <- function(type) {
+  if (identical(type, "FeatureCollection")) return(sdm_boundary_feature_collection_members)
+  if (identical(type, "Feature")) return(sdm_boundary_feature_members)
+  if (identical(type, "GeometryCollection")) return(sdm_boundary_geometry_collection_members)
+  sdm_boundary_geometry_members
+}
+
+# TRUE when the object carries no defining member of another GeoJSON type.
+sdm_boundary_members_are_valid <- function(object, type) {
+  members <- names(object)
+  length(setdiff(intersect(members, sdm_boundary_defined_members), sdm_boundary_allowed_members(type))) == 0L
+}
+
+# jsonlite parses both JSON arrays and JSON objects as lists.  A GeoJSON
+# object is therefore a named list (an empty JSON object keeps an empty name
+# vector) and a GeoJSON array, including an empty one, is a list without names.
+sdm_boundary_is_json_object <- function(value) is.list(value) && !is.null(names(value))
+sdm_boundary_is_json_array <- function(value) is.list(value) && is.null(names(value))
+
+# Reads the exact "type" member of a parsed JSON object.  R's `$` on a named
+# list performs partial matching, so `object$type` would read a member such as
+# "typex" when the exact "type" member is absent, and an ambiguous pair such as
+# "typex"/"typey" would read NULL.  `[[` matches the member name exactly; a
+# document without an exact "type" member is not a GeoJSON object.
+sdm_boundary_object_type <- function(object) {
+  if (!sdm_boundary_is_json_object(object)) return(NULL)
+  if (!("type" %in% names(object))) return(NULL)
+  object[["type"]]
+}
+
+# Only GeoJSON geometry/feature members contribute dimensions. Foreign members
+# can contain arbitrary objects named "coordinates" or "bbox" and are ignored.
+sdm_boundary_coordinate_dimensions <- function(value) {
+  if (sdm_boundary_position_is_valid(value)) return(length(value))
+  if (!sdm_boundary_is_json_array(value)) return(integer(0))
+  unlist(lapply(value, sdm_boundary_coordinate_dimensions), use.names = FALSE)
+}
+
+sdm_boundary_geometry_dimensions <- function(geometry) {
+  if (!sdm_boundary_is_json_object(geometry)) return(integer(0))
+  if (identical(sdm_boundary_object_type(geometry), "GeometryCollection")) {
+    return(unlist(lapply(geometry[["geometries"]], sdm_boundary_geometry_dimensions), use.names = FALSE))
+  }
+  sdm_boundary_coordinate_dimensions(geometry[["coordinates"]])
+}
+
+sdm_boundary_feature_dimensions <- function(feature) {
+  if (!sdm_boundary_is_json_object(feature)) return(integer(0))
+  sdm_boundary_geometry_dimensions(feature[["geometry"]])
+}
+
+# RFC 7946 section 5: 2*n numeric ordinates, minimum axes then maximum axes.
+# For an empty collection or a null geometry, no dimensions are represented;
+# accept the usual 2D/3D shapes without claiming that a box encloses content.
+# In mixed-dimensional content, n is the highest represented dimension.
+sdm_boundary_bbox_is_valid <- function(object, dimensions = integer(0)) {
+  if (!("bbox" %in% names(object))) return(TRUE)
+  bbox <- object[["bbox"]]
+  if (!sdm_boundary_is_json_array(bbox)) return(FALSE)
+  n <- if (length(dimensions)) max(dimensions) else length(bbox) / 2L
+  if (n < 2L || length(bbox) != 2L * n || (length(dimensions) == 0L && !n %in% c(2L, 3L))) return(FALSE)
+  if (!all(vapply(bbox, function(value) is.numeric(value) && length(value) == 1L && is.finite(value), logical(1)))) return(FALSE)
+  values <- unlist(bbox, use.names = FALSE)
+  # RFC 7946 section 5.3 caps latitude at the poles; longitude alone can
+  # descend across the antimeridian.
+  if (values[2L] < -90 || values[n + 2L] > 90) return(FALSE)
+  all(values[2:n] <= values[n + (2:n)])
+}
+
+# RFC 7946 Position: an array of two or more numbers.
+sdm_boundary_position_is_valid <- function(position) {
+  if (!sdm_boundary_is_json_array(position) || length(position) < 2L) return(FALSE)
+  for (ordinal in position) {
+    if (!is.numeric(ordinal) || length(ordinal) != 1L || !is.finite(ordinal)) return(FALSE)
+  }
+  TRUE
+}
+
+# An array of Position values; `minimum` is the RFC 7946 minimum count for the
+# enclosing member (2 for a LineString, 4 for a Polygon linear ring, 1 otherwise).
+sdm_boundary_positions_are_valid <- function(positions, minimum) {
+  if (!sdm_boundary_is_json_array(positions) || length(positions) < minimum) return(FALSE)
+  for (position in positions) {
+    if (!sdm_boundary_position_is_valid(position)) return(FALSE)
+  }
+  TRUE
+}
+
+# RFC 7946: a linear ring is closed — its first and last positions must contain
+# identical values (ordinal count included).
+sdm_boundary_ring_is_closed <- function(ring) {
+  if (!sdm_boundary_is_json_array(ring) || length(ring) < 2L) return(FALSE)
+  first <- ring[[1L]]
+  last <- ring[[length(ring)]]
+  if (!sdm_boundary_position_is_valid(first) || !sdm_boundary_position_is_valid(last)) return(FALSE)
+  if (length(first) != length(last)) return(FALSE)
+  identical(as.numeric(first), as.numeric(last))
+}
+
+sdm_boundary_rings_are_valid <- function(rings) {
+  if (!sdm_boundary_is_json_array(rings) || length(rings) < 1L) return(FALSE)
+  for (ring in rings) {
+    # RFC 7946: a linear ring is a closed LineString of four or more positions.
+    if (!sdm_boundary_positions_are_valid(ring, 4L)) return(FALSE)
+    if (!sdm_boundary_ring_is_closed(ring)) return(FALSE)
+  }
+  TRUE
+}
+
+# Recursive validation of a GeoJSON Geometry object.
+sdm_boundary_geometry_is_valid <- function(geometry) {
+  if (!sdm_boundary_is_json_object(geometry)) return(FALSE)
+  type <- sdm_boundary_object_type(geometry)
+  if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
+  if (!type %in% sdm_boundary_geometry_types) return(FALSE)
+  if (!sdm_boundary_members_are_valid(geometry, type)) return(FALSE)
+  if (!sdm_boundary_bbox_is_valid(geometry, sdm_boundary_geometry_dimensions(geometry))) return(FALSE)
+  members <- names(geometry)
+  if (identical(type, "GeometryCollection")) {
+    geometries <- geometry$geometries
+    if (!("geometries" %in% members) || !sdm_boundary_is_json_array(geometries)) return(FALSE)
+    for (nested in geometries) {
+      if (!sdm_boundary_geometry_is_valid(nested)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  if (!("coordinates" %in% members)) return(FALSE)
+  coordinates <- geometry$coordinates
+  if (identical(type, "Point")) return(sdm_boundary_position_is_valid(coordinates))
+  if (identical(type, "MultiPoint")) return(sdm_boundary_positions_are_valid(coordinates, 1L))
+  if (identical(type, "LineString")) return(sdm_boundary_positions_are_valid(coordinates, 2L))
+  if (identical(type, "MultiLineString")) {
+    if (!sdm_boundary_is_json_array(coordinates) || length(coordinates) < 1L) return(FALSE)
+    for (line in coordinates) {
+      if (!sdm_boundary_positions_are_valid(line, 2L)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  if (identical(type, "Polygon")) return(sdm_boundary_rings_are_valid(coordinates))
+  if (identical(type, "MultiPolygon")) {
+    if (!sdm_boundary_is_json_array(coordinates) || length(coordinates) < 1L) return(FALSE)
+    for (polygon in coordinates) {
+      if (!sdm_boundary_rings_are_valid(polygon)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  FALSE
+}
+
+# Recursive validation of a GeoJSON Feature object.  RFC 7946 requires both a
+# geometry member (a Geometry object or null) and a properties member (an
+# object or null), forbids the defining members of other types (section 7.1),
+# and defines an optional id as a JSON string or number only.  A missing
+# required member and a defining member of another type are both invalid;
+# optional members (bbox) and foreign members remain permitted.
+sdm_boundary_feature_is_valid <- function(feature) {
+  if (!sdm_boundary_is_json_object(feature)) return(FALSE)
+  if (!identical(sdm_boundary_object_type(feature), "Feature")) return(FALSE)
+  if (!sdm_boundary_members_are_valid(feature, "Feature")) return(FALSE)
+  if (!sdm_boundary_bbox_is_valid(feature, sdm_boundary_feature_dimensions(feature))) return(FALSE)
+  members <- names(feature)
+  if (!("geometry" %in% members) || !("properties" %in% members)) return(FALSE)
+  if (!is.null(feature$properties) && !sdm_boundary_is_json_object(feature$properties)) return(FALSE)
+  if ("id" %in% members) {
+    # RFC 7946 section 3.2 defines id only as a string or number, and a present
+    # null is not an identifier.
+    id <- feature$id
+    if (!(is.character(id) || is.numeric(id)) || length(id) != 1L || is.na(id)) return(FALSE)
+  }
+  if (is.null(feature$geometry)) return(TRUE)
+  sdm_boundary_geometry_is_valid(feature$geometry)
+}
+
+# Deterministic structure/type validation for a parsed JSON document.
+sdm_boundary_geojson_is_valid <- function(parsed) {
+  if (!sdm_boundary_is_json_object(parsed)) return(FALSE)
+  type <- sdm_boundary_object_type(parsed)
+  if (is.null(type) || !is.character(type) || length(type) != 1L || !nzchar(type)) return(FALSE)
+  if (!type %in% sdm_boundary_geojson_types) return(FALSE)
+  members <- names(parsed)
+  if (identical(type, "FeatureCollection")) {
+    if (!sdm_boundary_members_are_valid(parsed, "FeatureCollection")) return(FALSE)
+    features <- parsed$features
+    if (!("features" %in% members) || !sdm_boundary_is_json_array(features)) return(FALSE)
+    dimensions <- unlist(lapply(features, sdm_boundary_feature_dimensions), use.names = FALSE)
+    if (!sdm_boundary_bbox_is_valid(parsed, dimensions)) return(FALSE)
+    for (feature in features) {
+      if (!sdm_boundary_feature_is_valid(feature)) return(FALSE)
+    }
+    return(TRUE)
+  }
+  if (identical(type, "Feature")) return(sdm_boundary_feature_is_valid(parsed))
+  sdm_boundary_geometry_is_valid(parsed)
+}
+
+# Reads a resolved custom asset and classifies it without asserting geometry.
+# Returns list(state = ...) where state is one of:
+#   "parsed"             readable, valid GeoJSON document (geojson attached)
+#   "unvalidated"        readable, but not a JSON-family boundary format
+#   "invalid_content"    demonstrably invalid client content
+#   "read_failure"       server-side read/I/O failure
+#   "parser_unavailable" missing JSON parser dependency (server fault)
+sdm_boundary_classify_asset <- function(path) {
+  raw_content <- tryCatch(sdm_boundary_read_asset_bytes(path), error = function(e) NULL)
+  if (is.null(raw_content)) return(list(state = "read_failure"))
+  if (!sdm_boundary_is_json_format(path)) return(list(state = "unvalidated"))
+  if (!sdm_boundary_parser_available()) return(list(state = "parser_unavailable"))
+  parsed <- tryCatch(
+    jsonlite::fromJSON(rawToChar(raw_content), simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (!sdm_boundary_geojson_is_valid(parsed)) return(list(state = "invalid_content"))
+  list(state = "parsed", geojson = parsed)
+}
+
+handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL, country = NULL, file_path = NULL,
+                                    boundary_asset_id = NULL, project_id = NULL, req = NULL) {
+  boundary_root <- sdm_boundary_storage_root(app_dir)
+  if (!sdm_boundary_root_is_safe(boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary storage root is unsafe"))
+  }
   dataset_type <- type %||% "admin0"
   scale <- resolution %||% "110m"
   country_val <- country %||% "all"
+  if (!is.character(dataset_type) || length(dataset_type) != 1L || !dataset_type %in% c("admin0", "land", "custom") ||
+      !is.character(scale) || length(scale) != 1L || !scale %in% c("auto", "10m", "50m", "110m")) {
+    res$status <- 400L
+    return(list(error = "Invalid boundary type or resolution"))
+  }
 
-  boundary_path <- if (dataset_type == "custom" && !is.null(country) && nzchar(country)) {
-    custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "boundaries"), winslash = "/"), error = function(e) NULL)
-    resolved_path <- tryCatch(normalizePath(country, winslash = "/", mustWork = FALSE), error = function(e) NULL)
-    if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, custom_dir)) {
-      res$status <- 403L
-      return(list(error = "Invalid boundary file path"))
+  if (dataset_type %in% c("admin0", "land")) {
+    natural_earth_path <- tryCatch(get_ne_boundary_path(scale, dataset_type), error = function(e) NULL)
+    if (!is.null(natural_earth_path) && sdm_boundary_path_has_symlink(natural_earth_path, boundary_root)) {
+      res$status <- 500L
+      return(list(error = "Natural Earth boundary storage is unsafe"))
+    }
+  }
+
+  boundary_path <- if (dataset_type == "custom") {
+    if (is.null(boundary_asset_id) || is.null(req) || !is.null(file_path)) {
+      res$status <- 400L
+      return(list(error = "Custom boundaries require a canonical asset ID"))
+    }
+    resolved_path <- sdm_boundary_asset_path(req, boundary_asset_id, project_id, boundary_root = boundary_root)
+    if (is.null(resolved_path)) {
+      res$status <- 404L
+      return(list(error = "Boundary file not found"))
     }
     resolved_path
   } else if (dataset_type %in% c("admin0", "land")) {
+    if (!is.null(file_path)) {
+      res$status <- 400L
+      return(list(error = "Path-based boundary inputs are not supported"))
+    }
     tryCatch(
       resolve_mask_file(dataset_type, scale, country_val, raster_res = NULL, default_file = NULL),
       error = function(e) NULL
@@ -20,11 +455,15 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
     NULL
   }
 
-  if (!is.null(boundary_path) && !file.exists(boundary_path)) {
+  if (dataset_type != "custom" && !is.null(boundary_path) && !file.exists(boundary_path)) {
     abs_path <- file.path(app_dir, boundary_path)
     if (file.exists(abs_path)) boundary_path <- abs_path
   }
   if (is.null(boundary_path) || !file.exists(boundary_path)) {
+    if (dataset_type == "custom") {
+      res$status <- 404L
+      return(list(error = "Boundary file not found"))
+    }
     fallback <- sdm_default_mask_file
     if (!file.exists(fallback)) fallback <- file.path(app_dir, fallback)
     boundary_path <- fallback
@@ -33,8 +472,34 @@ handle_boundary_default <- function(res, app_dir, resolution = NULL, type = NULL
     res$status <- 404L
     return(list(error = "Boundary file not found"))
   }
+  if (sdm_boundary_path_has_symlink(boundary_path, boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary path is unsafe"))
+  }
 
-  geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
+  if (identical(dataset_type, "custom")) {
+    inspection <- sdm_boundary_classify_asset(boundary_path)
+    if (identical(inspection$state, "invalid_content")) {
+      # The asset is the requester's own canonical, hash-verified file and its
+      # bytes are demonstrably not a GeoJSON document: a content-integrity
+      # denial of client data, not an upstream server fault.
+      res$status <- 422L
+      return(list(error = "Boundary content is not valid GeoJSON"))
+    }
+    if (identical(inspection$state, "read_failure") || identical(inspection$state, "parser_unavailable")) {
+      res$status <- 500L
+      return(list(error = "Boundary read failed"))
+    }
+    if (identical(inspection$state, "parsed")) return(inspection$geojson)
+  }
+  geojson <- tryCatch(
+    jsonlite::fromJSON(boundary_path, simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(geojson)) {
+    res$status <- 500L
+    return(list(error = "Boundary read failed"))
+  }
   geojson
 }
 
@@ -54,8 +519,21 @@ handle_boundary_upload <- function(req, res, app_dir) {
   on.exit(unlink(tmp), add = TRUE)
   writeBin(jsonlite::base64_dec(file_content), tmp)
 
-  boundary_dir <- file.path(app_dir, "data", "boundaries", "custom")
+  boundary_root <- sdm_boundary_storage_root(app_dir)
+  if (!sdm_boundary_root_is_safe(boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary storage root is unsafe"))
+  }
+  boundary_dir <- file.path(boundary_root, "custom")
+  if (sdm_boundary_path_has_symlink(boundary_dir, boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Custom boundary storage is unsafe"))
+  }
   dir.create(boundary_dir, recursive = TRUE, showWarnings = FALSE)
+  if (!dir.exists(boundary_dir) || sdm_boundary_path_has_symlink(boundary_dir, boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Custom boundary storage is unsafe"))
+  }
   uuid_base <- paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_", gsub("-", "", uuid::UUIDgenerate()))
 
   needs_conversion <- !ext %in% c("geojson", "json")
@@ -78,6 +556,14 @@ handle_boundary_upload <- function(req, res, app_dir) {
         }
       }
       utils::unzip(src, exdir = zip_dir)
+      extracted_all <- list.files(zip_dir, all.files = TRUE, recursive = TRUE, full.names = TRUE, no.. = TRUE)
+      if (any(vapply(extracted_all, function(path) {
+        target <- Sys.readlink(path)
+        length(target) > 0L && !is.na(target) && nzchar(target)
+      }, logical(1)))) {
+        res$status <- 400L
+        return(list(error = "ZIP archive contains symlinks; refusing to extract"))
+      }
       src <- list.files(zip_dir, pattern = "\\.(shp|kml|gpkg|geojson|json)$", full.names = TRUE, recursive = TRUE)[1]
       if (is.na(src) || !file.exists(src)) {
         res$status <- 400L
@@ -85,18 +571,34 @@ handle_boundary_upload <- function(req, res, app_dir) {
       }
     }
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
-    tryCatch({
+    if (!sdm_boundary_destination_is_safe(dest, boundary_root)) {
+      res$status <- 500L
+      return(list(error = "Failed to save uploaded boundary"))
+    }
+    converted <- tryCatch({
       vec <- sf::st_read(src, quiet = TRUE)
       sf::st_write(vec, dest, delete_dsn = TRUE, quiet = TRUE)
+      TRUE
     }, error = function(e) {
-      res$status <- 400L
-      stop("Failed to convert boundary file: ", conditionMessage(e))
+      warning("Boundary conversion failed: ", conditionMessage(e), call. = FALSE)
+      FALSE
     })
+    if (!converted) {
+      res$status <- 400L
+      return(list(error = "Boundary conversion failed"))
+    }
   } else {
     dest <- file.path(boundary_dir, paste0(uuid_base, ".geojson"))
-    file.copy(src, dest, overwrite = TRUE)
+    if (!sdm_boundary_destination_is_safe(dest, boundary_root) ||
+        !isTRUE(file.copy(src, dest, overwrite = FALSE))) {
+      res$status <- 500L
+      return(list(error = "Failed to save uploaded boundary"))
+    }
   }
-  sdm_write_boundary_owner(dest, req$user_id %||% "anonymous")
+  if (is.null(sdm_resolve_boundary_path(normalizePath(dest, winslash = "/", mustWork = FALSE), boundary_root))) {
+    res$status <- 500L
+    return(list(error = "Uploaded boundary storage is unsafe"))
+  }
   list(
     file_path = normalizePath(dest, winslash = "/"),
     file_name = file_name,
@@ -104,72 +606,20 @@ handle_boundary_upload <- function(req, res, app_dir) {
   )
 }
 
-handle_boundary_list <- function(req, res, app_dir) {
-  custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
-  if (!dir.exists(custom_dir)) {
-    return(list(boundaries = list()))
-  }
-  user_id <- req$user_id %||% NULL
-  is_admin <- isTRUE(req$user_role == "admin")
-  files <- list.files(custom_dir, pattern = "\\.geojson$", full.names = TRUE)
-  boundaries <- lapply(files, function(f) {
-    if (!is.null(user_id) && !is_admin && !sdm_boundary_owned_by(f, user_id)) return(NULL)
-    list(
-      file_path = normalizePath(f, winslash = "/"),
-      file_name = basename(f),
-      file_size = file.size(f),
-      modified_at = format(file.mtime(f), "%Y-%m-%dT%H:%M:%SZ")
-    )
-  })
-  boundaries <- Filter(Negate(is.null), boundaries)
-  list(boundaries = boundaries)
-}
-
-handle_boundary_delete <- function(req, res, app_dir) {
-  file_path <- req$args$file_path
-  if (is.null(file_path) || !nzchar(file_path)) {
-    res$status <- 400L
-    return(list(error = "File path required"))
-  }
-  custom_dir <- tryCatch(normalizePath(file.path(app_dir, "data", "boundaries", "custom"), winslash = "/"), error = function(e) NULL)
-  resolved_path <- tryCatch(normalizePath(file_path, winslash = "/", mustWork = FALSE), error = function(e) NULL)
-  if (is.null(resolved_path) || is.null(custom_dir) || !startsWith(resolved_path, custom_dir)) {
-    res$status <- 403L
-    return(list(error = "Invalid file path"))
-  }
-  if (!file.exists(resolved_path)) {
-    res$status <- 404L
-    return(list(error = "File not found"))
-  }
-  user_id <- req$user_id %||% NULL
-  is_admin <- isTRUE(req$user_role == "admin")
-  if (!is.null(user_id) && !is_admin && !sdm_boundary_owned_by(resolved_path, user_id)) {
-    res$status <- 403L
-    return(list(error = sdm_error_code_direct("ACCESS_DENIED", "You do not have permission to delete this boundary")))
-  }
-  file.remove(resolved_path)
-  sidecar <- paste0(resolved_path, ".owner")
-  if (file.exists(sidecar)) file.remove(sidecar)
-  list(ok = TRUE)
-}
-
-sdm_write_boundary_owner <- function(boundary_path, user_id) {
-  sidecar <- paste0(boundary_path, ".owner")
-  tryCatch(writeLines(user_id, sidecar), error = function(e) NULL)
-}
-
-sdm_boundary_owned_by <- function(boundary_path, user_id) {
-  sidecar <- paste0(boundary_path, ".owner")
-  if (!file.exists(sidecar)) return(FALSE)
-  owner <- tryCatch(readLines(sidecar, warn = FALSE)[1], error = function(e) NULL)
-  !is.null(owner) && nzchar(owner) && owner == user_id
-}
-
 handle_boundary_countries <- function(res, app_dir) {
-  boundary_path <- file.path(app_dir, "data", "boundaries", "ne", "110m", "ne_10m_admin_0_countries.geojson")
+  boundary_root <- sdm_boundary_storage_root(app_dir)
+  if (!sdm_boundary_root_is_safe(boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary storage root is unsafe"))
+  }
+  boundary_path <- file.path(boundary_root, "ne", "110m", "ne_10m_admin_0_countries.geojson")
   if (!file.exists(boundary_path)) {
     res$status <- 404L
     return(list(error = "Admin 0 boundary not found — download NE data first"))
+  }
+  if (sdm_boundary_path_has_symlink(boundary_path, boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Natural Earth boundary storage is unsafe"))
   }
   geojson <- jsonlite::fromJSON(boundary_path, simplifyVector = FALSE)
   feats <- geojson$features %||% list()
@@ -181,22 +631,60 @@ handle_boundary_countries <- function(res, app_dir) {
   list(countries = countries)
 }
 
-handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2) {
-  if (is.null(file_path) || !file.exists(file_path)) {
-    if (!is.null(type)) {
-      res_type <- type %||% "admin0"
-      res_scale <- resolution %||% "110m"
-      if (identical(res_scale, "auto")) res_scale <- ne_boundary_infer_scale(NULL)
-      if (res_type == "custom" && !is.null(country) && nzchar(country)) {
-        file_path <- country
-      } else if (res_type %in% c("admin0", "land")) {
-        file_path <- get_ne_boundary_path(res_scale, res_type)
-        if (!file.exists(file_path)) {
-          file_path <- download_ne_boundary(res_scale, res_type)
-        }
-        if (res_type == "admin0" && !is.null(country) && nzchar(country) && tolower(country) != "all") {
-          file_path <- filter_admin0_to_country(file_path, country)
-        }
+# Geometry extent via the geometry runtime.  Kept as its own function so the
+# read/processing fault path is separable from the content classification: the
+# callers pass only an already-classified, server-resolved canonical path.
+sdm_boundary_compute_extent <- function(file_path, buffer_deg = 2) {
+  vec <- terra::vect(file_path)
+  e <- terra::ext(vec)
+  xmin <- e[1]; xmax <- e[2]; ymin <- e[3]; ymax <- e[4]
+  buf <- as.numeric(buffer_deg) %||% 2
+  list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
+}
+
+handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, resolution = NULL, country = NULL, buffer_deg = 2,
+                                   boundary_asset_id = NULL, project_id = NULL, req = NULL) {
+  boundary_root <- sdm_boundary_storage_root(app_dir)
+  if (!sdm_boundary_root_is_safe(boundary_root)) {
+    res$status <- 500L
+    return(list(error = "Boundary storage root is unsafe"))
+  }
+  if ((!is.null(type) && (!is.character(type) || length(type) != 1L || !type %in% c("admin0", "land", "custom"))) ||
+      (!is.null(resolution) && (!is.character(resolution) || length(resolution) != 1L || !resolution %in% c("auto", "10m", "50m", "110m")))) {
+    res$status <- 400L
+    return(list(error = "Invalid boundary type or resolution"))
+  }
+  from_canonical_asset <- FALSE
+  if (!is.null(file_path) || identical(type, "custom") || !is.null(boundary_asset_id)) {
+    if (is.null(boundary_asset_id) || is.null(req) || !is.null(file_path) || !identical(type %||% "custom", "custom")) {
+      res$status <- 400L
+      return(list(error = "Custom boundaries require a canonical asset ID"))
+    }
+    file_path <- sdm_boundary_asset_path(req, boundary_asset_id, project_id, boundary_root = boundary_root)
+    if (is.null(file_path)) {
+      res$status <- 404L
+      return(list(error = "Boundary file not found"))
+    }
+    from_canonical_asset <- TRUE
+  } else if (!is.null(type)) {
+    res_type <- type %||% "admin0"
+    res_scale <- resolution %||% "110m"
+    if (identical(res_scale, "auto")) res_scale <- ne_boundary_infer_scale(NULL)
+    if (res_type == "custom") {
+      res$status <- 400L
+      return(list(error = "Custom boundaries require a server-owned file"))
+    }
+    if (res_type %in% c("admin0", "land")) {
+      file_path <- get_ne_boundary_path(res_scale, res_type)
+      if (sdm_boundary_path_has_symlink(file_path, boundary_root)) {
+        res$status <- 500L
+        return(list(error = "Natural Earth boundary storage is unsafe"))
+      }
+      if (!file.exists(file_path)) {
+        file_path <- download_ne_boundary(res_scale, res_type)
+      }
+      if (res_type == "admin0" && !is.null(country) && nzchar(country) && tolower(country) != "all") {
+        file_path <- filter_admin0_to_country(file_path, country)
       }
     }
   }
@@ -204,25 +692,68 @@ handle_boundary_extent <- function(res, app_dir, file_path = NULL, type = NULL, 
     res$status <- 404L
     return(list(error = "Boundary file not found"))
   }
-  tryCatch({
-    vec <- terra::vect(file_path)
-    e <- terra::ext(vec)
-    xmin <- e[1]; xmax <- e[2]; ymin <- e[3]; ymax <- e[4]
-    buf <- as.numeric(buffer_deg) %||% 2
-    list(xmin = xmin - buf, xmax = xmax + buf, ymin = ymin - buf, ymax = ymax + buf)
-  }, error = function(e) {
+  if (sdm_boundary_path_has_symlink(file_path, boundary_root)) {
     res$status <- 500L
-    list(error = paste("Failed to compute extent:", conditionMessage(e)))
-  })
+    return(list(error = "Boundary path is unsafe"))
+  }
+  if (from_canonical_asset) {
+    # Classify the requester's own canonical asset before reading it with the
+    # geometry runtime, so a demonstrable content denial stays 422 while I/O and
+    # parser/dependency faults stay genuine server failures.
+    inspection <- sdm_boundary_classify_asset(file_path)
+    if (identical(inspection$state, "invalid_content")) {
+      res$status <- 422L
+      return(list(error = "Boundary content is not a usable geometry"))
+    }
+    if (identical(inspection$state, "read_failure") || identical(inspection$state, "parser_unavailable")) {
+      res$status <- 500L
+      return(list(error = "Boundary read failed"))
+    }
+  }
+  if (!sdm_boundary_terra_available()) {
+    # A missing geometry runtime is a server fault, never a client denial.
+    res$status <- 500L
+    return(list(error = "Boundary processing is unavailable"))
+  }
+  tryCatch(
+    sdm_boundary_compute_extent(file_path, buffer_deg),
+    error = function(e) {
+      # Any remaining failure is an unexpected read/processing fault, not a
+      # demonstrable content denial: keep it an upstream 5xx.
+      warning("Boundary extent failed: ", conditionMessage(e), call. = FALSE)
+      res$status <- 500L
+      list(error = "Boundary extent failed")
+    }
+  )
+}
+
+sdm_boundary_download_filename <- function(type, resolution, country) {
+  label <- if (!identical(country, "all")) gsub("[^a-zA-Z0-9_-]", "_", tolower(country)) else type
+  token <- gsub("[^A-Za-z0-9]", "", basename(tempfile("boundary-")))
+  sprintf("ne_%s_%s_%s_%s.geojson", resolution, type, label, token)
 }
 
 handle_boundary_download <- function(res, app_dir, type = "admin0", resolution = "110m", country = "all") {
   tryCatch({
+    boundary_root <- sdm_boundary_storage_root(app_dir)
+    if (!sdm_boundary_root_is_safe(boundary_root)) {
+      res$status <- 500L
+      return(list(status = "error", message = "Boundary storage root is unsafe"))
+    }
     scale <- resolution %||% "110m"
     country_val <- country %||% "all"
+    if (!is.character(type) || length(type) != 1L || !type %in% c("admin0", "land") ||
+        !is.character(scale) || length(scale) != 1L || !scale %in% c("10m", "50m", "110m")) {
+      res$status <- 400L
+      return(list(status = "error", message = "Invalid boundary type or resolution"))
+    }
+    natural_earth_path <- get_ne_boundary_path(scale, type)
+    if (sdm_boundary_path_has_symlink(natural_earth_path, boundary_root)) {
+      res$status <- 500L
+      return(list(status = "error", message = "Natural Earth boundary storage is unsafe"))
+    }
 
-    boundary_path <- tryCatch(
-      resolve_mask_file(type, scale, country_val, raster_res = NULL, default_file = NULL),
+    boundary_path <- tryCatch(resolve_mask_file(type, scale, country_val, raster_res = NULL, default_file = NULL),
       error = function(e) NULL
     )
 
@@ -240,14 +771,28 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
         return(list(status = "error", message = "Boundary not available via Natural Earth download"))
       }
     }
+    if (sdm_boundary_path_has_symlink(boundary_path, boundary_root)) {
+      return(list(status = "error", message = "Boundary source path is unsafe"))
+    }
 
-    custom_dir <- file.path(app_dir, "data", "boundaries", "custom")
+    custom_dir <- file.path(boundary_root, "custom")
+    if (sdm_boundary_path_has_symlink(custom_dir, boundary_root)) {
+      return(list(status = "error", message = "Custom boundary storage is unsafe"))
+    }
     dir.create(custom_dir, recursive = TRUE, showWarnings = FALSE)
-    label <- if (country_val != "all") gsub("[^a-zA-Z0-9_-]", "_", tolower(country_val)) else type
-    saved_name <- sprintf("ne_%s_%s_%s.geojson", scale, type, label)
+    if (!dir.exists(custom_dir) || sdm_boundary_path_has_symlink(custom_dir, boundary_root)) {
+      return(list(status = "error", message = "Custom boundary storage is unsafe"))
+    }
+    saved_name <- sdm_boundary_download_filename(type, scale, country_val)
     saved_path <- file.path(custom_dir, saved_name)
 
-    file.copy(boundary_path, saved_path, overwrite = TRUE)
+    if (file.exists(saved_path) || sdm_boundary_path_has_symlink(saved_path, boundary_root) ||
+        !isTRUE(file.copy(boundary_path, saved_path, overwrite = FALSE))) {
+      return(list(status = "error", message = "Failed to save downloaded boundary"))
+    }
+    if (is.null(sdm_resolve_boundary_path(normalizePath(saved_path, winslash = "/", mustWork = FALSE), boundary_root))) {
+      return(list(status = "error", message = "Downloaded boundary storage is unsafe"))
+    }
 
     list(
       status = "success",
@@ -259,6 +804,8 @@ handle_boundary_download <- function(res, app_dir, type = "admin0", resolution =
       )
     )
   }, error = function(e) {
-    list(status = "error", message = conditionMessage(e))
+    warning("Boundary download failed: ", conditionMessage(e), call. = FALSE)
+    res$status <- 500L
+    list(status = "error", message = "Boundary download failed")
   })
 }

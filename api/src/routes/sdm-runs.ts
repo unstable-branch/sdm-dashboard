@@ -12,9 +12,11 @@ import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { ensureDefaultProject, getUserProjectIds } from "../services/access.js";
 import { jobEventBus } from "../services/job-events.js";
-import { buildModelPayload } from "../services/model-payload.js";
+import { buildModelPayload, resolveModelInputAssets, ModelInputAssetError } from "../services/model-payload.js";
+import { projectSafeScienceConfig, sanitizeStoredConfig, publicConfigValidationError, canonicalizeExecutionConfig } from "../services/execution-config.js";
 import { canAccessRun } from "../services/access.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
+import { registerSystemClimateCollectionFromServerPath } from "../services/input-assets.js";
 
 async function plumberJobId(runId: string): Promise<string> {
   const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1);
@@ -25,17 +27,18 @@ async function plumberJobId(runId: string): Promise<string> {
 }
 
 function normalizeConfig(config: unknown): Record<string, unknown> | null {
-  if (!config || typeof config !== "object") return null;
-  const normalized = { ...(config as Record<string, unknown>) };
-  const rawExtent = normalized.projectionExtent ?? normalized.projection_extent;
-  if (typeof rawExtent === "string") {
-    normalized.projectionExtent = rawExtent.split(",").map(Number);
+  try {
+    const normalized = canonicalizeExecutionConfig(config);
+    for (const key of ["projectionExtent", "trainingExtent"]) {
+      if (typeof normalized[key] === "string") {
+        normalized[key] = normalized[key].split(",").map(Number);
+      }
+    }
+    return sanitizeStoredConfig(normalized);
+  } catch {
+    // Old secret-bearing or malformed records must not be exported.
+    return null;
   }
-  const rawTrainingExtent = normalized.trainingExtent ?? normalized.training_extent;
-  if (typeof rawTrainingExtent === "string") {
-    normalized.trainingExtent = rawTrainingExtent.split(",").map(Number);
-  }
-  return normalized;
 }
 
 export const sdmRunRoutes = new Hono<AppEnv>();
@@ -44,6 +47,7 @@ sdmRunRoutes.use("/run", modelRateLimit);
 sdmRunRoutes.use("/run", authMiddleware);
 sdmRunRoutes.use("/cancel/*", authMiddleware);
 sdmRunRoutes.use("/status/*", authMiddleware);
+sdmRunRoutes.use("/gpu/status", authMiddleware);
 
 sdmRunRoutes.post("/run", async (c) => {
   try {
@@ -51,13 +55,17 @@ sdmRunRoutes.post("/run", async (c) => {
     if (!body) return c.json({ error: "Invalid JSON body" }, 400);
     const parsed = modelConfigSchema.safeParse(body);
     if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten() }, 400);
+      return c.json(publicConfigValidationError(), 400);
     }
 
     const config = parsed.data;
+    const safeConfig = projectSafeScienceConfig(config);
     const async = body.async === true;
     const user = c.get("user");
     const projectId = await ensureDefaultProject(user);
+    // Preflight before persistence; dispatch below resolves again to avoid
+    // using a path after an intervening asset state/storage change.
+    await resolveModelInputAssets(safeConfig, { id: user.id, role: user.role }, projectId);
 
     if (async) {
       let speciesId: string | undefined;
@@ -98,9 +106,9 @@ sdmRunRoutes.post("/run", async (c) => {
               modelId: config.modelId,
               status: "queued",
               startedAt: new Date(),
-              config,
+              config: safeConfig,
               jobId: null,
-              pipelineRunId: (config as Record<string, unknown>).pipelineRunId as string || null,
+              pipelineRunId: null,
               runNumber: maxRun.maxNum + 1,
             })
             .returning())[0];
@@ -118,7 +126,7 @@ sdmRunRoutes.post("/run", async (c) => {
       }
 
       const jobId = await enqueueSdmJob(
-        { type: "model", payload: { ...buildModelPayload(config, insertedRun.id), runId: insertedRun.id } },
+        { type: "model", payload: { runId: insertedRun.id, projectId, config: safeConfig } },
         user.id,
       );
 
@@ -148,6 +156,12 @@ sdmRunRoutes.post("/run", async (c) => {
       return c.json({ runId: insertedRun.id, queuedAt: new Date().toISOString() });
     }
 
+    // Re-authorize as close as possible to persistence so an input denial never
+    // creates a run row. The resolved paths are then used for this dispatch.
+    const latestInputs = await resolveModelInputAssets(
+      safeConfig, { id: user.id, role: user.role }, projectId,
+    );
+
     const [maxRun] = await db
       .select({ maxNum: sql<number>`COALESCE(MAX(run_number), 0)` })
       .from(runs)
@@ -161,15 +175,17 @@ sdmRunRoutes.post("/run", async (c) => {
         speciesName: config.species ?? null,
         status: "running",
         startedAt: new Date(),
-        config,
-        pipelineRunId: (config as Record<string, unknown>).pipelineRunId as string || null,
+        config: safeConfig,
+        pipelineRunId: null,
         runNumber: maxRun.maxNum + 1,
       })
       .returning();
 
     let plumberJobId: string | undefined;
     try {
-      const result = await plumberClient.runModel(buildModelPayload(config, run.id));
+      const result = await plumberClient.withUser(user.id).withRole(user.role).runModel(
+        buildModelPayload(safeConfig, run.id, latestInputs.occurrenceFile, latestInputs),
+      );
       plumberJobId = (result as { job_id?: string }).job_id;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Model run failed";
@@ -185,6 +201,14 @@ sdmRunRoutes.post("/run", async (c) => {
         progress: 0,
         failedReason: message,
       });
+      if (err instanceof ModelInputAssetError) {
+        const unavailable = err.reason === "unavailable";
+        const invalid = err.reason === "invalid_request";
+        return c.json(
+          { error: unavailable ? "Input asset service unavailable" : invalid ? "Invalid model input selection" : "Input asset not found" },
+          unavailable ? 503 : invalid ? 400 : 404,
+        );
+      }
       const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
       return c.json({ error: message }, isBusy ? 429 : 502);
     }
@@ -221,12 +245,18 @@ sdmRunRoutes.post("/run", async (c) => {
       message: "Model run started. Track progress via /runs or SSE.",
     });
   } catch (err) {
+    if (err instanceof ModelInputAssetError) {
+      const unavailable = err.reason === "unavailable";
+      const invalid = err.reason === "invalid_request";
+      return c.json(
+        { error: unavailable ? "Input asset service unavailable" : invalid ? "Invalid model input selection" : "Input asset not found" },
+        unavailable ? 503 : invalid ? 400 : 404,
+      );
+    }
     const message = err instanceof Error ? err.message : "Model run failed";
     console.error(`[sdm] Model run failed: ${message}`);
     const isBusy = message.includes("Server busy") || message.includes("too many runs") || message.includes("max concurrent");
     return c.json({ error: message }, isBusy ? 429 : 502);
-  } finally {
-    // cleaned file paths are passed raw to Plumber; R handles decryption
   }
 });
 
@@ -279,7 +309,7 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
       if (shouldLivePoll) {
         isSyncing = true;
         try {
-          const plumberStatus = await plumberClient.getModelStatus(run.jobId, 8000);
+          const plumberStatus = await plumberClient.withUser(user.id).withRole(user.role).getModelStatus(run.jobId, 8000);
           const ps = plumberStatus as unknown as PlumberModelStatus;
           plumberProgressJson = ps.progress_json ?? null;
           plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log : [];
@@ -399,7 +429,7 @@ sdmRunRoutes.post("/cancel/:jobId", async (c) => {
     }
 
     if (run.jobId) {
-      const result = await plumberClient.cancelModel(run.jobId);
+      const result = await plumberClient.withUser(user.id).withRole(user.role).cancelModel(run.jobId);
       await db.update(runs).set({ status: "cancelled", completedAt: new Date() }).where(and(eq(runs.id, jobId), inArray(runs.status, ["queued", "running"])));
       jobEventBus.emitJobStatus({
         jobId: run.id,
@@ -438,7 +468,7 @@ sdmRunRoutes.get("/compare/:runId1/:runId2", authMiddleware, async (c) => {
     }
     const jobId1 = await plumberJobId(runId1);
     const jobId2 = await plumberJobId(runId2);
-    const data = await plumberClient.getRunComparison(jobId1, jobId2);
+    const data = await plumberClient.withUser(user.id).withRole(user.role).getRunComparison(jobId1, jobId2);
     return c.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Comparison unavailable";
@@ -446,10 +476,28 @@ sdmRunRoutes.get("/compare/:runId1/:runId2", authMiddleware, async (c) => {
   }
 });
 
-sdmRunRoutes.get("/future/scenarios", async (c) => {
+sdmRunRoutes.get("/future/scenarios", authMiddleware, async (c) => {
   try {
-    const scenarios = await plumberClient.getFutureScenarios();
-    return c.json(scenarios);
+    const user = c.get("user");
+    const response = await plumberClient.withUser(user.id).withRole(user.role).getFutureScenarios();
+    const allowedKeys = ["id", "type", "source", "resolution", "gcm", "ssp", "period", "file_count", "size_bytes", "is_averaged", "status"];
+    const available_scenarios = [];
+    for (const scenario of response.available_scenarios || []) {
+      if (typeof scenario.manifest_path !== "string") continue;
+      const asset = await registerSystemClimateCollectionFromServerPath({
+        creatorUserId: user.id,
+        absolutePath: scenario.manifest_path,
+      });
+      const publicScenario: Record<string, unknown> = {};
+      for (const key of allowedKeys) {
+        if (scenario[key] !== undefined && typeof scenario[key] !== "object") {
+          publicScenario[key] = scenario[key];
+        }
+      }
+      publicScenario.climateCollectionId = asset.id;
+      available_scenarios.push(publicScenario);
+    }
+    return c.json({ available_scenarios, ...(response.message ? { message: response.message } : {}) });
   } catch (err) {
     console.warn("[sdm/future/scenarios]", err instanceof Error ? err.message : String(err));
     return c.json({
@@ -481,7 +529,7 @@ sdmRunRoutes.get("/logs/:jobId", authMiddleware, async (c) => {
     if (!run) return c.json({ error: "Run not found" }, 404);
     if (!run.jobId) return c.json({ id: runId, stderr: "", stdout: "", progress_log: "" });
 
-    const result = await plumberClient.getModelLogs(run.jobId);
+    const result = await plumberClient.withUser(user.id).withRole(user.role).getModelLogs(run.jobId);
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get logs";
@@ -490,20 +538,11 @@ sdmRunRoutes.get("/logs/:jobId", authMiddleware, async (c) => {
 });
 
 sdmRunRoutes.get("/gpu/status", async (c) => {
+  const user = c.get("user");
   try {
-    const status = await plumberClient.getGpuStatus();
+    const status = await plumberClient.withUser(user.id).withRole(user.role).getGpuStatus();
     return c.json(status);
   } catch {
-    try {
-      const viaNvsmi = await fetch(`${process.env.PLUMBER_URL || "http://localhost:8000"}/api/v1/gpu/status`, {
-        headers: { "X-Hono-Internal": process.env.PLUMBER_INTERNAL_KEY || "" },
-        signal: AbortSignal.timeout(5000),
-      });
-      if (viaNvsmi.ok) {
-        const data = await viaNvsmi.json();
-        return c.json({ ...data, proxied: true });
-      }
-    } catch { /* fall through */ }
     return c.json({ available: false, message: "GPU status unavailable" });
   }
 });

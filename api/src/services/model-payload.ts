@@ -1,10 +1,63 @@
 import { join } from "path";
+import {
+  resolveClimateCollectionDirectory,
+  resolveInputAsset,
+  type InputAssetDependencies,
+  type InputAssetDenialReason,
+  type InputAssetKind,
+  type InputAssetPrincipal,
+} from "./input-assets.js";
+import {
+  CAMEL_TO_SNAKE,
+  SAFE_MODEL_CONFIG_KEYS,
+  projectSafeScienceConfig,
+  type UnsafeExecutionConfigError,
+} from "./execution-config.js";
+
+export { CAMEL_TO_SNAKE, SAFE_MODEL_CONFIG_KEYS };
+
+/** Deterministic JSON for execution identity, not authorization or asset sealing. */
+export function canonicalExecutionJson(value: unknown): string {
+  const ancestors = new Set<object>();
+  const invalid = (): never => { throw new Error("Invalid execution identity"); };
+  const serialize = (input: unknown): string => {
+    if (input === null) return "null";
+    if (typeof input === "string" || typeof input === "boolean") return JSON.stringify(input);
+    if (typeof input === "number") return Number.isFinite(input) ? String(input) : invalid();
+    if (typeof input !== "object" || ancestors.has(input)) return invalid();
+    const array = Array.isArray(input);
+    if (!array && Object.getPrototypeOf(input) !== Object.prototype && Object.getPrototypeOf(input) !== null) {
+      return invalid();
+    }
+    ancestors.add(input);
+    try {
+      const descriptors = Object.getOwnPropertyDescriptors(input);
+      const keys = array ? Array.from({ length: input.length }, (_, i) => String(i)) : Object.keys(input).sort();
+      const parts: string[] = [];
+      for (const key of keys) {
+        const descriptor = descriptors[key];
+        if (!descriptor || !("value" in descriptor)) return invalid();
+        if (!array && descriptor.value === undefined) continue;
+        const serialized = serialize(descriptor.value);
+        parts.push(array ? serialized : `${JSON.stringify(key)}:${serialized}`);
+      }
+      return array ? `[${parts.join(",")}]` : `{${parts.join(",")}}`;
+    } finally {
+      ancestors.delete(input);
+    }
+  };
+  return serialize(value);
+}
 
 export type ModelConfigRecord = Record<string, unknown> & {
   species?: string;
   modelId?: string;
-  cleanedFilePath?: string;
-  occurrenceFile?: string;
+  occurrenceAssetId?: string;
+  maskAssetId?: string;
+  targetGroupAssetId?: string;
+  currentClimateAssetId?: string;
+  futureClimateAssetId?: string;
+  futureClimateAssetId2?: string;
   biovars?: number[];
   projectionExtent?: number[];
   trainingExtent?: number[];
@@ -12,184 +65,190 @@ export type ModelConfigRecord = Record<string, unknown> & {
   cvFolds?: number;
 };
 
-// Map of camelCase config keys to snake_case keys expected by Plumber
-export const CAMEL_TO_SNAKE: Record<string, string> = {
-  modelId: "model_id",
-  backgroundN: "background_n",
-  cvFolds: "cv_folds",
-  cvStrategy: "cv_strategy",
-  cvBlockSizeKm: "cv_block_size_km",
-  includeQuadratic: "include_quadratic",
-  nCores: "n_cores",
-  paReplicates: "pa_replicates",
-  maskType: "mask_type",
-  maskFile: "mask_file",
-  maskBufferDeg: "mask_buffer_deg",
-  maskBoundaryType: "mask_boundary_type",
-  maskResolution: "mask_resolution",
-  maskCountry: "mask_country",
-  restrictBackground: "restrict_background",
-  biasMethod: "bias_method",
-  thickeningDistanceKm: "thickening_distance_km",
-  targetGroupFile: "target_group_file",
-  minSourceRecords: "min_source_records",
-  mergeSmallSources: "merge_small_sources",
-  thinByCell: "thin_by_cell",
-  vifReduction: "vif_reduction",
-  vifThreshold: "vif_threshold",
-  climateMatching: "climate_matching",
-  climateMatchingMethod: "climate_matching_method",
-  futureProjection: "future_projection",
-  futureProjection2: "future_projection2",
-  futureWorldclimDir: "future_worldclim_dir",
-  futureLabel: "future_label",
-  futureWorldclimDir2: "future_worldclim_dir2",
-  futureLabel2: "future_label2",
-  autoDownloadClimate: "auto_download_climate",
-  worldclimDir: "worldclim_dir",
-  worldclimRes: "worldclim_res",
-  useElevation: "use_elevation",
-  elevationDemtype: "elevation_demtype",
-  opentopoApiKey: "opentopo_api_key",
-  useSoil: "use_soil",
-  soilVars: "soil_vars",
-  soilDepths: "soil_depths",
-  useUv: "use_uv",
-  uvVars: "uv_vars",
-  uvMonths: "uv_months",
-  useVegetation: "use_vegetation",
-  vegYear: "veg_year",
-  vegProducts: "veg_products",
-  useLulc: "use_lulc",
-  lulcYear: "lulc_year",
-  useHfp: "use_hfp",
-  hfpYear: "hfp_year",
-  useBioclimSeason: "use_bioclim_season",
-  useDrought: "use_drought",
-  droughtPeriods: "drought_periods",
-  maxnetFeatures: "maxnet_features",
-  maxnetRegmult: "maxnet_regmult",
-  aggregationFactor: "aggregation_factor",
-  occurrenceFile: "occurrence_file",
-  cleanedFilePath: "cleaned_file_path",
-  pipelineRunId: "pipeline_run_id",
-  extrapolationMask: "extrapolation_mask",
-  messThreshold: "mess_threshold",
-  dnnArchitecture: "dnn_model_type",
-  dnnNSeeds: "dnn_n_seeds",
-  dnnDevice: "dnn_device",
-  hiddenLayers: "hidden_layers",
-  batchSize: "batch_size",
-  predictBatchSize: "predict_batch_size",
-  learningRate: "learning_rate",
-  pythonDevice: "python_device",
-  earlyStoppingPatience: "early_stopping_patience",
-  validationFraction: "validation_fraction",
-  nEstimators: "n_estimators",
-  maxDepth: "max_depth",
-  maxIterations: "max_iterations",
-  gpuEnabled: "gpu_enabled",
-  dnnFusedAdam: "dnn_fused_adam",
-  dnnMcSamples: "dnn_mc_samples",
-  dnnUncertaintyMethod: "dnn_uncertainty_method",
-  brtNTrees: "brt_n_trees",
-  brtInteractionDepth: "brt_interaction_depth",
-  brtShrinkage: "brt_shrinkage",
-  brtBagFraction: "brt_bag_fraction",
-  ctaCp: "cta_cp",
-  ctaMaxdepth: "cta_maxdepth",
-  ctaMinsplit: "cta_minsplit",
-  marsDegree: "mars_degree",
-  marsPenalty: "mars_penalty",
-  marsNk: "mars_nk",
-  fdaDegree: "fda_degree",
-  fdaNprune: "fda_nprune",
-  annSize: "ann_size",
-  annDecay: "ann_decay",
-  annMaxit: "ann_maxit",
-  annRang: "ann_rang",
-  rfNumTrees: "rf_num_trees",
-  rfMtry: "rf_mtry",
-  rfMinNodeSize: "rf_min_node_size",
-  xgbMaxDepth: "xgb_max_depth",
-  xgbEta: "xgb_eta",
-  xgbNrounds: "xgb_nrounds",
-  xgbNRounds: "xgb_nrounds",
-  bartNtree: "bart_ntree",
-  bartNdpost: "bart_ndpost",
-  bartNskip: "bart_nskip",
-  brmsChains: "brms_chains",
-  brmsIter: "brms_iter",
-  brmsWarmup: "brms_warmup",
-  inlaMeshMaxEdge: "inla_mesh_max_edge",
-  inlaMeshCutoff: "inla_mesh_cutoff",
-  inlaPriorRange: "inla_prior_range",
-  inlaPriorSigma: "inla_prior_sigma",
-  rangebagNBags: "rangebag_n_bags",
-  rangebagBagFraction: "rangebag_bag_fraction",
-  rangebagVarsPerBag: "rangebag_vars_per_bag",
-  detectionFormula: "detection_formula",
-  detectionModelType: "detection_model_type",
-  dnnMultispeciesArchitecture: "dnn_multispecies_architecture",
-  dnnMultispeciesNSeeds: "dnn_multispecies_n_seeds",
-  gllvmFamily: "gllvm_family",
-  gllvmNumLv: "gllvm_num_lv",
-  gllvmNumRows: "gllvm_num_rows",
-  gllvmLvCorr: "gllvm_lv_corr",
-  multiEnsembleModels: "multi_ensemble_models",
-  multiEnsembleBiomod2: "biomod2_models",
-  multiEnsembleWeighting: "multi_ensemble_weighting",
-  multiEnsemblePower: "multi_ensemble_power",
-  multiEnsembleMinAuc: "multi_ensemble_min_auc",
-  multiEnsembleMinTss: "multi_ensemble_min_tss",
-  biomod2Models: "biomod2_models",
-  esmNRuns: "esm_n_runs",
-  esmSplit: "esm_split",
-  esmMinAuc: "esm_min_auc",
-  esmWeightingMetric: "esm_weighting_metric",
-  esmPower: "esm_power",
-  esmBiovars: "esm_biovars",
-  maxnetAutoTune: "maxnet_auto_tune",
-  gamK: "gam_k",
-  dnnDropout: "dnn_dropout",
-  dnnL2Lambda: "dnn_lambda",
-  multiEnsembleExport: "multi_ensemble_export",
-  multiEnsembleUncertainty: "multi_ensemble_uncertainty",
-  chelsaExtras: "chelsa_extras",
-  analysisCrs: "analysis_crs",
-  generateTiles: "generate_tiles",
-  generateCog: "generate_cog",
-  speciesFilter: "species_filter",
-  trainingExtent: "training_extent",
-  tuningMethod: "tuning_method",
-  enmevalAlgorithm: "enmeval_algorithm",
-  enmevalPartitions: "enmeval_partitions",
-  enmevalSelectionMetric: "enmeval_selection_metric",
-  enmevalTuneArgs: "enmeval_tune_args",
-  enmevalCategoricals: "enmeval_categoricals",
-  enmevalNullIterations: "enmeval_null_iterations",
-};
+export interface ResolvedModelInputPaths {
+  occurrenceFile: string;
+  maskFile?: string;
+  targetGroupFile?: string;
+  worldclimDir: string;
+  futureWorldclimDir?: string;
+  futureWorldclimDir2?: string;
+}
 
-export function buildModelPayload(config: ModelConfigRecord, runId: string): Record<string, unknown> {
-  const { biovars, projectionExtent, trainingExtent, ...rest } = config;
-  const rawPath = config.cleanedFilePath || config.occurrenceFile || null;
-  // Convert remaining camelCase keys to snake_case for Plumber API
+export { projectSafeScienceConfig };
+export type { UnsafeExecutionConfigError };
+
+export function buildModelPayload(
+  config: ModelConfigRecord,
+  runId: string,
+  occurrencePath: string,
+  resolved: Partial<Omit<ResolvedModelInputPaths, "occurrenceFile">> = {},
+): Record<string, unknown> {
+  const safeConfig = projectSafeScienceConfig(config);
   const restSnake: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(rest)) {
-    restSnake[CAMEL_TO_SNAKE[key] || key] = val;
+  for (const [key, val] of Object.entries(safeConfig)) {
+    if (key.endsWith("AssetId") || key === "biovars" || key === "projectionExtent" || key === "trainingExtent") continue;
+    const snakeKey = CAMEL_TO_SNAKE[key];
+    if (snakeKey) restSnake[snakeKey] = val;
   }
   const payload: Record<string, unknown> = {
     ...restSnake,
-    species: config.species,
-    model_id: config.modelId,
-    occurrence_file: rawPath,
-    biovars: Array.isArray(config.biovars) ? config.biovars.join(",") : "",
-    projection_extent: Array.isArray(config.projectionExtent) ? config.projectionExtent.join(",") : "",
-    training_extent: Array.isArray(config.trainingExtent) ? config.trainingExtent.join(",") : undefined,
+    species: safeConfig.species,
+    model_id: safeConfig.modelId,
+    occurrence_file: occurrencePath,
+    mask_file: resolved.maskFile,
+    target_group_file: resolved.targetGroupFile,
+    worldclim_dir: resolved.worldclimDir,
+    future_worldclim_dir: resolved.futureWorldclimDir,
+    future_worldclim_dir2: resolved.futureWorldclimDir2,
+    biovars: Array.isArray(safeConfig.biovars) ? safeConfig.biovars.join(",") : "",
+    projection_extent: Array.isArray(safeConfig.projectionExtent) ? safeConfig.projectionExtent.join(",") : "",
+    training_extent: Array.isArray(safeConfig.trainingExtent) ? safeConfig.trainingExtent.join(",") : undefined,
     output_dir: join("outputs", "jobs", runId),
   };
-  if (rawPath) {
-    payload.cleaned_file_id = rawPath;
-  }
   return payload;
+}
+
+export function buildTargetsConfig(
+  config: ModelConfigRecord,
+  occurrencePath: string,
+  resolved: Partial<Omit<ResolvedModelInputPaths, "occurrenceFile">> = {},
+): Record<string, unknown> {
+  const safeConfig = projectSafeScienceConfig(config);
+  const scienceConfig = { ...safeConfig };
+  for (const key of Object.keys(scienceConfig)) {
+    if (key.endsWith("AssetId")) delete scienceConfig[key];
+  }
+  return {
+    ...scienceConfig,
+    occurrenceFile: occurrencePath,
+    maskFile: resolved.maskFile,
+    targetGroupFile: resolved.targetGroupFile,
+    worldclimDir: resolved.worldclimDir,
+    futureWorldclimDir: resolved.futureWorldclimDir,
+    futureWorldclimDir2: resolved.futureWorldclimDir2,
+  };
+}
+
+
+export class ModelInputAssetError extends Error {
+  constructor(readonly reason: InputAssetDenialReason) {
+    super("Model input asset is unavailable");
+    this.name = "ModelInputAssetError";
+  }
+}
+
+export async function resolveModelInputAsset(
+  config: ModelConfigRecord,
+  principal: InputAssetPrincipal,
+  projectId: string | null,
+  dependencies: InputAssetDependencies = {},
+): Promise<{ absolutePath: string; kind: "raw_occurrence" | "cleaned_occurrence" }> {
+  const assetId = config.occurrenceAssetId;
+  if (typeof assetId !== "string") throw new ModelInputAssetError("invalid_request");
+  const resolution = await resolveInputAsset({
+    assetId,
+    principal,
+    action: "use",
+    allowedKinds: ["raw_occurrence", "cleaned_occurrence"],
+    destinationProjectId: projectId,
+  }, dependencies);
+  if (!resolution.ok) throw new ModelInputAssetError(resolution.reason);
+  return { absolutePath: resolution.absolutePath, kind: resolution.asset.kind as "raw_occurrence" | "cleaned_occurrence" };
+}
+
+async function resolveTypedAsset(
+  assetId: unknown,
+  kind: InputAssetKind,
+  principal: InputAssetPrincipal,
+  projectId: string | null,
+  dependencies: InputAssetDependencies,
+): Promise<string> {
+  if (typeof assetId !== "string") throw new ModelInputAssetError("invalid_request");
+  const resolution = await resolveInputAsset({
+    assetId,
+    principal,
+    action: "use",
+    expectedKind: kind,
+    destinationProjectId: projectId,
+  }, dependencies);
+  if (!resolution.ok) throw new ModelInputAssetError(resolution.reason);
+  if (kind !== "climate_collection") return resolution.absolutePath;
+  const directory = await resolveClimateCollectionDirectory(resolution.absolutePath, dependencies);
+  if (!directory) throw new ModelInputAssetError("unsafe_storage");
+  return directory;
+}
+
+export async function resolveModelInputAssets(
+  config: ModelConfigRecord,
+  principal: InputAssetPrincipal,
+  projectId: string | null,
+  dependencies: InputAssetDependencies = {},
+): Promise<ResolvedModelInputPaths> {
+  const safeConfig = projectSafeScienceConfig(config) as ModelConfigRecord;
+  if (safeConfig.maskBoundaryType === "custom" && typeof safeConfig.maskAssetId !== "string") {
+    throw new ModelInputAssetError("invalid_request");
+  }
+  if (safeConfig.biasMethod === "target_group" && typeof safeConfig.targetGroupAssetId !== "string") {
+    throw new ModelInputAssetError("invalid_request");
+  }
+  if (safeConfig.futureProjection === true && typeof safeConfig.futureClimateAssetId !== "string") {
+    throw new ModelInputAssetError("invalid_request");
+  }
+  if (safeConfig.futureProjection2 === true && typeof safeConfig.futureClimateAssetId2 !== "string") {
+    throw new ModelInputAssetError("invalid_request");
+  }
+
+  const occurrence = await resolveModelInputAsset(safeConfig, principal, projectId, dependencies);
+  const worldclimDir = await resolveTypedAsset(
+    safeConfig.currentClimateAssetId,
+    "climate_collection",
+    principal,
+    projectId,
+    dependencies,
+  );
+  const [maskFile, targetGroupFile, futureWorldclimDir, futureWorldclimDir2] = await Promise.all([
+    safeConfig.maskAssetId
+      ? resolveTypedAsset(safeConfig.maskAssetId, "custom_boundary", principal, projectId, dependencies)
+      : undefined,
+    safeConfig.targetGroupAssetId
+      ? resolveTypedAsset(safeConfig.targetGroupAssetId, "target_group", principal, projectId, dependencies)
+      : undefined,
+    safeConfig.futureClimateAssetId
+      ? resolveTypedAsset(safeConfig.futureClimateAssetId, "climate_collection", principal, projectId, dependencies)
+      : undefined,
+    safeConfig.futureClimateAssetId2
+      ? resolveTypedAsset(safeConfig.futureClimateAssetId2, "climate_collection", principal, projectId, dependencies)
+      : undefined,
+  ]);
+  return {
+    occurrenceFile: occurrence.absolutePath,
+    worldclimDir,
+    maskFile,
+    targetGroupFile,
+    futureWorldclimDir,
+    futureWorldclimDir2,
+  };
+}
+
+export async function resolveModelPayload(
+  config: ModelConfigRecord,
+  runId: string,
+  principal: InputAssetPrincipal,
+  projectId: string | null,
+  dependencies: InputAssetDependencies = {},
+): Promise<Record<string, unknown>> {
+  const assets = await resolveModelInputAssets(config, principal, projectId, dependencies);
+  return buildModelPayload(config, runId, assets.occurrenceFile, assets);
+}
+
+export async function resolveTargetsConfigs(
+  configs: ModelConfigRecord[],
+  principal: InputAssetPrincipal,
+  projectId: string | null,
+  dependencies: InputAssetDependencies = {},
+): Promise<Record<string, unknown>[]> {
+  return Promise.all(configs.map(async (config) => {
+    const assets = await resolveModelInputAssets(config, principal, projectId, dependencies);
+    return buildTargetsConfig(config, assets.occurrenceFile, assets);
+  }));
 }

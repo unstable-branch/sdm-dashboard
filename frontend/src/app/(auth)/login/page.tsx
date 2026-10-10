@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/stores/auth-store";
+import { loginBrowserSession, registerBrowserSession } from "@/services/api";
 import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
@@ -35,22 +36,15 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      const endpoint = mode === "login" ? "/api/v1/auth/login" : "/api/v1/auth/register";
-      const body: Record<string, string> = { email, password };
-      if (mode === "register") body.name = name;
-
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Request failed");
-
-      setAuth(data.user, data.token, rememberMe);
-      router.push(searchParams.get("redirect") || "/");
+      const credentials = { email, password, remember_me: rememberMe };
+      const data = mode === "login"
+        ? await loginBrowserSession<{ user: Parameters<typeof setAuth>[0] }>("/api/v1/auth/login", credentials)
+        : await registerBrowserSession<{ user: Parameters<typeof setAuth>[0] }>("/api/v1/auth/register", { ...credentials, name });
+      if (!data.user?.id) throw new Error("Server did not return a valid user profile");
+      setAuth(data.user);
+      const requested = searchParams.get("redirect");
+      const safeRedirect = requested?.startsWith("/") && !requested.startsWith("//") && !requested.includes("\\") ? requested : "/";
+      router.push(safeRedirect);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {

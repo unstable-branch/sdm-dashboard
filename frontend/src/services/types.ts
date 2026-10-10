@@ -258,26 +258,34 @@ export interface ManifestData {
 
 export interface UploadFile {
   id?: string;
+  rawAssetId?: string;
+  raw_asset_id?: string;
+  /** @deprecated Compatibility-only path. Use rawAssetId. */
   file_id: string;
+  /** @deprecated Compatibility-only name. */
   file_name: string;
   file_size: number;
   n_rows: number;
   cleaned: boolean;
   modified_at: string | null;
+  cleanedAssetId?: string;
+  cleaned_asset_id?: string;
+  /** @deprecated Compatibility-only path. Use cleanedAssetId. */
   cleaned_file_id?: string;
-  cleaned_valid_records?: number;
+  cleaned_valid_records?: number | null;
   species?: string;
   format?: string;
 }
 
 export interface ClimateScenarioResponse {
   id: string;
+  climateCollectionId: string;
   type: "future" | "current";
   gcm?: string;
   ssp?: string;
   period?: string;
   source?: "worldclim" | "chelsa";
-  path?: string;
+  resolution?: number;
   file_count: number;
   size_bytes: number;
   is_averaged?: boolean;
@@ -285,7 +293,13 @@ export interface ClimateScenarioResponse {
 
 export interface CleanResult {
   status?: string;
+  rawAssetId?: string;
+  raw_asset_id?: string;
+  cleanedAssetId?: string;
+  cleaned_asset_id?: string;
+  /** @deprecated Compatibility-only path. Use cleanedAssetId. */
   cleaned_file_id?: string;
+  /** @deprecated Compatibility-only path. Use cleanedAssetId. */
   cleaned_file_path?: string;
   n_removed?: number;
   n_kept?: number;

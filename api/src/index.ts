@@ -26,6 +26,7 @@ import { dataRoutes } from "./routes/occurrences.js";
 import { examplesRoutes } from "./routes/examples.js";
 import { gbifAlaRoutes } from "./routes/gbif-ala.js";
 import { boundaryRoutes } from "./routes/boundary.js";
+import { targetGroupRoutes } from "./routes/target-groups.js";
 import { resultsRoutes } from "./routes/results.js";
 import { climateRoutes } from "./routes/climate.js";
 import { covariatesRoutes } from "./routes/covariates.js";
@@ -34,10 +35,12 @@ import { ecologyRoutes } from "./routes/ecology.js";
 import { authRoutes } from "./routes/auth.js";
 import { publicRoutes } from "./routes/public.js";
 import { projectRoutes } from "./routes/projects.js";
+import { projectMemberRoutes } from "./routes/project-members.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { adminRoutes } from "./routes/admin.js";
 import { diagnosticsRoutes } from "./routes/diagnostics.js";
 import jobsRoutes from "./routes/jobs.js";
+import { assertProductionEnv } from "./config/production-env.js";
 
 process.on("uncaughtException", (err) => {
   console.error("[FATAL] Uncaught exception:", err?.stack ?? err?.message ?? err);
@@ -54,26 +57,6 @@ process.on("uncaughtException", (err) => {
 });
 
 const app = new Hono();
-
-function assertProductionEnv(): void {
-  if (process.env.NODE_ENV !== "production") return;
-  const required: Array<[string, number]> = [
-    ["JWT_SECRET", 32],
-    ["PLUMBER_INTERNAL_KEY", 32],
-    ["CSRF_SECRET", 32],
-    ["DATA_ENCRYPTION_KEY", 32],
-  ];
-  const missing: string[] = [];
-  for (const [name, minLen] of required) {
-    const v = process.env[name];
-    if (!v || v.length < minLen) missing.push(`${name} (>=${minLen} chars)`);
-  }
-  if (missing.length > 0) {
-    const msg = `[FATAL] Missing or weak required secrets in production: ${missing.join(", ")}. Refusing to start.`;
-    console.error(msg);
-    throw new Error(msg);
-  }
-}
 
 assertProductionEnv();
 
@@ -215,6 +198,7 @@ app.get("/ready", async (c) => {
 
 app.route("/api/v1/auth", authRoutes);
 app.route("/api/v1/projects", projectRoutes);
+app.route("/api/v1/projects", projectMemberRoutes);
 app.route("/api/v1/settings", settingsRoutes);
 app.route("/api/v1/admin", adminRoutes);
 app.route("/api/v1/sdm", sdmRunRoutes);
@@ -224,6 +208,7 @@ app.route("/api/v1/data", dataRoutes);
 app.route("/api/v1/data/examples", examplesRoutes);
 app.route("/api/v1/data", gbifAlaRoutes);
 app.route("/api/v1/data", boundaryRoutes);
+app.route("/api/v1/data", targetGroupRoutes);
 app.route("/api/v1/results", resultsRoutes);
 app.route("/api/v1/public", publicRoutes);
 app.route("/api/v1/climate", climateRoutes);

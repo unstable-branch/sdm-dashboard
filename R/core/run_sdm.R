@@ -38,6 +38,12 @@ run_fast_sdm <- function(...) {
   } else {
     cfg <- sdm_config(...)
   }
+  pa_replicates <- cfg$pa_replicates %||% 1L
+  if (is.null(pa_replicates) || !is.finite(pa_replicates) || pa_replicates < 1) pa_replicates <- 1L
+  pa_replicates <- as.integer(pa_replicates)
+  if (identical(cfg$model_id, "glm") && isTRUE(cfg$vif_reduction) && pa_replicates > 1L) {
+    stop("GLM VIF with multiple PA replicates is not supported until replicate predictor sets and MESS are aligned", call. = FALSE)
+  }
 
   species <- cfg$species
   occurrence_file <- cfg$occurrence_file
@@ -389,7 +395,8 @@ run_fast_sdm <- function(...) {
   }
   dropped_vars <- character(0)
   vif_result <- NULL
-  if (isTRUE(vif_reduction) && terra::nlyr(env$env_train_scaled) >= 3) {
+  plain_glm_fold_vif <- identical(model_id, "glm") && isTRUE(vif_reduction)
+  if (isTRUE(vif_reduction) && !plain_glm_fold_vif && terra::nlyr(env$env_train_scaled) >= 3) {
     progress_step(progress_fun, 0.35, "Running VIF collinearity reduction")
     set.seed(seed)
     n_cells <- terra::ncell(env$env_train_scaled)
@@ -439,7 +446,7 @@ run_fast_sdm <- function(...) {
   # raster — otherwise the "training envelope" is computed in raw units while
   # the model predicts in scaled units, producing unreliable extrapolation
   # flags for non-linear backends (GAM, DNN, MaxEnt with feature classes).
-  if (!is.null(env$env_train_scaled) && !is.null(env$env_project_scaled)) {
+  if (!plain_glm_fold_vif && !is.null(env$env_train_scaled) && !is.null(env$env_project_scaled)) {
     mess_result <- tryCatch(
       compute_mess(env$env_train_scaled, env$env_project_scaled),
       error = function(e) {
@@ -457,6 +464,7 @@ run_fast_sdm <- function(...) {
   # Snapshot the SCALED training data before NULL-ing it; future_projection
   # later needs it for MESS computation in feature space (matches the model).
   env_train_for_mess <- env$env_train_scaled
+  env$env_project_for_future <- env$env_project
   env$env_train <- NULL
   env$env_project <- NULL
 
@@ -496,14 +504,19 @@ run_fast_sdm <- function(...) {
 
   progress_step(progress_fun, 0.60, "Fitting model")
   log_message(log_fun, "Model backend: ", model_spec$label)
-  extra_args <- if (identical(model_id, "maxnet")) {
+  extra_args <- if (identical(model_id, "glm") && isTRUE(vif_reduction)) {
+    list(vif_threshold = vif_threshold)
+  } else if (identical(model_id, "maxnet")) {
     list(maxnet_features = maxnet_features, maxnet_regmult = maxnet_regmult)
   } else if (identical(model_id, "multi_ensemble")) {
     list(
       selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
       ensemble_power = multi_ensemble_power, min_auc = multi_ensemble_min_auc,
-      min_tss = multi_ensemble_min_tss, biomod2_models = biomod2_models
+      min_tss = multi_ensemble_min_tss, biomod2_models = biomod2_models,
+      cancel_fun = check_cancelled
     )
+  } else if (identical(model_id, "biomod2")) {
+    list(models = biomod2_models, cancel_fun = check_cancelled)
   } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
     list(
       biovars = esm_biovars, min_auc = esm_min_auc, weighting_metric = esm_weighting_metric, power = esm_power,
@@ -628,10 +641,6 @@ run_fast_sdm <- function(...) {
       }
     }
   bias_method <- match.arg(bias_method, c("uniform", "target_group", "thickened"))
-  pa_replicates <- cfg$pa_replicates %||% 1L
-  if (is.null(pa_replicates) || !is.finite(pa_replicates) || pa_replicates < 1) pa_replicates <- 1L
-  pa_replicates <- as.integer(pa_replicates)
-
   if (pa_replicates > 1) {
     log_message(log_fun, "Running ", pa_replicates, " PA replicates with different background samples")
     if (model_id %in% c("multi_ensemble", "esm_glm", "esm_maxnet", "ensemble_glm_rangebag", "bioclim", "dnn_multispecies", "gllvm")) {
@@ -731,6 +740,39 @@ run_fast_sdm <- function(...) {
   }
 
   gc(verbose = FALSE)
+
+  if (plain_glm_fold_vif) {
+    fit_vars <- fit$covariates
+    original_vars <- names(env$env_train_scaled)
+    if (!all(fit_vars %in% original_vars)) {
+      stop("GLM VIF selected covariates absent from the scaled training raster", call. = FALSE)
+    }
+    proj_names <- names(env$env_project_scaled)
+    proj_idx <- vapply(fit_vars, function(v) {
+      candidates <- c(v, make.names(v), chartr(".", "_", v))
+      hit <- match(candidates, proj_names, nomatch = 0L)
+      hit <- hit[hit > 0L]
+      if (length(hit)) hit[[1]] else NA_integer_
+    }, integer(1))
+    if (anyNA(proj_idx)) {
+      stop("GLM VIF selected covariates absent from the scaled projection raster", call. = FALSE)
+    }
+    env$env_train_scaled <- env$env_train_scaled[[fit_vars]]
+    env$env_project_scaled <- env$env_project_scaled[[proj_idx]]
+    names(env$env_project_scaled) <- fit_vars
+    env$means <- env$means[fit_vars]
+    env$sds <- env$sds[fit_vars]
+    dropped_vars <- setdiff(original_vars, fit_vars)
+    vif_result <- fit$vif_result
+    env_train_for_mess <- env$env_train_scaled
+    mess_result <- tryCatch(
+      compute_mess(env$env_train_scaled, env$env_project_scaled),
+      error = function(e) {
+        log_message(log_fun, "WARNING: MESS computation failed: ", conditionMessage(e))
+        NULL
+      }
+    )
+  }
 
   # Post-fit threshold optimization: when threshold is "max_tss" (NA), compute
   # the TSS-maximizing threshold from out-of-fold cross-validated predictions
@@ -1499,6 +1541,7 @@ run_fast_sdm <- function(...) {
       vif_reduction = isTRUE(vif_reduction), vif_threshold = vif_threshold,
       future_projection = isTRUE(future_projection), future_worldclim_dir = future_worldclim_dir,
       future_label = future_label,
+      extrapolation_mask = isTRUE(cfg$extrapolation_mask %||% TRUE), mess_threshold = cfg$mess_threshold %||% 0,
       bias_method = bias_method, thickening_distance_km = thickening_distance_km,
       gbif_doi = dwca_doi %||% gbif_doi, climate_source = source,
       overlap_warn = isTRUE(overlap_warn),
@@ -1514,7 +1557,9 @@ run_fast_sdm <- function(...) {
     environment = list(
       names = names(env$env_train_scaled), means = env$means, sds = env$sds,
       files = env$files, extra_covariates = env$extra_covariates,
-      dropped_vars = dropped_vars, vif_result = vif_result
+      dropped_vars = dropped_vars, vif_result = vif_result,
+      vif_status = if (plain_glm_fold_vif) fit$vif_status else NULL,
+      vif_source = if (plain_glm_fold_vif) "sampled_fit_rows" else if (!is.null(vif_result)) "raster_cells" else NULL
     ),
     model_info = list(
       id = model_spec$id, label = model_spec$label, method = model_spec$method,
@@ -1706,6 +1751,9 @@ sdm_stage_covariates <- function(cfg, occ = NULL, log_fun = NULL) {
 
 #' Run SDM pipeline: Stage 3 — Fit model
 sdm_stage_fit <- function(cfg, occ, env, log_fun = NULL, progress_fun = NULL) {
+  if (identical(cfg$model_id %||% "glm", "glm") && isTRUE(cfg$vif_reduction)) {
+    stop("GLM VIF is not supported in the staged pipeline until fit, projection and MESS predictor sets are aligned", call. = FALSE)
+  }
   log_message(log_fun, "Stage 3: Fitting model")
   model_id <- cfg$model_id %||% "glm"
   extra_args <- build_stage_extra_args(cfg, model_id)
@@ -1748,7 +1796,8 @@ sdm_stage_future <- function(cfg, fit, suit, env, output_dir, base_name, log_fun
     return(list(future = NULL))
   }
   log_message(log_fun, "Stage 4b: Projecting future climate scenario")
-  env_train_for_mess <- env$env_train
+  env_train_for_mess <- env$env_train_scaled
+  env$env_project_for_future <- env$env_project
   future <- tryCatch(project_future_suitability(
     fit = fit, current_suitability = suit, env = env,
     future_worldclim_dir = cfg$future_worldclim_dir,

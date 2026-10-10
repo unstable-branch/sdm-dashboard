@@ -14,8 +14,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  r45-lockfile:
+    name: R 4.5.0 locked full suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    container:
+      image: docker.io/rocker/geospatial@sha256:e501f5e7e6128dd65ccf753c35f6a7aca85c9e62c3c2e0ab258fe3e28e562a80
+      options: --user 0:0
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Verify container checkout ownership boundary
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git rev-parse --show-toplevel
+
+      - name: Cache renv package cache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: /root/.cache/R/renv
+          key: ${{ runner.os }}-r-4.5.0-renv-${{ hashFiles('renv.lock') }}
+
+      - name: Cache CPU LibTorch runtime
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: /root/.cache/torch
+          key: ${{ runner.os }}-r-4.5.0-torch-cpu-${{ hashFiles('renv.lock') }}
+
+      - name: Test environment verifier rejection fixtures
+        run: Rscript scripts/verify_r_environment.R --self-test
+
+      - name: Restore and verify exact renv lock
+        env:
+          RENV_PATHS_CACHE: /root/.cache/R/renv
+        run: |
+          Rscript -e 'stopifnot(as.character(getRversion()) == "4.5.0")'
+          Rscript -e 'renv::restore(prompt = FALSE, clean = TRUE)'
+          Rscript scripts/verify_r_environment.R --lock
+          git diff --exit-code -- renv.lock
+
+      - name: Install CPU LibTorch and repeat environment checks
+        env:
+          CUDA: cpu
+          TORCH_HOME: /root/.cache/torch
+          RENV_PATHS_CACHE: /root/.cache/R/renv
+        run: |
+          # A cache miss leaves TORCH_HOME absent; torch checks it before installing.
+          mkdir -p "$TORCH_HOME"
+          test -w "$TORCH_HOME"
+          Rscript -e 'options(timeout = 1800); torch::install_torch()'
+          Rscript scripts/verify_r_environment.R --torch
+
+      - name: Run complete R test suite
+        env:
+          CUDA: cpu
+          TORCH_HOME: /root/.cache/torch
+        run: Rscript tests/testthat.R
+
   quality-checks:
-    name: R source, test, determinism and release validation
+    name: R source, test and release validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -69,8 +128,23 @@ jobs:
         uses: r-lib/actions/setup-r-dependencies@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
         with:
           dependencies: '"hard"'
-          extra-packages: 'any::testthat, any::matrixStats, any::gam, any::ranger, any::xgboost, any::randomForest'
+          extra-packages: 'any::testthat, any::matrixStats, any::gam, any::ranger, any::xgboost, any::randomForest, any::torch, any::cito'
           cache-version: 3
+
+      - name: Install and verify CPU LibTorch runtime
+        env:
+          CUDA: cpu
+        run: |
+          Rscript -e '
+            options(timeout = 1800)
+            torch::install_torch()
+          '
+          Rscript -e '
+            stopifnot(isTRUE(torch::torch_is_installed()))
+            probe <- torch::torch_tensor(c(1, 2, 3), device = "cpu")$sum()$item()
+            stopifnot(identical(as.numeric(probe), 6))
+            message("CPU LibTorch/LibLantern runtime verified.")
+          '
 
       - name: Run module smoke check
         run: Rscript scripts/smoke_test.R --tags=fast
@@ -78,22 +152,12 @@ jobs:
       - name: Run lightweight test suite
         run: Rscript tests/testthat.R
 
-      - name: Run backend determinism tests
-        run: |
-          Rscript -e '
-            library(testthat)
-            source("R/core/bootstrap.R")
-            source("R/load.R")
-            source("tests/testthat/helper-fixtures.R")
-            source("tests/testthat/helper-load.R")
-            results <- test_file("tests/testthat/test-determinism.R", reporter = "summary", stop_on_failure = FALSE)
-            failed <- sum(as.data.frame(results)$failed)
-            errored <- sum(as.data.frame(results)$error)
-            if (failed > 0 || errored > 0) {
-              stop(sprintf("Determinism validation failed: %d failures, %d errors", failed, errored))
-            }
-            message("All determinism tests passed.")
-          '
+      # NOTE: determinism validation runs inside tests/testthat.R —
+      # test_dir() executes tests/testthat/test-determinism.R along with every
+      # other test file (confirmed in CI logs of the suite step). The previous
+      # standalone "Run backend determinism tests" step re-ran the identical
+      # file (+73s) and was removed; tests/testthat.R now checks failures
+      # explicitly so failure detection is at least as strict as that step's.
 
       - name: Build sdmtorch C++ extensions
         run: |
@@ -134,7 +198,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d8 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up R
         uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
@@ -172,6 +236,8 @@ jobs:
 
       - name: Run GPU resolution tests
         run: |
+          # R's $ column syntax must remain literal inside the shell string.
+          # shellcheck disable=SC2016
           Rscript -e '
             library(testthat)
             source("tests/testthat/helper-fixtures.R")
@@ -186,6 +252,8 @@ jobs:
 
       - name: Run torch fused Adam tests
         run: |
+          # R's $ column syntax must remain literal inside the shell string.
+          # shellcheck disable=SC2016
           Rscript -e '
             library(testthat)
             source("tests/testthat/helper-fixtures.R")

@@ -12,7 +12,8 @@ import { LAYER_IDS, DEFAULT_TILE_ZOOM_MAX } from "@/lib/map-utils";
 import { getMapColors } from "@/lib/map-theme";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import type { FeatureCollection } from "geojson";
-import { getToken, apiGetSuitabilityValue } from "@/services/api";
+import { apiGetSuitabilityValue } from "@/services/api";
+import { createAuthenticatedRasterTileScope, type AuthenticatedRasterTileScope } from "./authenticated-raster-protocol";
 import { MapToolbar } from "./map-toolbar";
 import intersect from "@turf/intersect";
 import bboxPolygon from "@turf/bbox-polygon";
@@ -431,18 +432,52 @@ export default function MaplibreMap({
     [runId, band]
   );
 
-  const tileUrl = `/api/v1/results/tiles/${runId}/{z}/{x}/{y}?band=${encodeURIComponent(band)}`;
+  const [tileScope, setTileScope] = useState<AuthenticatedRasterTileScope | null>(null);
+  const tileScopeRef = useRef<AuthenticatedRasterTileScope | null>(null);
+  const [mapLifecycle, setMapLifecycle] = useState(0);
+  const [tileAccessSuspended, setTileAccessSuspended] = useState(false);
+  const activeTileScope = !tileAccessSuspended && tileScope && tileScope.runId === runId && tileScope.band === band ? tileScope : null;
 
-  const transformRequest = useCallback(
-    (url: string, resourceType?: string) => {
-      if (resourceType === "Tile" && url.includes("/api/v1/results/tiles/")) {
-        const token = typeof window !== "undefined" ? getToken() : null;
-        return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} };
+  useEffect(() => {
+    if (tileAccessSuspended) return;
+    const scope = createAuthenticatedRasterTileScope({ runId, band });
+    tileScopeRef.current = scope;
+    // Publish only after registration so MapLibre cannot request an unowned protocol.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTileScope(scope);
+    return () => {
+      if (tileScopeRef.current === scope) tileScopeRef.current = null;
+      scope.dispose();
+    };
+  }, [runId, band, mapLifecycle, tileAccessSuspended]);
+
+  useEffect(() => {
+    const clearPrivateRaster = (suspend: boolean) => {
+      tileScopeRef.current?.dispose();
+      tileScopeRef.current = null;
+      const map = mapRef.current?.getMap();
+      if (map) {
+        if (map.getLayer("suitability-overlay")) map.removeLayer("suitability-overlay");
+        if (map.getSource("suitability")) map.removeSource("suitability");
       }
-      return { url };
-    },
-    []
-  );
+      setTileScope(null);
+      setTileAccessSuspended(suspend);
+      setMapLifecycle((current) => current + 1);
+    };
+    const onSessionChanged = () => clearPrivateRaster(false);
+    const onSessionExpired = () => {
+      setTileAuthWarning(true);
+      clearPrivateRaster(true);
+    };
+    window.addEventListener("sdm:session-changed", onSessionChanged);
+    window.addEventListener("sdm:session-expired", onSessionExpired);
+    return () => {
+      window.removeEventListener("sdm:session-changed", onSessionChanged);
+      window.removeEventListener("sdm:session-expired", onSessionExpired);
+    };
+  }, []);
+
+  const tileUrl = activeTileScope?.tiles[0];
 
   return (
     <div
@@ -460,7 +495,7 @@ export default function MaplibreMap({
     >
       <Map
         ref={mapRef}
-        key={runId}
+        key={`${runId}:${band}:${mapLifecycle}`}
         initialViewState={initialViewState}
         style={{ width: "100%", height: "100%" }}
         mapStyle={basemap === "dark" ? DARK_STYLE : LIGHT_STYLE}
@@ -509,9 +544,9 @@ export default function MaplibreMap({
           canvas.addEventListener("webglcontextrestored", webglContextRestoredRef.current);
           if (pitch > 0) map.setPitch(pitch);
         }}
-        transformRequest={transformRequest}
       >
-        <Source
+        {tileUrl && (
+          <Source
           id="suitability"
           type="raster"
           tiles={[tileUrl]}
@@ -527,7 +562,8 @@ export default function MaplibreMap({
             layout={{ visibility: suitabilityVisibility }}
             paint={{ "raster-opacity": 0.9999, "raster-fade-duration": 0, "raster-resampling": "nearest" }}
           />
-        </Source>
+          </Source>
+        )}
 
         {maskGeoJSON && (
           <Source id="extent-mask" type="geojson" data={maskGeoJSON}>

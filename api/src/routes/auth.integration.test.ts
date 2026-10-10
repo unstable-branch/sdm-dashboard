@@ -92,14 +92,14 @@ describe("Auth Integration", () => {
     it("generates token with correct payload shape", async () => {
       const { sign } = await import("hono/jwt");
       const token = await sign(
-        { sub: "u1", email: "[EMAIL]", role: "viewer", iss: "sdm-dashboard", exp: Math.floor(Date.now() / 1000) + 86400 },
+        { sub: "u1", email: "[EMAIL]", role: "viewer", av: 0, iss: "sdm-dashboard", exp: Math.floor(Date.now() / 1000) + 86400 },
         "test-secret",
       );
       expect(typeof token).toBe("string");
       expect(token.length).toBeGreaterThan(10);
     });
 
-    it("accepts tokens issued with the default issuer", async () => {
+    it("rejects legacy tokens without a current persisted principal and auth version", async () => {
       const { sign } = await import("hono/jwt");
       const { authMiddleware } = await import("../middleware/auth");
       const token = await sign(
@@ -114,9 +114,7 @@ describe("Auth Integration", () => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      expect(res.status).toBe(200);
-      const data = await res.json() as { user: { id: string; role: string } };
-      expect(data.user).toMatchObject({ id: "u1", role: "viewer" });
+      expect(res.status).toBe(401);
     });
   });
 

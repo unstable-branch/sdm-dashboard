@@ -1,7 +1,6 @@
 import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { projectMembers, projects, runs } from "../db/schema.js";
-import { getSharedRedis } from "./queue.js";
 
 export interface AuthUser {
   id: string;
@@ -9,40 +8,14 @@ export interface AuthUser {
   role: string;
 }
 
-const PROJECT_CACHE_TTL = 60; // seconds
-
 export async function getUserProjectIds(user: AuthUser): Promise<string[] | null> {
   if (user.role === "admin") {
     return null;
   }
 
-  // Try Redis cache first
-  const redis = getSharedRedis();
-  if (redis) {
-    const cacheKey = `user:projects:${user.id}`;
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        return JSON.parse(cached) as string[];
-      }
-    } catch { /* cache miss — query DB */ }
-
-    const memberships = await db
-      .select({ projectId: projectMembers.projectId })
-      .from(projectMembers)
-      .where(eq(projectMembers.userId, user.id));
-
-    const projectIds = memberships.map((membership) => membership.projectId);
-
-    // Cache result (even empty array) with TTL
-    try {
-      await redis.setex(cacheKey, PROJECT_CACHE_TTL, JSON.stringify(projectIds));
-    } catch { /* non-critical */ }
-
-    return projectIds;
-  }
-
-  // Fallback: direct DB query when Redis unavailable
+  // Protected authorization must observe committed membership changes immediately.
+  // Redis may still be used by discovery paths, but it is not authoritative for
+  // resource decisions.
   const memberships = await db
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
