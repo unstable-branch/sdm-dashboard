@@ -25,11 +25,8 @@ if (is.null(.GlobalEnv$.sdm_plumber_initialized)) {
   sdm_set_project_root(app_dir)
 
   load_path <- file.path(app_dir, "R", "engine_load.R")
-    if (!file.exists(load_path)) {
-      load_path <- file.path(app_dir, "R", "load.R")
-    }
-    if (!file.exists(load_path)) {
-      stop("Could not find R/load.R at: ", load_path, call. = FALSE)
+  if (!file.exists(load_path)) {
+    stop("Could not find R/engine_load.R at: ", load_path, call. = FALSE)
   }
   source(load_path)
 

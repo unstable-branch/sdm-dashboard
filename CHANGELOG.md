@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Legacy Shiny desktop app.** `app.R`, `launch_app.R`, `install_packages.R`, `pipeline.R`, `run_app_windows.bat`, `README_WINDOWS.md`, `www/`, the Shiny UI and modules (`R/ui/`, `R/modules/`, `R/load.R`), the Shiny container `Dockerfile`, the Windows setup scripts and the Windows-ready release zip. `v1.0.0` remains the final Shiny release. The modelling code in `R/` is unchanged and still powers Plumber; the project root is now located by `R/engine_load.R`.
+- Shiny UI packages (`shiny`, `bslib`, `DT`, `leaflet`, `shinyjs`) from `DESCRIPTION` and the Plumber runtime install list.
+
+### Changed
+
+- Deployment config moved from the repository root into `deploy/`: `deploy/nginx.conf`, `deploy/garage/`, `deploy/prometheus/`, `deploy/grafana/`. Compose files mount the new paths; update any custom compose overrides that referenced the old ones.
+- `PRODUCTION.md` and `TROUBLESHOOTING.md` moved into `docs/`; recovery-era ledgers moved to `docs/archive/`.
+
 ## [3.0.0-rc.1] - 2026-10-10
 
 Release candidate for external testing of 3.0.0, the first stable release of the modern platform (Next.js, Hono, PostgreSQL, Redis, Plumber/R). Single Plumber replica and single queue worker only; multi-replica execution is planned after 3.0.0.

@@ -91,7 +91,7 @@ Place your certificates in `./ssl/`:
 - `ssl/cert.pem` - Certificate
 - `ssl/key.pem` - Private key
 
-Update nginx.conf to use SSL:
+Update `deploy/nginx.conf` to use SSL:
 ```nginx
 server {
     listen 443 ssl;
@@ -132,7 +132,7 @@ docker compose -f docker-compose.prod.yml -f deploy/compose.rocm.yml up -d --no-
 4. Verify migrations, authentication, historical runs/downloads, and one new real workflow.
 5. To roll back, restore the previous digests. If migrations are not backward-compatible, restore the matching database/object-storage backup before starting old images.
 
-Use `docs/QA_RELEASE_CHECKLIST.md` for the required rehearsal and evidence.
+Use [QA_RELEASE_CHECKLIST.md](QA_RELEASE_CHECKLIST.md) for the required rehearsal and evidence.
 
 ## Monitoring
 

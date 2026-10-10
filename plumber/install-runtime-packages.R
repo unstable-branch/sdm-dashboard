@@ -27,8 +27,8 @@ options(
 
 runtime_packages <- c(
   "arrow", "reticulate", "jsonlite", "plumber", "httr", "callr",
-  "bslib", "curl", "DT", "geodata", "leaflet", "sf", "shiny",
-  "shinyjs", "terra", "data.table", "glmnet", "caret", "randomForest",
+  "curl", "geodata", "sf",
+  "terra", "data.table", "glmnet", "caret", "randomForest",
   "gbm", "maxnet", "nnet", "mgcv", "earth", "rpart", "mda", "gam",
   "xgboost", "ranger", "PresenceAbsence", "pROC", "ecospat",
   "marginaleffects", "plotrix", "ggplot2", "CAST", "blockCV",

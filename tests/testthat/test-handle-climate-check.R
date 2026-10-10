@@ -10,7 +10,7 @@
 # These tests guard the shared matcher module (R/covariates/match_climate_layers.R)
 # against regression. The matcher is now consumed by:
 #   - find_worldclim_files          (modeling pipeline)
-#   - verify_worldclim_cache        (Shiny readiness panel)
+#   - verify_worldclim_cache        (cache readiness check)
 #   - handle_climate_check          (modern frontend)
 #   - preflight_climate_download    (modern frontend download pre-flight)
 
@@ -212,16 +212,16 @@ test_that("handle_climate_check surfaces internal errors instead of swallowing",
 })
 
 test_that("matcher and manifest modules are registered in both module loaders", {
-  # The live Plumber runtime loads modules via engine_load.R; the Shiny app via
-  # load.R. If either omits the matcher/manifest modules the handler fails at
-  # runtime (this is exactly what shipped broken).
+  # The live Plumber runtime loads modules via engine_load.R and background runs
+  # via load_compute.R. If either omits the matcher/manifest modules the handler
+  # fails at runtime (this is exactly what shipped broken).
   root <- if (exists("project_root")) project_root else normalizePath(file.path("..", ".."))
   eng <- readLines(file.path(root, "R", "engine_load.R"))
-  ldr <- readLines(file.path(root, "R", "load.R"))
+  ldr <- readLines(file.path(root, "R", "load_compute.R"))
   for (mod in c("match_climate_layers.R", "climate_cache_manifest.R")) {
     expect_true(any(grepl(paste0('"', mod, '"'), eng, fixed = TRUE)),
                 info = paste("engine_load.R is missing", mod))
     expect_true(any(grepl(paste0('"', mod, '"'), ldr, fixed = TRUE)),
-                info = paste("load.R is missing", mod))
+                info = paste("load_compute.R is missing", mod))
   }
 })

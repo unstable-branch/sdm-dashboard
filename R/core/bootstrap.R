@@ -34,7 +34,7 @@ sdm_find_project_root <- function(start = NULL) {
     current <- if (dir.exists(path)) path else dirname(path)
     current <- sdm_normalize_path(current, mustWork = FALSE)
     repeat {
-      if (file.exists(file.path(current, "app.R")) && file.exists(file.path(current, "R", "load.R"))) {
+      if (file.exists(file.path(current, "R", "engine_load.R")) && file.exists(file.path(current, "R", "core", "bootstrap.R"))) {
         return(sdm_normalize_path(current, mustWork = TRUE))
       }
       parent <- dirname(current)
@@ -43,7 +43,7 @@ sdm_find_project_root <- function(start = NULL) {
     }
   }
 
-  stop("Could not locate the SDM project root. Expected app.R and R/load.R.", call. = FALSE)
+  stop("Could not locate the SDM project root. Expected R/engine_load.R and R/core/bootstrap.R.", call. = FALSE)
 }
 
 sdm_set_project_root <- function(start = NULL) {
@@ -69,7 +69,7 @@ sdm_project_path <- function(...) {
 
 # Set GDAL in-memory block cache to 512 MB to prevent unbounded raster caching.
 # The docker-compose files set GDAL_CACHEMAX=512 for container Plumber processes;
-# this sets it for local R sessions (app.R, scripts) where the env var is absent.
+# this sets it for local R sessions (scripts, tests) where the env var is absent.
 if (!nzchar(Sys.getenv("GDAL_CACHEMAX", ""))) {
   Sys.setenv(GDAL_CACHEMAX = "512")
 }

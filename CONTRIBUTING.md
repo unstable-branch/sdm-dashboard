@@ -24,11 +24,7 @@ Choose the version by what changes for someone upgrading: breaking defaults, por
 
 ## Setup
 
-For the modern platform, see the Development section of `README.md` (Docker, Node 22, pnpm). For the legacy R/Shiny app, install R 4.3+ and its packages:
-
-```bash
-Rscript install_packages.R
-```
+See the Development section of `README.md` (Docker, Node 22, pnpm). R is only needed on the host to run the R test suite; the pinned environment is in `renv.lock` (`renv::restore()`).
 
 On Linux CI or servers, install GDAL/PROJ/GEOS/UDUNITS system libraries before installing `terra`.
 

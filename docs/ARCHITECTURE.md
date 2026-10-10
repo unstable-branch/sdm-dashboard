@@ -4,7 +4,7 @@ _Last reviewed: 2026-09-20._
 
 ## Supported surfaces
 
-The modern platform is the primary release direction. The legacy root app.R Shiny application remains a local, single-user workbench and has no modern multi-user authorization boundary. New platform features belong in the modern stack unless a change explicitly targets legacy behavior.
+The legacy single-user Shiny app was removed in 3.0; its last release is `v1.0.0`.
 
 ## Runtime topology
 
@@ -57,10 +57,6 @@ Status is a projection of this history. Unknown or accepted-but-unconfirmed is n
 
 The R core in R/core/run_sdm.R orchestrates model, covariate, validation, projection, ecology, and output modules. Model definitions are registered under R/models/. Metrics and reports under R/output/ must preserve direction, units, fold semantics, warnings, and uncertainty labels. A provenance manifest should be finalized by the fitting worker and served byte-stably, rather than reconstructed from mutable runtime state.
 
-## Legacy boundary
-
-app.R and the modules loaded by R/load.R are retained for desktop continuity. They may use local files under the user's control and do not provide server authorization. Do not route modern protected data through legacy-only ownership assumptions.
-
 ## Known architectural limits
 
 - Canonical model inputs now cover occurrence, boundary/mask, target-group, and current/future climate collections. Built-stack, direct-R, migration, and revocation acceptance remain required before release.
@@ -68,4 +64,4 @@ app.R and the modules loaded by R/load.R are retained for desktop continuity. Th
 - Multi-replica compute, PID-based cancellation, and event fan-out are not safe release claims.
 - Immutable provenance, replayable script export, and cache content verification remain open gates.
 
-See STATUS.md, ROADMAP.md, and REVIEW_LEDGER.md for current evidence and sequencing.
+See STATUS.md and ROADMAP.md for current evidence and sequencing; review history is in archive/reviews/REVIEW_LEDGER.md.

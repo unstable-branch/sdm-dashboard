@@ -1,5 +1,5 @@
 # SDM Compute-only Module Loader
-# Identical to load.R but excludes Shiny UI modules (not needed for background computation).
+# Module loader for background model runs (plumber/R/run_model_background.R).
 
 mod_dir <- file.path(sdm_project_root(), "R")
 
@@ -10,7 +10,7 @@ if (!dir.exists(mod_dir)) {
 if (!exists("sdm_resolve_module", mode = "function")) {
   sdm_resolve_module <- function(m) {
     mod_dir <- file.path(sdm_project_root(), "R")
-    subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "xai", "output")
+    subdirs <- c("core", "data", "covariates", "models", "ecology", "xai", "output")
     for (sub in subdirs) {
       p <- file.path(mod_dir, sub, m)
       if (file.exists(p)) return(p)

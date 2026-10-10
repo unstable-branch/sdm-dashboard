@@ -39,7 +39,7 @@ git diff --check
 - [ ] Platform CI (including product Playwright smoke), R Quality Checks, and Backend determinism are green for the exact candidate commit.
 - [ ] `python3 scripts/audit_release_config.py vX.Y.Z-prerelease` passes after the local candidate tag is created.
 - [ ] Production Compose renders with reviewed image digests and contains no app-service `build:` blocks.
-- [ ] Source and Windows-ready zip dry-runs contain no secrets, data, caches, generated outputs, or maintainer-only files.
+- [ ] Source zip dry-run contains no secrets, data, caches, generated outputs, or maintainer-only files.
 
 If a tool is unavailable locally, record that limitation and link the authoritative CI run. A missing gate is not silently treated as a pass.
 

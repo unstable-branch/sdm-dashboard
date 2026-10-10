@@ -109,19 +109,19 @@ message("Cores:  ", if (is.null(opts$cores)) "auto (detectCores - 1)" else opts$
 message("Seed:   ", opts$seed)
 message("========================================")
 
-# Load SDM modules (same as optimized_sdm.R path — load.R sources everything)
+# Load SDM modules through the engine loader
 script_dir <- Sys.getenv("SDM_SCRIPT_DIR",
                          if (file.exists("scripts/batch_run.R")) "." else file.path(getwd(), "scripts"))
 project_root_candidates <- c(".", "..", file.path("..", ".."))
 project_root <- project_root_candidates[vapply(project_root_candidates,
-                                               function(p) file.exists(file.path(p, "R", "load.R")), logical(1))][1]
+                                               function(p) file.exists(file.path(p, "R", "engine_load.R")), logical(1))][1]
 if (is.na(project_root)) {
-  stop("Could not find project root (R/load.R not found in ancestor dirs)", call. = FALSE)
+  stop("Could not find project root (R/engine_load.R not found in ancestor dirs)", call. = FALSE)
 }
 
 source(file.path(project_root, "R", "core", "bootstrap.R"))
 sdm_set_project_root(project_root)
-source(file.path(project_root, "R", "load.R"))
+source(file.path(project_root, "R", "engine_load.R"))
 
 # Parse CSV into species_configs list
 message("\nParsing config: ", opts$config)

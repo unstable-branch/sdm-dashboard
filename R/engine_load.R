@@ -1,5 +1,5 @@
-# SDM Engine Module Loader - sources computation modules only (no Shiny UI)
-# Used by Plumber API to avoid loading Shiny-specific code in the computation layer
+# SDM Engine Module Loader - sources the modelling modules in dependency order.
+# Used by the Plumber API, the test suite and scripts.
 
 mod_dir <- file.path(sdm_project_root(), "R")
 
@@ -12,7 +12,7 @@ if (!dir.exists(mod_dir)) {
 if (!exists("sdm_resolve_module", mode = "function")) {
   sdm_resolve_module <- function(m) {
     mod_dir <- file.path(sdm_project_root(), "R")
-    subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "xai", "output")
+    subdirs <- c("core", "data", "covariates", "models", "ecology", "xai", "output")
     for (sub in subdirs) {
       p <- file.path(mod_dir, sub, m)
       if (file.exists(p)) return(p)
@@ -105,6 +105,7 @@ modules <- c(
   "torch_setup.R",
   "cv_folds.R",
   "cv_engine.R",
+  "per_fold_preprocessing.R",
   "blockcv.R",
   "importance.R",
   "calibration.R",

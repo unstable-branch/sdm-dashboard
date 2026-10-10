@@ -2,14 +2,14 @@
 #
 # Run from the project root:  Rscript scripts/test_extents.R
 #
-# It mocks Shiny's `input` object and calls extent_from_inputs() for every
+# It mocks an `input` list and calls extent_from_inputs() for every
 # choice in sdm_extent_choices. Each row prints PASS/FAIL plus the resolved
 # extent. A preset passes when the result is c(xmin, xmax, ymin, ymax) with
 # all four values finite, xmin < xmax, and ymin < ymax.
 
 source("R/core/bootstrap.R")
 sdm_set_project_root(getwd())
-source("R/load.R")
+source("R/engine_load.R")
 
 # Mock occurrence frame (bbox = a small region around Sydney) so the
 # `occurrence` preset has something to work with.
@@ -23,7 +23,7 @@ mock_cleaned <- list(occ = mock_occ)
 demo_boundary <- config$sdm_australia_boundary_path
 if (!file.exists(demo_boundary)) demo_boundary <- config$sdm_world_boundary_path
 
-# Mock `input`. Shiny inputs are accessed with $; a list works for the test.
+# Mock `input`. Inputs are accessed with $; a list works for the test.
 make_input <- function(preset, ...) {
   defaults <- list(
     extent_preset  = preset,

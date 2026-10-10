@@ -13,7 +13,7 @@ set.seed(42)
 
 # Bootstrap
 source("R/core/bootstrap.R")
-source("R/load.R")
+source("R/engine_load.R")
 source("tests/testthat/helper-fixtures.R")
 source("tests/testthat/helper-load.R")
 

@@ -15,7 +15,7 @@
 
 ## Gating (IMPLEMENTED)
 
-- Do NOT add `biomod2` to base `sdm_setup_packages`.
+- Do NOT add `biomod2` to the base Plumber runtime packages.
 - Register a biomod2 backend only when both are true:
   - `requireNamespace("biomod2", quietly = TRUE)`
   - `isTRUE(getOption("sdm.enable_biomod2", FALSE))`
@@ -98,4 +98,4 @@ removed `BIOMOD_Projection(output.dir=)`); real Windows testing is still needed.
 - biomod2 return object slots/classes vary by version.
 - MAXNET may need extra platform-specific package handling.
 - Projection extraction needs real runtime validation before exposing in the app.
-- Advanced install path may be too heavy for the Windows-ready beta archive.
+- Advanced install path may be too heavy for the default Plumber image.

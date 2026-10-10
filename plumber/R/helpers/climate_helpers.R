@@ -562,8 +562,8 @@ handle_climate_check <- function(res, app_dir, source = "worldclim", resolution 
     requested <- as.integer(unlist(strsplit(as.character(biovars), ",")))
     requested <- unique(requested[!is.na(requested)])
 
-    # Matcher/manifest helpers are loaded at startup by R/engine_load.R (or
-    # R/load.R) and by tests/testthat/helper-load.R. Fail loudly if absent —
+    # Matcher/manifest helpers are loaded at startup by R/engine_load.R
+    # and by tests/testthat/helper-load.R. Fail loudly if absent —
     # a previous runtime-sourcing attempt via a non-existent source_local()
     # helper crashed here and the silent fallback reported empty results.
     if (!exists("match_worldclim_biovars", inherits = TRUE)) {

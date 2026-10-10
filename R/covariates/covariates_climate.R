@@ -1,8 +1,8 @@
 # WorldClim discovery, download, cropping, and scaling helpers.
 
 # The matcher module (match_climate_layers.R) and the cache manifest helpers
-# (climate_cache_manifest.R) are loaded by the module loaders (R/load.R,
-# R/engine_load.R) and by tests/testthat/helper-load.R. They are NOT sourced
+# (climate_cache_manifest.R) are loaded by the module loaders (R/engine_load.R,
+# R/load_compute.R) and by tests/testthat/helper-load.R. They are NOT sourced
 # here: a sys.frame(1)$ofile-based eager-load was unreliable under source()
 # (the frame's ofile can be numeric garbage inside source()'s eval frames)
 # and left the matchers undefined in the Plumber runtime. If this file is

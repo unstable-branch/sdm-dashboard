@@ -16,17 +16,17 @@ source("R/core/optimized_sdm.R")
 fail <- function(...) stop(paste0(...), call. = FALSE)
 
 expected <- c(
-  "app.R", "launch_app.R", "run_app_windows.bat", "R/load.R", "R/core/optimized_sdm.R",
-  "scripts/make_release_zip.R", "scripts/smoke_test.R", "scripts/windows_setup.R",
-  "README.md", "README_WINDOWS.md", "LICENSE", "CONTRIBUTING.md", "CITATION.cff", "VERSION",
-  "CODE_OF_CONDUCT.md", "SECURITY.md", "Dockerfile", ".dockerignore",
-  ".github/workflows/r-quality.yml", "data/examples/synthetic_presence_data.csv",
-  "www/sdm-theme.css"
+  "R/engine_load.R", "R/load_compute.R", "R/core/optimized_sdm.R",
+  "scripts/make_release_zip.R", "scripts/smoke_test.R",
+  "README.md", "LICENSE", "CONTRIBUTING.md", "CITATION.cff", "VERSION",
+  "CODE_OF_CONDUCT.md", "SECURITY.md", ".dockerignore",
+  ".github/workflows/r-quality.yml", "data/examples/synthetic_presence_data.csv"
 )
 missing <- expected[!file.exists(expected)]
 if (length(missing) > 0) fail("Missing expected release file(s): ", paste(missing, collapse = ", "))
 
-removed_public_clutter <- c("Main.R", "prepare_windows.bat", "docs/index.md")
+removed_public_clutter <- c("Main.R", "prepare_windows.bat", "docs/index.md",
+  "app.R", "launch_app.R", "run_app_windows.bat", "README_WINDOWS.md", "install_packages.R", "pipeline.R", "Dockerfile")
 tracked_public_clutter <- tryCatch(
   system2("git", c("-C", project_root, "ls-files", "--", removed_public_clutter), stdout = TRUE, stderr = FALSE),
   error = function(e) character()
@@ -50,19 +50,6 @@ if (length(blocked) > 0) fail("Source release includes blocked file(s): ", paste
 assert_no_match(source_files, "^Worldclim(/|$)|^worldclim(/|$)|^WorldClim(/|$)|^Worldclim_future(/|$)|^worldclim_future(/|$)|^WorldClim_future(/|$)|^outputs(/|$)|^covariates(/|$)|^logs(/|$)", "Source release includes generated output/cache files")
 assert_no_match(source_files, "(^|/)AGENTS[.]md$|^docs(/|$)|^Main[.]R$|^prepare_windows[.]bat$", "Source release includes public clutter")
 
-ready_files <- make_release_env$ready_release_paths(include_worldclim = dir.exists(sdm_default_worldclim_dir))
-assert_no_match(ready_files, "^\\.github(/|$)|^tests(/|$)|^Dockerfile$|^docker-compose[.]yml$|^CONTRIBUTING[.]md$|^CODE_OF_CONDUCT[.]md$|^SDM[.]Rproj$|(^|/)AGENTS[.]md$|^docs(/|$)", "Windows-ready release includes developer-only files")
-assert_no_match(ready_files, "^scripts/(audit_release|make_release_zip|smoke_test|download_worldclim)[.]R$", "Windows-ready release includes maintainer scripts")
-
-ready_wc_files <- ready_files[grepl("^Worldclim/.+[.]tif$", ready_files, ignore.case = TRUE)]
-if (length(ready_wc_files) > 0) {
-  if (length(ready_wc_files) != length(sdm_default_biovars)) {
-    fail("Windows-ready release should include exactly ", length(sdm_default_biovars), " default WorldClim layers, found ", length(ready_wc_files))
-  }
-  wc_basenames <- basename(ready_wc_files)
-  if (any(duplicated(wc_basenames))) fail("Windows-ready release includes duplicate WorldClim basenames: ", paste(wc_basenames[duplicated(wc_basenames)], collapse = ", "))
-}
-
 audit_zip <- function(zip_path) {
   entries <- utils::unzip(zip_path, list = TRUE)$Name
   file_entries <- entries[!grepl("/$", entries)]
@@ -73,12 +60,9 @@ audit_zip <- function(zip_path) {
   if (grepl("-source[.]zip$", base)) {
     assert_no_match(entries, "(^|/)Worldclim(/|$)|(^|/)Main[.]R$|(^|/)prepare_windows[.]bat$", paste(base, "contains source-bundle clutter or rasters"))
   }
-  if (grepl("-windows-ready[.]zip$", base)) {
-    assert_no_match(entries, "(^|/)[.]github(/|$)|(^|/)tests(/|$)|(^|/)Dockerfile$|(^|/)docker-compose[.]yml$|(^|/)CONTRIBUTING[.]md$|(^|/)CODE_OF_CONDUCT[.]md$", paste(base, "contains developer-only files"))
-  }
 }
 
-zip_paths <- list.files(sdm_project_root(), pattern = "^sdm-dashboard-v.+-(source|windows-ready)[.]zip$", full.names = TRUE)
+zip_paths <- list.files(sdm_project_root(), pattern = "^sdm-dashboard-v.+-source[.]zip$", full.names = TRUE)
 for (zip_path in zip_paths) audit_zip(zip_path)
 
-cat("Release audit passed. Source and Windows-ready selections are clean.\n")
+cat("Release audit passed. Source selection is clean.\n")

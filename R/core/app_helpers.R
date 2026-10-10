@@ -1,4 +1,4 @@
-# UI helper values and small rendering functions used by app.R.
+# Shared helper values and small utility functions for the modelling core.
 
 biovar_choices <- sdm_biovar_choices
 
@@ -149,10 +149,10 @@ opentopo_key_is_configured <- function() {
 }
 
 # Module path resolver — finds R source files in subdirectories.
-# Used by load.R and on-demand source() calls (e.g., mod_get_data.R).
+# Used by the module loaders and on-demand source() calls.
 sdm_resolve_module <- function(m) {
   mod_dir <- file.path(sdm_project_root(), "R")
-  subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "xai", "output")
+  subdirs <- c("core", "data", "covariates", "models", "ecology", "xai", "output")
   for (sub in subdirs) {
     p <- file.path(mod_dir, sub, m)
     if (file.exists(p)) return(p)
