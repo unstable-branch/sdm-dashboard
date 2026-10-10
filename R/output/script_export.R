@@ -14,6 +14,8 @@ export_run_script <- function(result, path = NULL, include_comments = TRUE,
   }
 
   config <- result$config
+  # Results store the model id in config (not top-level) for current runs.
+  result$model_id <- result$model_id %||% config$model_id %||% "glm"
   lines <- character()
 
   if (include_comments) {

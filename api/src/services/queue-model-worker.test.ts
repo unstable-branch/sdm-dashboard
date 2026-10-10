@@ -96,4 +96,20 @@ describe("queued model canonical asset dispatch", () => {
     expect(mocks.resolveModelPayload).not.toHaveBeenCalled();
     expect(client.runModel).not.toHaveBeenCalled();
   });
+
+  it("fails the run when Plumber refuses it with an error body and no job id", async () => {
+    mocks.resolveModelPayload.mockResolvedValue({
+      species: "Test", model_id: "dnn", occurrence_file: "/srv/inputs/authorized.csv",
+      output_dir: "outputs/jobs/33333333-3333-3333-3333-333333333333",
+    });
+    const client = {
+      runModel: vi.fn(async () => ({ error: "Server busy: 2 model run(s) in progress (max 2).", code: "INTERNAL_ERROR" })),
+    } as any;
+
+    await expect(handleModelJob(job(), client, undefined, undefined)).rejects.toThrow("Server busy");
+
+    expect(mocks.updateSet).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error: expect.stringContaining("Server busy") }));
+    expect(mocks.updateSet).not.toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
+    expect(mocks.emit).toHaveBeenCalledWith(expect.objectContaining({ state: "failed" }));
+  });
 });

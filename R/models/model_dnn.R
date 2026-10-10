@@ -509,6 +509,9 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     }
   )
 
+  # Record the torch device training actually used (the small-model guard may
+  # have forced CPU, and user-facing "auto"/"gpu" are not valid torch devices).
+  attr(model, "sdm_tensor_device") <- device
   model
 }
 
@@ -999,6 +1002,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       )
       if (is.null(model)) next
       fold_seed_models[[length(fold_seed_models) + 1L]] <- model
+      seed_device <- attr(model, "sdm_tensor_device", exact = TRUE) %||% seed_device
       fold_seed_devices <- c(fold_seed_devices, seed_device)
     }
 
@@ -1158,7 +1162,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     scaler = best_fold_scaler,
     n_seeds = if (cv_off) 1L else n_seeds,
     fold_predictions = fold_predictions,
-    dnn_device = dnn_device,
+    dnn_device = attr(best_model, "sdm_tensor_device", exact = TRUE) %||% dnn_device,
     dnn_model_type = dnn_model_type,
     use_fused_adam = use_fused_adam,
     mc_samples = as.integer(mc_samples),

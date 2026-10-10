@@ -460,8 +460,8 @@ export const executions = pgTable("executions", {
   // Dispatch-replay identity within this execution.
   idempotencyKey: text("idempotency_key").notNull().unique(),
   // One-time 128-bit random hex value generated in the reserve transaction.
-  nonce128: varchar("nonce128", { length: 32 }).notNull(),
-  payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+  nonce128: text("nonce128").notNull(),
+  payloadHash: text("payload_hash").notNull(),
   // Set only by authorized retry (§2.1); terminal executions are never reopened.
   retryOfExecutionId: uuid("retry_of_execution_id").references((): AnyPgColumn => executions.id, { onDelete: "cascade" }),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),

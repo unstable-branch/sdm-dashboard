@@ -6,6 +6,7 @@
  * execution-migration.test.ts against a real PostgreSQL).
  */
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { getTableName } from "drizzle-orm";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import {
@@ -88,6 +89,16 @@ describe("durable execution drizzle schema", () => {
     expect(byName.reserved_by_principal.notNull).toBe(true);
     expect(byName.project_id.notNull).toBe(true);
     expect(byName.finalized_at.notNull).toBe(false);
+  });
+
+  it.each([
+    ["nonce128", executions.nonce128],
+    ["payload_hash", executions.payloadHash],
+  ])("matches the applied migration's %s SQL type", (name, column) => {
+    const migration = readFileSync(new URL("../../drizzle/0043_durable_executions.sql", import.meta.url), "utf8");
+    const declaration = migration.match(new RegExp(`^\\s*${name}\\s+(\\w+)\\s+NOT NULL CHECK`, "m"));
+    expect(declaration).not.toBeNull();
+    expect(column.getSQLType()).toBe(declaration![1].toLowerCase());
   });
 
   it("types execution_attempts with the owner snapshot and one-time job id", () => {
