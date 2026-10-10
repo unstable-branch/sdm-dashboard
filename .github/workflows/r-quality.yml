@@ -77,6 +77,12 @@ jobs:
     name: R source, test and release validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # The project .Rprofile activates renv, which redirects installs to an
+      # empty renv library and CRAN source tarballs. This job uses the
+      # setup-r-dependencies library (cached, Posit Package Manager binaries);
+      # the exact lockfile is verified by the R 4.5.0 locked full suite.
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
 
     steps:
       - name: Check out repository
@@ -195,6 +201,9 @@ jobs:
     # Falls back gracefully via skip-if-no-torch on CPU-only CI runners.
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # See quality-checks: use the cached binary library, not renv's.
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
 
     steps:
       - name: Check out repository

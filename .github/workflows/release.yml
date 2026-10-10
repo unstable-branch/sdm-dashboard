@@ -21,6 +21,11 @@ jobs:
     name: Validate release candidate
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # The project .Rprofile activates renv, which redirects installs to an
+      # empty renv library and CRAN source tarballs. Use the cached
+      # setup-r-dependencies library (Posit Package Manager binaries) instead.
+      RENV_CONFIG_AUTOLOADER_ENABLED: "false"
     permissions:
       contents: read
 
