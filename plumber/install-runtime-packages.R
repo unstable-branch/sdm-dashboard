@@ -24,7 +24,7 @@ runtime_packages <- c(
   "marginaleffects", "plotrix", "ggplot2", "CAST", "blockCV",
   "crew", "crew.cluster", "crew.aws.batch",
   "CoordinateCleaner", "rgbif", "finch", "future", "future.apply", "DBI",
-  "RPostgres", "digest", "Rook", "openssl", "pool", "uuid", "targets",
+  "RPostgres", "redux", "digest", "Rook", "openssl", "pool", "uuid", "targets",
   "tarchetypes", "geotargets"
 )
 

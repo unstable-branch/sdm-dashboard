@@ -498,6 +498,65 @@ sdm_safe_historical_config <- function(config) {
   tryCatch(sdm_project_safe_execution_config(config), error = function(e) NULL)
 }
 
+# Only the server-resolved Hono asset path persisted in the attested worker
+# payload reaches this private adapter. It is not a client path interface.
+sdm_load_target_group_occ <- function(target_group_file, app_dir, bias_method = "target_group",
+                                      reader = utils::read.csv) {
+  if (!identical(bias_method, "target_group")) return(NULL)
+  unavailable <- function() stop("Target-group input is unavailable or invalid", call. = FALSE)
+  if (!is.character(target_group_file) || length(target_group_file) != 1L ||
+      is.na(target_group_file) || !nzchar(target_group_file) ||
+      !grepl("^/", target_group_file) || grepl("(^|/)\\.\\.(/|$)", target_group_file) ||
+      !is.character(app_dir) || length(app_dir) != 1L || is.na(app_dir) || !nzchar(app_dir)) {
+    unavailable()
+  }
+  tryCatch({
+    configured_uploads <- Sys.getenv("SDM_INPUT_ASSET_UPLOAD_ROOT", unset = "")
+    if (nzchar(configured_uploads)) {
+      # Match the API's server-configured root; relative roots are ambiguous
+      # across the API and worker process working directories and fail closed.
+      if (!grepl("^/", configured_uploads) || grepl("(^|/)\\.\\.(/|$)", configured_uploads)) unavailable()
+      uploads_input <- configured_uploads
+    } else {
+      app_root <- normalizePath(app_dir, winslash = "/", mustWork = TRUE)
+      uploads_input <- file.path(app_root, "data", "uploads")
+    }
+    expected_uploads <- normalizePath(uploads_input, winslash = "/", mustWork = TRUE)
+    if (!identical(expected_uploads, uploads_input) || !dir.exists(expected_uploads) ||
+        file.access(expected_uploads, 4L) != 0L) unavailable()
+    # Reject symlinks at every existing component, including ancestors above
+    # the configured root and nested directories between root and the file.
+    has_symlink_component <- function(path) {
+      pieces <- strsplit(sub("^/", "", path), "/", fixed = TRUE)[[1L]]
+      current <- "/"
+      if (nzchar(Sys.readlink(current))) return(TRUE)
+      for (piece in pieces) {
+        if (!nzchar(piece)) next
+        current <- file.path(current, piece)
+        if (nzchar(Sys.readlink(current))) return(TRUE)
+      }
+      FALSE
+    }
+    if (has_symlink_component(expected_uploads) || has_symlink_component(target_group_file)) unavailable()
+    if (!file.exists(target_group_file) || file.info(target_group_file)$isdir ||
+        file.access(target_group_file, 4L) != 0L) unavailable()
+    canonical_file <- normalizePath(target_group_file, winslash = "/", mustWork = TRUE)
+    if (!startsWith(canonical_file, paste0(expected_uploads, "/"))) unavailable()
+    rows <- tryCatch(withCallingHandlers(
+      reader(canonical_file, stringsAsFactors = FALSE, check.names = FALSE),
+      warning = function(w) stop("invalid csv", call. = FALSE)
+    ), error = function(e) unavailable())
+    if (!is.data.frame(rows) || nrow(rows) < 1L ||
+        !all(c("longitude", "latitude") %in% names(rows))) unavailable()
+    longitude <- suppressWarnings(as.numeric(rows$longitude))
+    latitude <- suppressWarnings(as.numeric(rows$latitude))
+    if (length(longitude) != nrow(rows) || length(latitude) != nrow(rows) ||
+        any(!is.finite(longitude)) || any(!is.finite(latitude)) ||
+        any(longitude < -180 | longitude > 180) || any(latitude < -90 | latitude > 90)) unavailable()
+    data.frame(longitude = longitude, latitude = latitude)
+  }, error = function(e) unavailable())
+}
+
 # Status is a public DTO boundary, not a mirror of meta.json.  Keep only the
 # lifecycle fields the API promises and recursively remove credential-shaped
 # fields before redacting human-readable diagnostics.
