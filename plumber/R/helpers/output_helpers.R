@@ -369,7 +369,7 @@ handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
   # basemap (coastlines, borders) instead of an opaque navy block. Ramp alpha
   # over the bottom 30% of the palette; everything above stays fully opaque.
   ramp <- pmin(1, (idx[!is_na] - 1) / max(1, (n_col - 1) * 0.3))
-  rgba[!is_na, 4L] <- as.integer(round(40 + 215 * ramp))
+  rgba[!is_na, 4L] <- as.integer(round(255 * ramp))
 
   tmp_png <- tempfile(fileext = ".png")
   tile_out <- terra::rast(ncols = 256L, nrows = 256L, xmin = xmin, xmax = xmax,
