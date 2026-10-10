@@ -111,12 +111,14 @@ export function RunHistory({ onRunSelect, refreshKey, activeJobId }: RunHistoryP
     fetchRuns();
   }, [fetchRuns, refreshKey]);
 
+  // Poll while runs are active even when the event stream reports connected:
+  // a proxy can hold the stream open without delivering events, which left
+  // finished runs showing "waiting for progress" (FR-4). SSE only speeds it up.
   useEffect(() => {
-    if (sseConnected) return;
     const interval = setInterval(() => {
       if (document.hidden) return;
       if (hasActiveRuns(runsRef.current)) fetchRuns();
-    }, 10000);
+    }, sseConnected ? 10000 : 5000);
     return () => clearInterval(interval);
   }, [fetchRuns, sseConnected]);
 

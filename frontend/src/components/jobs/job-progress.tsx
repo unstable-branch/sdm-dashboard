@@ -90,9 +90,15 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
         const plumberStatus = (status.status as string) || "unknown";
         const logs = Array.isArray(status.progress_log) ? status.progress_log : [];
         let progress = 0;
-        for (let i = logs.length - 1; i >= 0; i--) {
-          const p = extractProgressPercent(logs[i]);
-          if (p !== undefined) { progress = p; break; }
+        const stages = (status as { progress_json?: unknown }).progress_json;
+        const lastStage = Array.isArray(stages) ? (stages[stages.length - 1] as { percent?: unknown } | undefined) : undefined;
+        if (lastStage && typeof lastStage.percent === "number") {
+          progress = Math.round(lastStage.percent * 100);
+        } else {
+          for (let i = logs.length - 1; i >= 0; i--) {
+            const p = extractProgressPercent(logs[i]);
+            if (p !== undefined) { progress = p; break; }
+          }
         }
         setPolledJob({
           state: plumberStatus,

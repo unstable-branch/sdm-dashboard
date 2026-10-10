@@ -27,7 +27,7 @@ Open-source species distribution modelling (SDM) platform: upload occurrence rec
 You need Docker with Compose v2. R is not needed on the host.
 
 1. Download `release-images.env` from the [release](https://github.com/unstable-branch/sdm-dashboard/releases) you want. It pins the exact image digests.
-2. Clone the repository at that release tag, and create `.env` from `.env.example` with real secrets.
+2. Clone the repository at that release tag, and create `.env` from `.env.example` with real secrets. Set `SDM_PUBLIC_URL` to the address users open (for example `https://sdm.example.org`); browser sign-in only accepts that origin.
 3. Start it:
 
 ```bash
