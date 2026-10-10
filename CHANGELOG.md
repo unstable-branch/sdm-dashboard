@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0-rc.1] - 2026-10-10
+
+Release candidate for external testing. Single Plumber replica and single queue worker only; multi-replica execution is planned after 2.2.0.
+
+### Network defaults
+
+- Production Compose publishes only nginx (80/443). Garage is internal; Prometheus, Grafana and exporters move behind the `monitoring` profile and bind to loopback.
+
 ### Prerelease candidate fixes (2026-10-10)
 
 End-to-end testing of the integrated stack (API, Plumber, PostgreSQL, Redis) on CPU, CUDA (RTX 3080) and ROCm (RX 6900 XT) found and fixed:
