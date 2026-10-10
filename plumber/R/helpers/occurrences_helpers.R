@@ -1,3 +1,20 @@
+# Original client filename of a multipart upload. plumber >= 1.2 exposes the
+# field in req$args as list(<filename> = raw) with no `filename` element; the
+# parsed multipart part in req$body carries it explicitly.
+sdm_upload_filename <- function(req, uploaded) {
+  part <- tryCatch(req$body$file, error = function(e) NULL)
+  candidates <- list(
+    if (is.list(part)) part$filename,
+    if (is.list(uploaded)) uploaded$filename,
+    if (is.list(uploaded)) uploaded$name,
+    if (is.list(uploaded) && length(uploaded) == 1L && is.raw(uploaded[[1]])) names(uploaded)
+  )
+  for (cand in candidates) {
+    if (is.character(cand) && length(cand) >= 1L && nzchar(cand[[1]])) return(basename(cand[[1]]))
+  }
+  "upload"
+}
+
 handle_occurrences_upload <- function(req, app_dir) {
   uploaded <- req$args$file
 
@@ -35,7 +52,8 @@ handle_occurrences_upload <- function(req, app_dir) {
           }
         }
         if (!is.null(raw_field)) {
-          tmp <- tempfile(fileext = paste0(".", tolower(tools::file_ext(uploaded$filename %||% "csv"))))
+          up_ext <- tolower(tools::file_ext(sdm_upload_filename(req, uploaded)))
+          tmp <- tempfile(fileext = paste0(".", if (nzchar(up_ext)) up_ext else "csv"))
           con <- file(tmp, "wb")
           writeBin(uploaded[[raw_field]], con)
           close(con)
@@ -65,7 +83,7 @@ handle_occurrences_upload <- function(req, app_dir) {
       return(sdm_error_code(req, "INVALID_INPUT", paste("File too large. Maximum", max_size / 1e6, "MB.")))
     }
 
-    orig_name <- uploaded$filename[[1]] %||% uploaded$name[[1]] %||% "upload"
+    orig_name <- sdm_upload_filename(req, uploaded)
     ext <- tolower(tools::file_ext(orig_name))
     is_dwca <- ext == "zip"
 

@@ -112,4 +112,24 @@ describe("queued model canonical asset dispatch", () => {
     expect(mocks.updateSet).not.toHaveBeenCalledWith(expect.objectContaining({ status: "completed" }));
     expect(mocks.emit).toHaveBeenCalledWith(expect.objectContaining({ state: "failed" }));
   });
+
+  it("keeps Plumber's failure message when a polled run fails (not a generic error)", async () => {
+    mocks.resolveModelPayload.mockResolvedValue({
+      species: "Test", model_id: "python_sklearn_rf", occurrence_file: "/srv/inputs/authorized.csv",
+      output_dir: "outputs/jobs/33333333-3333-3333-3333-333333333333",
+    });
+    (db.select as any).mockReturnValue({
+      from: () => ({ where: () => ({ limit: async () => [{ status: "running" }] }) }),
+    });
+    const reason = "Python model 'sklearn_rf' is not available in this image; missing: python interpreter (python3)";
+    const client = {
+      runModel: vi.fn(async () => ({ job_id: "plumber-job-1" })),
+      getModelStatus: vi.fn(async () => ({ status: "failed", error: reason, error_code: "INTERNAL_ERROR" })),
+    } as any;
+
+    await expect(handleModelJob(job(), client, undefined, undefined)).rejects.toThrow("not available in this image");
+
+    expect(mocks.updateSet).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error: reason }));
+    expect(mocks.updateSet).not.toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining("polling timeout") }));
+  });
 });
