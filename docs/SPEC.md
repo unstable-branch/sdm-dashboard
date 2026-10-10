@@ -1,8 +1,8 @@
-# SDM Dashboard Workbench - Current Specification
+# SDM Dashboard - Current Specification
 
 ## Project Shape
 
-SDM Dashboard Workbench is now a beta species distribution modelling platform with two supported surfaces:
+SDM Dashboard is now a beta species distribution modelling platform with two supported surfaces:
 
 - **Modern platform:** Next.js 16 frontend, Hono API, Plumber R computation service, PostgreSQL/PostGIS, Redis/BullMQ, Garage S3-compatible storage, and Docker Compose.
 - **Legacy desktop app:** root-level R/Shiny app for local single-user workflows.
@@ -78,7 +78,7 @@ Release candidates should be tagged from `main` using semver prerelease tags suc
 
 See `docs/RELEASE_AND_HOSTING.md` for packaging, release, and self-hosting policy.
 
-The `dev` to `main` release plan is maintained in `docs/DEV_MAIN_RELEASE_PLAN.md`.
+The release flow is described in `CONTRIBUTING.md`.
 
 ## CRAN Track
 

@@ -1,6 +1,6 @@
 # Security And Privacy
 
-SDM Dashboard Workbench is designed for local-first modelling. User-uploaded files, downloaded covariates, generated outputs, and API keys should remain on the user's machine unless the app is intentionally deployed to a server.
+SDM Dashboard is designed for local-first modelling. User-uploaded files, downloaded covariates, generated outputs, and API keys should remain on the user's machine unless the app is intentionally deployed to a server.
 
 ## Sensitive Data
 

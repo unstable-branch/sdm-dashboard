@@ -1,4 +1,4 @@
-# SDM Dashboard Workbench — Package Installer
+# SDM Dashboard — Package Installer
 # Run: Rscript install_packages.R
 #
 # Installs all packages required for the SDM Dashboard.

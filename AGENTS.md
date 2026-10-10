@@ -1,4 +1,4 @@
-# SDM Dashboard Workbench contributor contract
+# SDM Dashboard contributor contract
 
 ## Purpose and boundaries
 
