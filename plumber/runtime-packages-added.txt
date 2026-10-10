@@ -1,0 +1,5 @@
+# R packages added since the base package layer was last rebuilt.
+# One CRAN package name per line. See plumber/install-runtime-packages.R.
+# Installed in a separate image layer so adding a package does not reinstall
+# the whole runtime surface. Fold entries into `runtime_packages` there the next
+# time that list changes for another reason, then empty this file.

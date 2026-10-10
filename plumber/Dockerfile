@@ -58,6 +58,13 @@ RUN cd /tmp/sdmtorch-build \
   && find sdmtorch -maxdepth 1 -type f -name "*.so" -exec cp {} /opt/sdm/sdmtorch/ \; \
   && rm -rf /tmp/sdmtorch-build /opt/torch/include /opt/torch/share
 
+# Packages added since the base package layer: kept in a late layer so a new
+# package reinstalls only itself (see plumber/install-runtime-packages.R).
+COPY plumber/install-runtime-packages.R plumber/runtime-packages-added.txt /tmp/
+RUN Rscript --vanilla /tmp/install-runtime-packages.R /tmp/runtime-packages-added.txt \
+  && rm -f /tmp/install-runtime-packages.R /tmp/runtime-packages-added.txt \
+  && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
+
 WORKDIR /app
 
 COPY R/ /app/R/
