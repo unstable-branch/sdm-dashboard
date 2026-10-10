@@ -10,7 +10,8 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
                                min_records = NULL, multispecies = FALSE,
                                importance_fun = NULL, pdp_fun = NULL,
                                ale_fun = NULL, shap_fun = NULL,
-                               enmeval_compatible = FALSE, enmeval_algorithm = NULL) {
+                               enmeval_compatible = FALSE, enmeval_algorithm = NULL,
+                               python_manifest = NULL) {
   id <- as.character(id)[1]
   if (is.na(id) || !nzchar(id)) stop("Model id must be a non-empty string.", call. = FALSE)
   if (!is.function(fit_fun)) stop("fit_fun must be a function for model id: ", id, call. = FALSE)
@@ -38,7 +39,8 @@ register_sdm_model <- function(id, label, method, fit_fun, predict_fun,
     ale_fun = if (is.function(ale_fun)) ale_fun else NULL,
     shap_fun = if (is.function(shap_fun)) shap_fun else NULL,
     enmeval_compatible = isTRUE(enmeval_compatible),
-    enmeval_algorithm = enmeval_algorithm %||% id
+    enmeval_algorithm = enmeval_algorithm %||% id,
+    python_manifest = python_manifest
   )
   assign(id, spec, envir = sdm_model_registry)
   invisible(spec)
@@ -51,6 +53,18 @@ sdm_is_multispecies_model <- function(model_id) {
 
 sdm_any_multispecies_model <- function(model_ids) {
   any(vapply(model_ids, sdm_is_multispecies_model, logical(1)))
+}
+
+# Runtime availability for the catalog: Python bridge models need their
+# interpreter and modules in this image. Returns NULL when available, else
+# a short reason.
+sdm_model_unavailable_reason <- function(id) {
+  spec <- get_sdm_model(id)
+  if (!is.null(spec$python_manifest)) {
+    missing <- python_model_missing(spec$python_manifest)
+    if (length(missing)) return(paste("Not available in this image; missing:", paste(missing, collapse = ", ")))
+  }
+  NULL
 }
 
 sdm_model_ids <- function() {
@@ -85,7 +99,17 @@ fit_sdm_model <- function(model_id = sdm_default_model_id, ...) {
   model_id <- validate_sdm_model_id(model_id)
   spec <- get_sdm_model(model_id)
   fit_fun <- spec$fit_fun
-  environment(fit_fun) <- environment()
+  # Rebind so formula environments can reach this call frame (case-weight
+  # scoping, 6a06768), but keep any closure bindings the registration captured
+  # (e.g. the Python bridge's `manifest_id` from `local()`); rebinding straight
+  # to environment() dropped them and broke every python_* model.
+  closure_env <- environment(fit_fun)
+  if (!identical(closure_env, globalenv()) && !isNamespace(closure_env) &&
+      !identical(closure_env, baseenv()) && length(ls(closure_env, all.names = TRUE))) {
+    environment(fit_fun) <- list2env(as.list(closure_env, all.names = TRUE), parent = environment())
+  } else {
+    environment(fit_fun) <- environment()
+  }
   fit <- fit_fun(...)
   if (!is.list(fit)) stop("Model backend did not return a list: ", model_id, call. = FALSE)
   fit$model_id <- model_id
@@ -148,6 +172,36 @@ if (requireNamespace("INLA", quietly = TRUE)) {
 # Occupancy (unmarked) — conditional on unmarked package
 # brms (general Bayesian) — conditional on brms package
 # Python executor bridge — conditional on reticulate + arrow
+# Map a pip requirement ("scikit-learn>=1.2") to the module it installs.
+python_requirement_module <- function(requirement) {
+  pkg <- tolower(sub("[<>=!~;\\[ ].*$", "", trimws(requirement)))
+  switch(pkg, "scikit-learn" = "sklearn", "pyyaml" = "yaml", gsub("-", "_", pkg))
+}
+
+# Which manifest requirements are missing in this image. Images differ (the
+# CUDA image ships no Python; ROCm ships torch only). Used to report the model
+# as unavailable in the catalog and to refuse a run up front with a clear
+# reason instead of failing inside the subprocess. Cached per process.
+sdm_python_missing_cache <- new.env(parent = emptyenv())
+python_model_missing <- function(manifest, module_ok = check_python_module, use_cache = TRUE) {
+  key <- paste0(manifest$id %||% "", "|", sdm_python_path())
+  if (use_cache && exists(key, envir = sdm_python_missing_cache, inherits = FALSE)) {
+    return(get(key, envir = sdm_python_missing_cache))
+  }
+  missing <- if (!nzchar(Sys.which(sdm_python_path()))) {
+    paste0("python interpreter (", sdm_python_path(), ")")
+  } else {
+    reqs <- unlist(manifest$requirements %||% list(), use.names = FALSE)
+    modules <- unique(vapply(reqs, python_requirement_module, character(1)))
+    modules[!vapply(modules, function(mod) isTRUE(tryCatch(module_ok(mod), error = function(e) FALSE)), logical(1))]
+  }
+  if (use_cache) assign(key, missing, envir = sdm_python_missing_cache)
+  missing
+}
+python_model_runnable <- function(manifest, module_ok = check_python_module, use_cache = TRUE) {
+  !length(python_model_missing(manifest, module_ok = module_ok, use_cache = use_cache))
+}
+
 register_python_sdm_models <- function(python_manifests = discover_python_models()) {
   for (manifest_path in python_manifests) {
     m <- tryCatch(read_python_model_manifest(manifest_path), error = function(e) NULL)
@@ -162,7 +216,15 @@ register_python_sdm_models <- function(python_manifests = discover_python_models
         method = manifest$method,
         packages = c("arrow", "reticulate"),
         maturity = "experimental",
-        fit_fun = function(...) fit_python_sdm(..., python_model_id = manifest_id),
+        fit_fun = function(...) {
+          missing <- python_model_missing(manifest)
+          if (length(missing)) {
+            stop("Python model '", manifest_id, "' is not available in this image; missing: ",
+              paste(missing, collapse = ", "), call. = FALSE)
+          }
+          fit_python_sdm(..., python_model_id = manifest_id)
+        },
+        python_manifest = manifest,
         predict_fun = function(fit, env_project_scaled, output_tif, n_cores = 1, log_fun = NULL) {
           predict_python_suitability(fit, env_project_scaled, output_tif, n_cores, log_fun)
         },
@@ -606,7 +668,16 @@ if (requireNamespace("maxnet", quietly = TRUE)) {
   )
 }
 
-if (requireNamespace("ecospat", quietly = TRUE) &&
+# ESM is opt-in: with ecospat 4.1.4 + biomod2 4.3.4 the ensemble step fails
+# ("argument is of length zero") and the images lack R.utils, so it cannot
+# run end to end. Enable with options(sdm.enable_esm = TRUE) or SDM_ENABLE_ESM=true
+# once that compatibility is fixed.
+sdm_esm_enabled <- function() {
+  isTRUE(getOption("sdm.enable_esm")) || identical(tolower(Sys.getenv("SDM_ENABLE_ESM")), "true")
+}
+
+if (sdm_esm_enabled() &&
+  requireNamespace("ecospat", quietly = TRUE) &&
   requireNamespace("biomod2", quietly = TRUE)) {
   register_sdm_model(
     id = "esm_glm",
