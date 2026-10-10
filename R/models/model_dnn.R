@@ -312,6 +312,29 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
   )
 }
 
+# Presence/background training data is heavily imbalanced (often 1-10%
+# presences). Unweighted binomial training then collapses to the majority
+# class: constant predictions and CV AUC 0.5 (F14, measured Oct 2026 on real
+# data: 0.49 -> 0.84 with balancing; GLM reference 0.83). cito::dnn takes no
+# case weights, so replicate presence rows up to parity, mirroring the GLM
+# path's class-balance weights. Evaluation stays honest: CV scores held-out
+# folds that are never resampled. Deterministic (whole copies, no sampling).
+sdm_dnn_balance_classes <- function(df, max_ratio = 1, log_fun = NULL) {
+  y <- df$y
+  n_pos <- sum(y == 1, na.rm = TRUE)
+  n_neg <- sum(y == 0, na.rm = TRUE)
+  if (n_pos == 0L || n_neg == 0L || n_pos >= n_neg * 0.4) return(df)
+  k <- max(1L, floor((n_neg * max_ratio) / n_pos))
+  if (k <= 1L) return(df)
+  pos <- df[y == 1, , drop = FALSE]
+  out <- rbind(df[y == 0, , drop = FALSE], pos[rep(seq_len(n_pos), k), , drop = FALSE])
+  rownames(out) <- NULL
+  if (!is.null(log_fun)) {
+    log_fun("DNN: balancing classes (", n_pos, " presences x", k, " vs ", n_neg, " background)")
+  }
+  out
+}
+
 #' Train a DNN model using cito
 #'
 #' @param train_data Output from prepare_dnn_data
@@ -382,7 +405,10 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   }
 
   formula_str <- paste("y ~", paste(train_data$feature_names, collapse = " + "))
-  df <- as.data.frame(cbind(y = train_data$train_y, train_data$train_x))
+  df <- sdm_dnn_balance_classes(
+    as.data.frame(cbind(y = train_data$train_y, train_data$train_x)),
+    log_fun = log_fun
+  )
 
   if (!isTRUE(resolved_backend$requested_available) && !identical(resolved_backend$requested, "cpu")) {
     warning("DNN: requested ", resolved_backend$requested, " backend is unavailable. Falling back to CPU.")
