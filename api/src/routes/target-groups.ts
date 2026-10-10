@@ -1,8 +1,5 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { mkdir, unlink } from "node:fs/promises";
-import { join, resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -14,17 +11,16 @@ import {
   InputAssetRegistrationError,
   authorizeProjectInputWrite,
   registerInputAssetFromServerPath,
+  resolveInputAssetUploadRoot,
   resolveInputAsset,
   updateInputAssetState,
 } from "../services/input-assets.js";
-import { writeAtomic } from "../services/storage.js";
+import { writeTargetGroupUpload } from "../services/target-group-upload-writer.js";
 
 export const targetGroupRoutes = new Hono<AppEnv>();
 
 targetGroupRoutes.use("*", authMiddleware);
 
-const __filename = fileURLToPath(import.meta.url);
-const UPLOAD_DIR = join(resolve(dirname(__filename), "../../.."), "data", "uploads");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PATH_ALIASES = [
   "file_path", "filePath", "path",
@@ -86,17 +82,20 @@ async function handleUpload(c: Context<AppEnv>) {
     }
   }
 
-  await mkdir(UPLOAD_DIR, { recursive: true });
+  const uploadRoot = await resolveInputAssetUploadRoot();
+  if (!uploadRoot) return c.json({ error: "Configured target-group upload root is invalid" }, 502);
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const outputPath = join(UPLOAD_DIR, Date.now() + "_" + randomUUID() + "_target_group_" + safeName);
-  await writeAtomic(outputPath, Buffer.from(await file.arrayBuffer()));
+  const outputName = Date.now() + "_" + randomUUID() + "_target_group_" + safeName;
   try {
-    const asset = await registerInputAssetFromServerPath({
-      creatorUserId: user.id, scope: scope.scope, projectId: scope.projectId, kind: "target_group", absolutePath: outputPath,
+    return await writeTargetGroupUpload(uploadRoot, outputName, Buffer.from(await file.arrayBuffer()), async (outputPath, contentSha256) => {
+      const asset = await registerInputAssetFromServerPath({
+        creatorUserId: user.id, scope: scope.scope, projectId: scope.projectId, kind: "target_group", absolutePath: outputPath, contentSha256,
+      });
+      return c.json({ targetGroupAssetId: asset.id });
     });
-    return c.json({ targetGroupAssetId: asset.id });
   } catch (error) {
-    try { await unlink(outputPath); } catch { /* best-effort cleanup of this request file */ }
+    // The descriptor-anchored writer closes handles on failure but retains
+    // unregistered bytes; pathname cleanup could delete a raced replacement.
     // A project-membership denial is an authorization decision by this
     // service, not an upstream producer failure.  Report it as a typed 403
     // with a message that does not disclose whether the project exists.

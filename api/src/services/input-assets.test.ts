@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { join, relative } from "node:path";
+import { tmpdir } from "node:os";
 import {
   type InputAssetDependencies,
   type InputAssetPrincipal,
@@ -89,9 +90,14 @@ function principal(id: string, role: InputAssetPrincipal["role"] = "viewer"): In
 
 let root: string;
 const roots = () => ({ uploads: root, boundaries: root, system: root });
+const storageFileSystemSpy = () => ({
+  lstat: vi.fn((path: string) => lstat(path)),
+  realpath: vi.fn((path: string) => realpath(path)),
+  readFile: vi.fn((path: string) => readFile(path)),
+});
 
 beforeEach(async () => {
-  root = await mkdtemp("/tmp/sdm-input-assets-");
+  root = await mkdtemp(join(tmpdir(), "sdm-input-assets-"));
   await writeFile(join(root, "asset.csv"), "abc");
   await writeFile(join(root, "raw.csv"), "raw");
   await writeFile(join(root, "clean.csv"), "clean");
@@ -103,10 +109,60 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
 
 describe("canonical input asset storage containment", () => {
+  it("resolves default and canonical custom upload roots from server configuration", async () => {
+    const project = join(root, "project");
+    const uploads = join(project, "data", "uploads");
+    await mkdir(uploads, { recursive: true });
+    await writeFile(join(uploads, "asset.csv"), "abc");
+    vi.stubEnv("SDM_PROJECT_ROOT", project);
+    vi.stubEnv("SDM_INPUT_ASSET_UPLOAD_ROOT", "");
+    expect(await resolveInputAssetStorage("uploads/asset.csv")).toMatchObject({
+      absolutePath: join(uploads, "asset.csv"),
+    });
+    vi.stubEnv("SDM_INPUT_ASSET_UPLOAD_ROOT", root);
+    expect(await resolveInputAssetStorage("uploads/asset.csv")).toMatchObject({
+      absolutePath: join(root, "asset.csv"),
+    });
+  });
+
+  it("rejects relative upload roots before filesystem inspection", async () => {
+    const fs = storageFileSystemSpy();
+    const relativeRoot = relative(process.cwd(), root);
+    expect(await resolveInputAssetStorage("uploads/asset.csv", { uploads: relativeRoot }, fs)).toBeNull();
+    expect(fs.lstat).not.toHaveBeenCalled();
+    expect(fs.realpath).not.toHaveBeenCalled();
+    expect(fs.readFile).not.toHaveBeenCalled();
+  });
+
+  it.each(["relative/uploads", "/absolute/uploads/", "/absolute/../uploads", "/absolute/./uploads"])(
+    "rejects noncanonical server upload root %s before filesystem inspection", async (configuredRoot) => {
+      const fs = storageFileSystemSpy();
+      vi.stubEnv("SDM_INPUT_ASSET_UPLOAD_ROOT", configuredRoot);
+      expect(await resolveInputAssetStorage("uploads/asset.csv", undefined, fs)).toBeNull();
+      expect(fs.lstat).not.toHaveBeenCalled();
+      expect(fs.realpath).not.toHaveBeenCalled();
+      expect(fs.readFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects upload roots redirected by ancestor symlinks", async () => {
+    const parent = join(root, "physical-parent");
+    const uploads = join(parent, "uploads");
+    const alias = join(root, "parent-alias");
+    await mkdir(uploads, { recursive: true });
+    await writeFile(join(uploads, "asset.csv"), "abc");
+    await symlink(parent, alias);
+    expect(await resolveInputAssetStorage("uploads/asset.csv", { uploads: join(alias, "uploads") })).toBeNull();
+    expect(await resolveInputAssetStorage("uploads/asset.csv", { uploads })).toMatchObject({
+      absolutePath: join(uploads, "asset.csv"),
+    });
+  });
+
   it("requires exact root containment and rejects traversal, missing files, and symlinks", async () => {
     expect(await resolveInputAssetStorage("uploads/asset.csv", roots())).toMatchObject({ absolutePath: join(root, "asset.csv") });
     expect(await resolveInputAssetStorage("uploads/../asset.csv", roots())).toBeNull();
