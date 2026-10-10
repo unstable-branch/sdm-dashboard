@@ -167,11 +167,9 @@ if (!requireNamespace("maxnet", quietly = TRUE)) {
     env_subset <- env_project_scaled[[fit$covariates]]
     log_message(log_fun, "Predicting MaxEnt suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
-    suit <- terra::app(env_subset, fun = function(vals) {
-      sdm_apply_predict(vals, fit$covariates, function(df) {
+    suit <- sdm_app_predict(env_subset, fit$covariates, function(df) {
         as.numeric(predict(fit$model, df, clamp = TRUE, type = "cloglog"))
-      })
-    }, cores = n_cores)
+  }, n_cores = n_cores, packages = "maxnet")
 
     names(suit) <- "suitability"
     terra::writeRaster(suit, output_tif, overwrite = TRUE, wopt = list(gdal = c("COMPRESS=DEFLATE", "PREDICTOR=2", "ZLEVEL=6", "TILED=YES", "NODATA=-9999")))
