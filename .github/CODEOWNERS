@@ -1,25 +1,25 @@
 # Default owners for all files
-* @unstable-branch/sdm-dashboard-maintainers
+* @5p00kyy
 
 # R/Shiny development
-R/ @unstable-branch/sdm-dashboard-maintainers
-app.R @unstable-branch/sdm-dashboard-maintainers
+R/ @5p00kyy
+app.R @5p00kyy
 
 # Plumber R API
-plumber/ @unstable-branch/sdm-dashboard-maintainers
+plumber/ @5p00kyy
 
 # Modern stack (API & Frontend)
-api/ @unstable-branch/sdm-dashboard-maintainers
-frontend/ @unstable-branch/sdm-dashboard-maintainers
+api/ @5p00kyy
+frontend/ @5p00kyy
 
 # Shared types
-packages/ @unstable-branch/sdm-dashboard-maintainers
+packages/ @5p00kyy
 
 # CI/CD & Docker
-.github/ @unstable-branch/sdm-dashboard-maintainers
-docker-compose*.yml @unstable-branch/sdm-dashboard-maintainers
-Dockerfile* @unstable-branch/sdm-dashboard-maintainers
+.github/ @5p00kyy
+docker-compose*.yml @5p00kyy
+Dockerfile* @5p00kyy
 
 # Documentation
-docs/ @unstable-branch/sdm-dashboard-maintainers
-*.md @unstable-branch/sdm-dashboard-maintainers
+docs/ @5p00kyy
+*.md @5p00kyy
