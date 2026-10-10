@@ -73,6 +73,7 @@ services:
       - examples-data:/app/data/examples
       - r-boundaries:/app/data/boundaries:ro
       - r-data:/app/outputs
+      - upload-data:/app/data/uploads
       # Read-only verification of the exact roots published by Plumber.
       - r-climate:/app/Worldclim:ro
       - r-chelsa:/app/chelsa:ro
@@ -141,6 +142,7 @@ services:
     volumes:
       - r-boundaries:/app/data/boundaries
       - r-data:/app/outputs
+      - upload-data:/app/data/uploads
       - r-climate:/app/Worldclim
       - r-chelsa:/app/chelsa
       - r-future:/app/Worldclim_future
@@ -247,6 +249,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  upload-data:
   postgres-data:
   redis-data:
   examples-data:

@@ -71,6 +71,30 @@ export async function handleModelJob(
   }
   const plumberJobId = modelRes.job_id as string | undefined;
 
+  // Plumber reports capacity/memory refusals as a structured error body that can arrive
+  // with HTTP 200 and no job_id. Without this guard the run falls through to the
+  // "sync" branch below and is recorded as completed although no model ran.
+  if (!plumberJobId && typeof modelRes.error === "string" && modelRes.error) {
+    const refusal = modelRes.error;
+    console.error(`[queue] Plumber refused model run: ${refusal}`);
+    if (runId) {
+      await db
+        .update(runs)
+        .set({ status: "failed", completedAt: new Date(), error: refusal })
+        .where(eq(runs.id, runId));
+    }
+    jobEventBus.emitJobStatus({
+      jobId: runId ?? job.id ?? "unknown",
+      runId: runId,
+      state: "failed",
+      progress: 0,
+      failedReason: refusal,
+    });
+    const refusalErr = new Error(refusal);
+    (refusalErr as any).error_code = (modelRes.code as string | undefined) ?? "MODEL_RUN_REFUSED";
+    throw refusalErr;
+  }
+
   if (runId) {
     const cpuDelta = cpuStart ? process.cpuUsage(cpuStart) : undefined;
     await db
