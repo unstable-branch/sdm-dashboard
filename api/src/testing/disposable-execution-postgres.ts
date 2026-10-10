@@ -36,7 +36,22 @@ export function createDockerInspector(): ContainerInspector {
   };
 }
 
-export function assertDisposableTarget(target: DisposableTarget, inspector: ContainerInspector): void {
+// GitHub Actions service containers are created per job and destroyed with the
+// runner, so they cannot be inspected through the local Docker socket. Accept
+// them only inside Actions, on loopback, against a dedicated *_test database.
+const ciServiceOptIn = "RUN_DISPOSABLE_CI_SERVICE_POSTGRES";
+
+export function assertCiServiceTarget(target: DisposableTarget, env: NodeJS.ProcessEnv): void {
+  if (env.GITHUB_ACTIONS !== "true" || env.CI !== "true" || !target.databaseUrl) return fail();
+  let url: URL;
+  try { url = new URL(target.databaseUrl); } catch { return fail(); }
+  if (url.protocol !== "postgresql:" && url.protocol !== "postgres:") return fail();
+  if (url.hostname !== "127.0.0.1" || url.search || url.hash || !url.username || !url.password) return fail();
+  if (!/^\/sdm_[a-z_]+_test$/.test(url.pathname)) return fail();
+}
+
+export function assertDisposableTarget(target: DisposableTarget, inspector: ContainerInspector, env: NodeJS.ProcessEnv = process.env): void {
+  if (target.optIn === ciServiceOptIn) return assertCiServiceTarget(target, env);
   if (target.optIn !== expectedOptIn) throw new Error("Explicit disposable PostgreSQL opt-in is required");
   if (!target.databaseUrl || !target.containerId || !/^[a-f0-9]{64}$/.test(target.containerId) || !target.label) return fail();
   let url: URL;

@@ -48,4 +48,20 @@ describe("disposable execution PostgreSQL test boundary", () => {
       expect(() => assertDisposableTarget(target(), { inspect: () => bad })).toThrow();
     }
   });
+
+  it("accepts a CI service database only inside GitHub Actions on loopback", () => {
+    const never: ContainerInspector = { inspect: () => { throw new Error("must not inspect"); } };
+    const ci = { optIn: "RUN_DISPOSABLE_CI_SERVICE_POSTGRES", databaseUrl: "postgresql://sdm:x@127.0.0.1:5432/sdm_migration_test" };
+    const actions = { GITHUB_ACTIONS: "true", CI: "true" };
+    expect(() => assertDisposableTarget(ci, never, actions)).not.toThrow();
+    expect(() => assertDisposableTarget(ci, never, {})).toThrow();
+    expect(() => assertDisposableTarget(ci, never, { GITHUB_ACTIONS: "true" })).toThrow();
+    for (const url of [
+      "postgresql://sdm:x@10.0.0.5:5432/sdm_migration_test",
+      "postgresql://sdm:x@127.0.0.1:5432/sdm_platform",
+      "postgresql://sdm:x@127.0.0.1:5432/postgres",
+      "postgresql://sdm@127.0.0.1:5432/sdm_migration_test",
+      "postgresql://sdm:x@127.0.0.1:5432/sdm_migration_test?host=elsewhere",
+    ]) expect(() => assertDisposableTarget({ ...ci, databaseUrl: url }, never, actions)).toThrow();
+  });
 });
