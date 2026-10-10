@@ -191,6 +191,7 @@ jobs:
         env:
           SDM_MIGRATION_TEST_DATABASE_URL: postgresql://sdm:sdm_ci_only@127.0.0.1:5432/sdm_migration_test
           SDM_MIGRATION_TEST_REQUIRED: "1"
+          SDM_EXECUTION_PG_PROOF_OPT_IN: RUN_DISPOSABLE_CI_SERVICE_POSTGRES
         run: pnpm --filter api exec vitest run src/db/execution-migration.test.ts --reporter=verbose
 
   docker:
