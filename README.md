@@ -12,7 +12,13 @@ Open-source species distribution modelling (SDM) platform: upload occurrence rec
 
 **Status: 3.0.0 release candidate.** 3.0 is the first stable line of the modern platform. Validate ecological outputs carefully before operational use; see [Known limitations](#known-limitations).
 
-![Architecture: platform services and the R modelling core](docs/architecture.png)
+![SDM Dashboard: upload, clean, model and review a koala distribution model end to end](docs/images/demo.gif)
+
+<sub>A real run from a clean start: 359 CC0 koala records from GBIF, cleaned to 346, MaxNet with 5-fold spatial-block cross-validation over eastern Australia (CV AUC 0.923), about 25 seconds end to end.</sub>
+
+| Dashboard | Results | Suitability map |
+| --- | --- | --- |
+| [![Dashboard](docs/images/dashboard.png)](docs/images/dashboard.png) | [![Run results with metrics and overfitting advice](docs/images/results.png)](docs/images/results.png) | [![Habitat suitability map with legend](docs/images/suitability-map.png)](docs/images/suitability-map.png) |
 
 ## What's in the box
 
@@ -21,6 +27,8 @@ Open-source species distribution modelling (SDM) platform: upload occurrence rec
 - **Modelling engine:** R 4.5 behind Plumber. Occurrence cleaning (CoordinateCleaner), WorldClim/CHELSA covariates, VIF selection, random or spatial-block cross-validation, GLM, GAM, MaxNet, MARS, FDA, CTA, random forest, GBM/XGBoost, DNN and ensembles, plus importance, response curves, area of applicability, MESS, future SSP projections and a reproducible R script for each run.
 - **State:** PostgreSQL/PostGIS, Redis/BullMQ, Garage (S3-compatible) object storage.
 - **Compute:** CPU by default. Optional NVIDIA (CUDA) and AMD (ROCm) Plumber images.
+
+![Architecture: platform services and the R modelling core](docs/architecture.png)
 
 ## Install (self-hosted)
 
