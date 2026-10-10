@@ -3,6 +3,9 @@
 
 cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
+# When sourced (tests), --file= names the caller's script, not this one; only
+# trust it when it is this file, otherwise resolve from the working directory.
+file_arg <- file_arg[basename(sub("^--file=", "", file_arg)) == "make_release_zip.R"]
 script_path <- if (length(file_arg) > 0) {
   normalizePath(sub("^--file=", "", file_arg[1]), winslash = "/", mustWork = TRUE)
 } else {

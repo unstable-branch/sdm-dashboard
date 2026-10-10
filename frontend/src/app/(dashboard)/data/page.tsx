@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Cloud, Layers, Map, LayoutDashboard, AlertTriangle } from "lucide-react";
 import { useSDMStore } from "@/stores/sdm-store";
 import { useSettingsStore } from "@/stores/settings-store";
@@ -13,7 +13,8 @@ import { CovariateTab } from "./covariate-tab";
 import { BoundaryTab } from "./boundary-tab";
 import { OverviewTab } from "./overview-tab";
 import type { UploadFile, ClimateScenarioResponse, ClimateCheckResponse } from "@/services/types";
-import type { WorkspaceFile } from "./types";
+import { addWorkspaceFile, type WorkspaceFile } from "./types";
+import { selectWorkspaceFileForModel } from "./model-handoff";
 
 export default function DataPage() {
   return (
@@ -84,24 +85,7 @@ function DataPageContent() {
           .split(",").map((s: string) => s.trim()).filter(Boolean)
       : [];
     setWorkspaceFiles((prev) => {
-      if (prev.some(f => f.rawAssetId === rawAssetId || f.fileId === file.file_id)) return prev;
-      return [...prev, {
-        id: crypto.randomUUID(),
-        rawAssetId,
-        fileId: file.file_id,
-        fileName: file.file_name,
-        filePath: file.file_id,
-        fileFormat: file.format,
-        fileRows: file.n_rows,
-        fileCleaned: file.cleaned,
-        fileCleanedFileId: file.cleaned_file_id,
-        cleanedFileId: file.cleaned_file_id,
-        cleanedAssetId: file.cleanedAssetId || file.cleaned_asset_id,
-        cleanValidRecords: file.cleaned_valid_records,
-        selectedSpecies: allSpecies,
-        cleanLoading: false,
-        cleanError: null,
-      }];
+      return addWorkspaceFile(prev, file, allSpecies);
     });
     if (allSpecies.length > 0) {
       useSDMStore.getState().setSpecies(allSpecies[0]);
@@ -124,31 +108,7 @@ function DataPageContent() {
   const handleOpenInModel = useCallback((cardId: string) => {
     const card = workspaceFiles.find(f => f.id === cardId);
     if (!card) return;
-    const store = useSDMStore.getState();
-    store.setOccurrenceFilePath(card.filePath);
-    store.setRawAssetId(card.rawAssetId || null);
-    store.setCleanedAssetId(card.cleanedAssetId || null);
-    store.setSpecies(card.selectedSpecies[0] || "Untitled species");
-    store.setDetectedSpecies(card.selectedSpecies);
-    store.setRecordCount(card.fileRows);
-    store.setUploadResult({
-      file_id: card.fileId,
-      rawAssetId: card.rawAssetId,
-      raw_asset_id: card.rawAssetId,
-      n_rows: card.fileRows,
-      cleaned: Boolean(card.cleanedAssetId),
-      cleaned_file_id: card.cleanedFileId,
-      cleanedAssetId: card.cleanedAssetId,
-      cleaned_asset_id: card.cleanedAssetId,
-      cleaned_valid_records: card.cleanValidRecords,
-    });
-    if (card.cleanedAssetId) {
-      store.setCleanedOccurrence({
-        filePath: card.cleanedFileId || "", cleanedAssetId: card.cleanedAssetId, df: [], sourceCounts: {},
-        nAbsentExcluded: 0, originalRows: card.fileRows,
-        validRecords: card.cleanValidRecords || card.fileRows,
-      });
-    }
+    selectWorkspaceFileForModel(card);
     router.push("/model");
   }, [workspaceFiles, router]);
 
@@ -233,19 +193,30 @@ function DataPageContent() {
 
   useEffect(() => { fetchScenarios(); }, [fetchScenarios]);
 
+  const climateCheckRequest = useRef(0);
   const fetchAvailableBiovars = useCallback(async () => {
+    const requestId = ++climateCheckRequest.current;
+    const source = climateSource;
+    const resolution = climateRes;
     const allBiovars = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19";
+    setAvailableBiovars(new Set());
+    setClimatePermissionIssues([]);
     try {
-      const data = await apiGet<ClimateCheckResponse>(`/api/v1/climate/check?source=${climateSource}&res=${climateRes}&biovars=${encodeURIComponent(allBiovars)}`);
+      const data = await apiGet<ClimateCheckResponse>(`/api/v1/climate/check?source=${source}&res=${resolution}&biovars=${encodeURIComponent(allBiovars)}`);
+      if (requestId !== climateCheckRequest.current) return;
       setAvailableBiovars(new Set(data.available || []));
       setClimatePermissionIssues(data.permission_issues ?? []);
     } catch {
+      if (requestId !== climateCheckRequest.current) return;
       setAvailableBiovars(new Set());
       setClimatePermissionIssues([]);
     }
   }, [climateSource, climateRes]);
 
-  useEffect(() => { fetchAvailableBiovars(); }, [fetchAvailableBiovars]);
+  useEffect(() => {
+    void fetchAvailableBiovars();
+    return () => { climateCheckRequest.current += 1; };
+  }, [fetchAvailableBiovars]);
 
   const handleDownloadComplete = useCallback((completedJobId: string) => {
     clearDownloadJob(completedJobId);
@@ -369,7 +340,7 @@ function DataPageContent() {
       )}
 
       <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-4">
-        <TabsList className="flex w-full overflow-x-auto [&::-webkit-scrollbar]:hidden border-b border-sdm-border rounded-none bg-transparent p-0 gap-0">
+        <TabsList aria-label="Data sources" className="flex w-full overflow-x-auto [&::-webkit-scrollbar]:hidden border-b border-sdm-border rounded-none bg-transparent p-0 gap-0">
           <TabsTrigger value="overview" className="flex items-center gap-1.5 whitespace-nowrap shrink-0 rounded-none border-b-2 border-transparent px-4 py-2 text-sm hover:text-sdm-text mb-[-1px] data-[state=active]:border-sdm-accent data-[state=active]:text-sdm-text data-[state=active]:bg-transparent data-[state=active]:shadow-none">
             <LayoutDashboard className="h-3 w-3" />
             Overview
@@ -392,6 +363,7 @@ function DataPageContent() {
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="upload">
         {activeTab === "upload" && (
           <UploadTab
             uploadResult={uploadResult}
@@ -412,7 +384,9 @@ function DataPageContent() {
             hasAlaCredentials={hasAlaCredentials}
           />
         )}
+        </TabsContent>
 
+        <TabsContent value="overview">
         {activeTab === "overview" && (
           <OverviewTab
             uploadResult={uploadResult}
@@ -427,7 +401,9 @@ function DataPageContent() {
             onTabChange={onTabChange}
           />
         )}
+        </TabsContent>
 
+        <TabsContent value="climate">
         {activeTab === "climate" && (
           <>
             {climatePermissionIssues && climatePermissionIssues.length > 0 && (
@@ -459,9 +435,10 @@ function DataPageContent() {
               onFetchScenarios={fetchScenarios} />
           </>
         )}
+        </TabsContent>
 
-        {activeTab === "covariates" && <CovariateTab />}
-        {activeTab === "boundary" && <BoundaryTab />}
+        <TabsContent value="covariates">{activeTab === "covariates" && <CovariateTab />}</TabsContent>
+        <TabsContent value="boundary">{activeTab === "boundary" && <BoundaryTab />}</TabsContent>
       </Tabs>
     </div>
   );

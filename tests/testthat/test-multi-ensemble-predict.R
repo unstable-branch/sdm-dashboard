@@ -1,38 +1,33 @@
 # Tests for multi-ensemble predict function (comp_cv fix).
-
+# Exercises the real fit/predict API; failures surface as test failures, not skips.
 
 test_that("predict_multi_model_ensemble handles NULL user_threshold without comp_cv error", {
-  skip_if_not(requireNamespace("ranger", quietly = TRUE))
-  skip_if_not(requireNamespace("maxnet", quietly = TRUE))
+  skip_if_not_installed("mgcv")
 
-  occ_df <- data.frame(
-    longitude = runif(50, 140, 150),
-    latitude = runif(50, -35, -25)
-  )
-  env_data <- terra::rast(nrows = 20, ncols = 20, xmin = 139, xmax = 151, ymin = -36, ymax = -24)
-  terra::values(env_data) <- matrix(rnorm(800), ncol = 2)
+  set.seed(42)
+  env_data <- terra::rast(nrows = 30, ncols = 30, xmin = 0, xmax = 30,
+                          ymin = 0, ymax = 30, crs = "EPSG:4326", nlyrs = 2)
+  terra::values(env_data) <- matrix(rnorm(terra::ncell(env_data) * 2L), ncol = 2L)
   names(env_data) <- c("BIO1", "BIO12")
+  xy <- terra::xyFromCell(env_data, seq(5L, 880L, length.out = 40L))
+  occ_df <- data.frame(species = "Synthetic", longitude = xy[, 1], latitude = xy[, 2])
 
-  fit_glm <- tryCatch(fit_fast_sdm(occ_df, env_data, c("BIO1", "BIO12"),
-    background_n = 100, cv_folds = 3, seed = 42L), error = function(e) NULL)
-  skip_if(is.null(fit_glm), "GLM fit failed")
-
-  fit_rf <- tryCatch(fit_rf_sdm(occ_df, env_data, c("BIO1", "BIO12"),
-    background_n = 100, cv_folds = 3, seed = 42L), error = function(e) NULL)
-  skip_if(is.null(fit_rf), "RF fit failed")
-
-  multi_fit <- tryCatch(fit_multi_model_ensemble(
-    list(glm = fit_glm, rf = fit_rf),
-    env_data, c("BIO1", "BIO12"), weighting = "auc", seed = 42L
-  ), error = function(e) NULL)
-  skip_if(is.null(multi_fit), "Multi-ensemble fit failed")
+  multi_fit <- fit_multi_model_ensemble(
+    occ_df, env_data, selected_models = c("glm", "gam"),
+    ensemble_weighting = "auc", background_n = 300L, include_quadratic = FALSE,
+    cv_folds = 3L, cv_strategy = "random", seed = 42L, n_cores = 1L
+  )
+  expect_setequal(names(multi_fit$model$components), c("glm", "gam"))
 
   out_tif <- tempfile(fileext = ".tif")
-  result <- tryCatch(
-    predict_multi_model_ensemble(multi_fit, env_data, out_tif, n_cores = 1,
-      log_fun = NULL, user_threshold = NULL),
-    error = function(e) NULL
-  )
-  expect_true(!is.null(result), "predict_multi_model_ensemble should not error with NULL user_threshold")
-  expect_true(inherits(result, "SpatRaster"))
+  on.exit(unlink(Sys.glob(sub("[.]tif$", "*", out_tif))), add = TRUE)
+  result <- predict_multi_model_ensemble(multi_fit, env_data, out_tif, n_cores = 1,
+    log_fun = NULL, user_threshold = NULL)
+
+  expect_s4_class(result, "SpatRaster")
+  expect_equal(terra::nlyr(result), 1L)
+  vals <- as.numeric(terra::values(result))
+  expect_true(any(is.finite(vals)))
+  expect_true(all(vals[is.finite(vals)] >= 0 & vals[is.finite(vals)] <= 1))
+  expect_true(file.exists(out_tif))
 })

@@ -23,10 +23,29 @@ sdmBatchRoutes.use("/runs", authMiddleware);
 sdmBatchRoutes.use("/runs/delete/*", authMiddleware);
 sdmBatchRoutes.use("/runs/clear-all", authMiddleware);
 
+// Public by design (owner decision, Oct 2026): the model catalog is static
+// metadata with no user, run or occurrence data. Project to an allowlist so a
+// future Plumber field cannot widen what anonymous callers see.
+const PUBLIC_MODEL_FIELDS = [
+  "id", "label", "maturity", "min_records", "packages", "notes", "complexity_tier",
+  "enmeval_compatible", "enmeval_algorithm", "available", "supports_uncertainty",
+] as const;
+
+export function toPublicModelCatalog(models: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(models)) return [];
+  return models
+    .filter((m): m is Record<string, unknown> => !!m && typeof m === "object" && !Array.isArray(m))
+    .map((m) => {
+      const out: Record<string, unknown> = {};
+      for (const key of PUBLIC_MODEL_FIELDS) if (key in m) out[key] = m[key];
+      return out;
+    });
+}
+
 sdmBatchRoutes.get("/models", async (c) => {
   try {
     const models = await plumberClient.getModels();
-    return c.json(models);
+    return c.json(toPublicModelCatalog(models));
   } catch {
     return c.json([
       { id: "glm", label: "GLM / Logistic Regression", maturity: "stable", available: true },

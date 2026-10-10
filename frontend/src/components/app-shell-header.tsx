@@ -1,79 +1,50 @@
 "use client";
 
-import { useState, useEffect, useRef, useContext } from "react";
-import Link from "next/link";
+import { useContext } from "react";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Leaf, Moon, Sun, Menu, X } from "lucide-react";
+import { ChevronRight, Moon, Sun, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { dashboardNavItems } from "@/components/dashboard-nav";
+import { adminItems, dashboardNavItems, pipelineItems } from "@/components/dashboard-nav";
 import { SidebarContext } from "@/components/ui/sidebar";
-import { cn } from "@/lib/utils";
+
 import { UserMenu } from "@/components/layout/user-menu";
 
 export function AppShellHeader() {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const { open: sidebarOpen, setOpen: setSidebarOpen } = useContext(SidebarContext);
-  const [visible, setVisible] = useState(true);
-  const lastScrollY = useRef(0);
-
-  useEffect(() => {
-    let ticking = false;
-    const onScroll = () => {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          const currentScrollY = window.scrollY;
-          if (currentScrollY < 10) {
-            setVisible(true);
-          } else if (currentScrollY > lastScrollY.current + 5) {
-            setVisible(false);
-          } else if (currentScrollY < lastScrollY.current - 5) {
-            setVisible(true);
-          }
-          lastScrollY.current = currentScrollY;
-          ticking = false;
-        });
-        ticking = true;
-      }
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
-    return pathname === href || pathname.startsWith(href + "/");
-  };
+  const currentPage = [...dashboardNavItems, ...adminItems]
+    .filter((item) => item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(item.href + "/"))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  const section = pathname.startsWith("/admin") ? "Administration"
+    : pipelineItems.some((item) => item === currentPage) ? "Pipeline" : "Workspace";
 
   return (
-    <header
-      className={cn(
-        "sticky top-0 z-40 border-b border-sdm-border bg-sdm-bg/95 backdrop-blur transition-transform duration-300",
-        visible ? "translate-y-0" : "-translate-y-full"
-      )}
-    >
-      <div className="flex min-h-16 items-center justify-between gap-3 px-4 sm:px-6">
-        <div className="flex items-center gap-2 md:hidden">
+    <header className="sticky top-0 z-30 border-b border-sdm-border bg-sdm-bg/95 backdrop-blur">
+      <a href="#workbench-content" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-3 focus:z-50 focus:rounded-md focus:bg-sdm-surface focus:px-4 focus:py-3 focus:text-sdm-heading focus:ring-2 focus:ring-sdm-accent">
+        Skip to content
+      </a>
+      <div className="flex min-h-16 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="flex min-w-0 items-center gap-3">
           <button
+            type="button"
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 rounded-md text-sdm-muted hover:text-sdm-text hover:bg-sdm-surface-soft"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sdm-muted hover:bg-sdm-surface-soft hover:text-sdm-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sdm-accent md:hidden"
             aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"}
+            aria-expanded={sidebarOpen}
           >
             {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-          <Link href="/" className="flex min-w-0 items-center gap-2">
-            <Leaf className="h-5 w-5 shrink-0 text-sdm-accent" />
-            <span className="truncate text-sm font-semibold text-sdm-heading">SDM Platform</span>
-          </Link>
-        </div>
-
-        <div className="hidden min-w-0 md:block">
-          <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">SDM Dashboard Workbench</p>
-          <p className="truncate text-sm text-sdm-text">Modern platform beta</p>
+          <div aria-label="Current page" className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="hidden text-sdm-muted sm:inline">{section}</span>
+            <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 text-sdm-muted sm:block" aria-hidden="true" />
+            <span className="truncate font-semibold text-sdm-heading">{currentPage?.title || "SDM Platform"}</span>
+          </div>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <span className="hidden rounded-md border border-sdm-border px-2 py-1 text-xs text-sdm-muted lg:inline">Modern platform beta</span>
           <Button
             variant="ghost"
             size="icon"
@@ -88,22 +59,7 @@ export function AppShellHeader() {
         </div>
       </div>
 
-      <nav className="flex gap-2 overflow-x-auto border-t border-sdm-border px-4 py-2 md:hidden">
-        {dashboardNavItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-transparent px-3 py-1.5 text-xs font-medium text-sdm-muted",
-              isActive(item.href) && "border-sdm-accent/30 bg-sdm-accent/10 text-sdm-accent"
-            )}
-            aria-current={isActive(item.href) ? "page" : undefined}
-          >
-            <item.icon className="h-3.5 w-3.5" />
-            {item.title}
-          </Link>
-        ))}
-      </nav>
+
     </header>
   );
 }

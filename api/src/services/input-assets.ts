@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -181,6 +181,29 @@ function defaultRoots(): InputAssetRootMap {
   };
 }
 
+/** Return the configured uploads root only when its existing path is canonical and symlink-free. */
+export async function resolveInputAssetUploadRoot(): Promise<string | null> {
+  const root = defaultRoots().uploads;
+  if (!isAbsolute(root) || root !== resolve(root)) return null;
+  let current = root;
+  try {
+    while (true) {
+      try {
+        const stat = await lstat(current);
+        if (stat.isSymbolicLink() || !stat.isDirectory()) return null;
+        if (await realpath(current) !== current) return null;
+      } catch (error) {
+        if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") return null;
+      }
+      const parent = dirname(current);
+      if (parent === current) return root;
+      current = parent;
+    }
+  } catch {
+    return null;
+  }
+}
+
 function isContained(root: string, candidate: string): boolean {
   const rootResolved = resolve(root);
   const candidateResolved = resolve(candidate);
@@ -220,11 +243,16 @@ export async function resolveInputAssetStorage(
   const configuredRoot = roots[parsed.root];
   if (typeof configuredRoot !== "string" || configuredRoot.length === 0) return null;
 
+  // Uploads are shared with the worker. Reject process-CWD-dependent or
+  // noncanonical server roots rather than accept inputs the worker cannot use.
+  if (parsed.root === "uploads" && (!isAbsolute(configuredRoot) || configuredRoot !== resolve(configuredRoot))) return null;
+
   try {
     const configuredRootPath = resolve(configuredRoot);
     const rootStat = await fs.lstat(configuredRootPath);
     if (rootStat.isSymbolicLink() || rootStat.isFile()) return null;
     const rootPath = await fs.realpath(configuredRootPath);
+    if (parsed.root === "uploads" && rootPath !== configuredRootPath) return null;
     const candidate = resolve(rootPath, ...parsed.segments);
     if (!isContained(rootPath, candidate)) return null;
 

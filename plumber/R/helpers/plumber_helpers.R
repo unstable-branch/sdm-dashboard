@@ -452,10 +452,20 @@ sdm_result_cache <- new.env(parent = emptyenv())
 sdm_result_cache_mtime <- NA
 
 sdm_result_cache_key <- function(path) {
-  if (!file.exists(path)) return(paste0("missing:", path))
-  info <- file.info(path)
-  if (is.na(info$mtime) || info$isdir) return(paste0("missing:", path))
-  as.numeric(info$mtime)
+  if (is.null(path) || length(path) != 1L || !nzchar(path) || !file.exists(path)) return(NULL)
+  resolved <- tryCatch(normalizePath(path, winslash = "/", mustWork = TRUE), error = function(e) NULL)
+  if (is.null(resolved) || dir.exists(resolved)) return(NULL)
+  content_hash <- tryCatch(digest::digest(file = resolved, algo = "sha256"), error = function(e) NULL)
+  if (is.null(content_hash) || length(content_hash) != 1L || is.na(content_hash)) return(NULL)
+  paste(resolved, tolower(content_hash), sep = "|")
+}
+
+# Results are plain lists after readRDS(); rm(envir=) only accepts environments and
+# errors on lists (suppressWarnings does not catch that). Drop a field only when the
+# container is an environment; list copies are released when the cache entry is rm()'d.
+sdm_drop_field <- function(field, container) {
+  if (is.environment(container)) suppressWarnings(rm(list = field, envir = container))
+  invisible(NULL)
 }
 
 # Read saved result RDS and unwrap SpatRasters (single-entry cache by file path).
@@ -464,10 +474,10 @@ sdm_result_cache_key <- function(path) {
 sdm_read_result <- function(path) {
   if (is.null(path) || !file.exists(path)) return(NULL)
 
-  cache_mtime <- sdm_result_cache_key(path)
+  cache_key <- sdm_result_cache_key(path)
 
-  # Single-entry cache hit (same file, same mtime)
-  if (!identical(cache_mtime, NA) && identical(cache_mtime, sdm_result_cache_mtime)) {
+  # Single-entry cache hit only when the normalized path and current bytes match.
+  if (!is.null(cache_key) && identical(cache_key, sdm_result_cache_mtime)) {
     return(sdm_result_cache[["result"]])
   }
 
@@ -477,26 +487,26 @@ sdm_read_result <- function(path) {
     rm(list = "result", envir = sdm_result_cache)
     # Explicitly clean up unwrapped SpatRasters from previous result
     if (!is.null(old$suitability) && inherits(old$suitability, "SpatRaster")) {
-      suppressWarnings(rm(list = "suitability", envir = old))
+      sdm_drop_field("suitability", old)
     }
     if (!is.null(old$future) && is.list(old$future) && !is.null(old$future$suitability) &&
         inherits(old$future$suitability, "SpatRaster")) {
-      suppressWarnings(rm(list = "suitability", envir = old$future))
+      sdm_drop_field("suitability", old$future)
     }
     if (!is.null(old$future2) && is.list(old$future2) && !is.null(old$future2$suitability) &&
         inherits(old$future2$suitability, "SpatRaster")) {
-      suppressWarnings(rm(list = "suitability", envir = old$future2))
+      sdm_drop_field("suitability", old$future2)
     }
     if (!is.null(old$climate_match) && is.list(old$climate_match) && !is.null(old$climate_match$similarity) &&
         inherits(old$climate_match$similarity, "SpatRaster")) {
-      suppressWarnings(rm(list = "similarity", envir = old$climate_match))
+      sdm_drop_field("similarity", old$climate_match)
     }
     if (!is.null(old$mess) && is.list(old$mess) && !is.null(old$mess$mess) &&
         inherits(old$mess$mess, "SpatRaster")) {
-      suppressWarnings(rm(list = "mess", envir = old$mess))
+      sdm_drop_field("mess", old$mess)
     }
     if (!is.null(old$aoa) && inherits(old$aoa, "SpatRaster")) {
-      suppressWarnings(rm(list = "aoa", envir = old))
+      sdm_drop_field("aoa", old)
     }
     gc(verbose = FALSE)
   }
@@ -523,7 +533,7 @@ sdm_read_result <- function(path) {
     }
 
     sdm_result_cache[["result"]] <- res
-    sdm_result_cache_mtime <- cache_mtime
+    sdm_result_cache_mtime <- cache_key
     res
   }, error = function(e) {
     sdm_log_error("Failed to read result RDS: %s", conditionMessage(e))
@@ -537,14 +547,14 @@ sdm_cleanup_result <- function(res) {
   if (is.null(res) || !is.list(res)) return()
   for (field in c("suitability", "aoa")) {
     if (!is.null(res[[field]]) && inherits(res[[field]], "SpatRaster")) {
-      suppressWarnings(rm(list = field, envir = res))
+      sdm_drop_field(field, res)
     }
   }
   for (sub_field in c("future", "future2")) {
     if (!is.null(res[[sub_field]]) && is.list(res[[sub_field]])) {
       for (inner in c("suitability", "similarity", "mess")) {
         if (!is.null(res[[sub_field]][[inner]]) && inherits(res[[sub_field]][[inner]], "SpatRaster")) {
-          suppressWarnings(rm(list = inner, envir = res[[sub_field]]))
+          sdm_drop_field(inner, res[[sub_field]])
         }
       }
     }

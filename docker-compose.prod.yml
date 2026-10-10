@@ -70,8 +70,10 @@ services:
       - GARAGE_BUCKET_RASTERS=${GARAGE_BUCKET_RASTERS:?GARAGE_BUCKET_RASTERS is required}
       - GARAGE_BUCKET_EXPORTS=${GARAGE_BUCKET_EXPORTS:?GARAGE_BUCKET_EXPORTS is required}
     volumes:
+      - examples-data:/app/data/examples
       - r-boundaries:/app/data/boundaries:ro
       - r-data:/app/outputs
+      - upload-data:/app/data/uploads
       # Read-only verification of the exact roots published by Plumber.
       - r-climate:/app/Worldclim:ro
       - r-chelsa:/app/chelsa:ro
@@ -136,10 +138,12 @@ services:
       resources:
         limits:
           cpus: "4"
-          memory: 8G
+          # 12G: two concurrent model runs (SDM_MAX_CONCURRENT_RUNS=2) including DNN.
+          memory: 12G
     volumes:
       - r-boundaries:/app/data/boundaries
       - r-data:/app/outputs
+      - upload-data:/app/data/uploads
       - r-climate:/app/Worldclim
       - r-chelsa:/app/chelsa
       - r-future:/app/Worldclim_future
@@ -176,8 +180,7 @@ services:
   garage:
     image: docker.io/dxflrs/garage:v2.3.0@sha256:866bd13ed2038ba7e7190e840482bc27234c4afaf77be8cfa439ae088c1e4690
     command: ["/garage", "server"]
-    ports:
-      - "3900:3900"
+    # Internal only: the API reaches Garage at garage:3900 on sdm-network.
     environment:
       - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:?GARAGE_RPC_SECRET is required}
       - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:?GARAGE_ADMIN_TOKEN is required}
@@ -198,8 +201,7 @@ services:
     image: docker.io/prometheuscommunity/postgres-exporter:v0.16.0@sha256:6999a7657e2f2fb0ca6ebf417213eebf6dc7d21b30708c622f6fcb11183a2bb0
     environment:
       DATA_SOURCE_NAME: postgresql://sdm:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/sdm_platform?sslmode=disable
-    ports:
-      - "9187:9187"
+    profiles: ["monitoring"]
     networks:
       - sdm-network
     restart: unless-stopped
@@ -208,16 +210,17 @@ services:
     image: docker.io/oliver006/redis_exporter:v1.67.0@sha256:120f7ec77293459ccfdad66bb1db75ab72e8bfeab99f58b1cc2564cadcd7a9e7
     environment:
       REDIS_ADDR: redis://redis:6379
-    ports:
-      - "9121:9121"
+    profiles: ["monitoring"]
     networks:
       - sdm-network
     restart: unless-stopped
 
   prometheus:
     image: docker.io/prom/prometheus:v2.53.0@sha256:075b1ba2c4ebb04bc3a6ab86c06ec8d8099f8fda1c96ef6d104d9bb1def1d8bc
+    profiles: ["monitoring"]
+    # Loopback only; reach remotely through an SSH tunnel or a protected proxy.
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus:/etc/prometheus/rules:ro
@@ -231,8 +234,9 @@ services:
 
   grafana:
     image: docker.io/grafana/grafana:11.0.0@sha256:0dc5a246ab16bb2c38a349fb588174e832b4c6c2db0981d0c3e6cd774ba66a54
+    profiles: ["monitoring"]
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD is required}
       - GF_USERS_ALLOW_SIGN_UP=false
@@ -246,8 +250,10 @@ services:
     restart: unless-stopped
 
 volumes:
+  upload-data:
   postgres-data:
   redis-data:
+  examples-data:
   garage-meta:
   garage-data:
   r-data:

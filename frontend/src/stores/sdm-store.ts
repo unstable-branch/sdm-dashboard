@@ -25,7 +25,7 @@ interface SDMState {
     sourceCounts: Record<string, number>;
     nAbsentExcluded: number;
     originalRows: number;
-    validRecords: number;
+    validRecords: number | null;
   } | null;
   setCleanedOccurrence: (data: SDMState["cleanedOccurrence"]) => void;
 

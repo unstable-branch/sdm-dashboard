@@ -312,6 +312,29 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
   )
 }
 
+# Presence/background training data is heavily imbalanced (often 1-10%
+# presences). Unweighted binomial training then collapses to the majority
+# class: constant predictions and CV AUC 0.5 (measured Oct 2026 on real
+# data: 0.49 -> 0.84 with balancing; GLM reference 0.83). cito::dnn takes no
+# case weights, so replicate presence rows up to parity, mirroring the GLM
+# path's class-balance weights. Evaluation stays honest: CV scores held-out
+# folds that are never resampled. Deterministic (whole copies, no sampling).
+sdm_dnn_balance_classes <- function(df, max_ratio = 1, log_fun = NULL) {
+  y <- df$y
+  n_pos <- sum(y == 1, na.rm = TRUE)
+  n_neg <- sum(y == 0, na.rm = TRUE)
+  if (n_pos == 0L || n_neg == 0L || n_pos >= n_neg * 0.4) return(df)
+  k <- max(1L, floor((n_neg * max_ratio) / n_pos))
+  if (k <= 1L) return(df)
+  pos <- df[y == 1, , drop = FALSE]
+  out <- rbind(df[y == 0, , drop = FALSE], pos[rep(seq_len(n_pos), k), , drop = FALSE])
+  rownames(out) <- NULL
+  if (!is.null(log_fun)) {
+    log_fun("DNN: balancing classes (", n_pos, " presences x", k, " vs ", n_neg, " background)")
+  }
+  out
+}
+
 #' Train a DNN model using cito
 #'
 #' @param train_data Output from prepare_dnn_data
@@ -382,7 +405,10 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
   }
 
   formula_str <- paste("y ~", paste(train_data$feature_names, collapse = " + "))
-  df <- as.data.frame(cbind(y = train_data$train_y, train_data$train_x))
+  df <- sdm_dnn_balance_classes(
+    as.data.frame(cbind(y = train_data$train_y, train_data$train_x)),
+    log_fun = log_fun
+  )
 
   if (!isTRUE(resolved_backend$requested_available) && !identical(resolved_backend$requested, "cpu")) {
     warning("DNN: requested ", resolved_backend$requested, " backend is unavailable. Falling back to CPU.")
@@ -509,6 +535,9 @@ train_dnn_model <- function(train_data, model_type = "DNN_Medium", device = "cpu
     }
   )
 
+  # Record the torch device training actually used (the small-model guard may
+  # have forced CPU, and user-facing "auto"/"gpu" are not valid torch devices).
+  attr(model, "sdm_tensor_device") <- device
   model
 }
 
@@ -857,10 +886,57 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   # The fix below partitions presence+background into k actual folds, fits
   # one model per fold (with `n_seeds` re-splits of the fold's training rows),
   # and reports the out-of-fold AUC summary.
-  cv_folds <- suppressWarnings(as.integer(cv_folds[1]))
-  if (is.na(cv_folds) || cv_folds < 2) cv_folds <- 3L
+  requested_cv_folds <- suppressWarnings(as.numeric(cv_folds[1]))
+  cv_folds <- suppressWarnings(as.integer(requested_cv_folds))
+  if (is.na(cv_folds) || (requested_cv_folds != 0 && cv_folds < 2)) cv_folds <- 3L
   cv_folds <- as.integer(min(cv_folds, nrow(model_data) - 1L))
+  cv_off <- identical(requested_cv_folds, 0)
+  n_seeds <- as.integer(n_seeds)[1]
+  if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
 
+  if (cv_off) {
+    # CV Off means no external folds, not no final fit. Fit the production
+    # model once on every retained presence/background row; cito keeps its own
+    # internal validation/early-stopping behavior during this training call.
+    set.seed(seed)
+    full_data_x <- as.matrix(model_data[, covariates, drop = FALSE])
+    full_data_scaler <- list(
+      mean = colMeans(full_data_x, na.rm = TRUE),
+      sd = matrixStats::colSds(full_data_x, na.rm = TRUE)
+    )
+    full_data_scaler$sd[full_data_scaler$sd == 0 | !is.finite(full_data_scaler$sd)] <- 1
+    full_data_x <- sweep(sweep(full_data_x, 2, full_data_scaler$mean, "-"), 2,
+                         full_data_scaler$sd, "/")
+    dnn_data <- list(
+      train_x = full_data_x,
+      train_y = model_data$presence,
+      test_x = matrix(numeric(0), nrow = 0L, ncol = length(covariates),
+                      dimnames = list(NULL, covariates)),
+      test_y = integer(0),
+      feature_names = covariates
+    )
+    log_message(log_fun, "External DNN CV disabled (0 folds); fitting final model on all ",
+      n_total, " presence/background rows (internal training validation remains enabled)")
+    best_model <- train_dnn_model(
+      dnn_data, model_type = dnn_model_type, device = dnn_device, log_fun = log_fun,
+      dropout = dropout, lambda = lambda, use_fused_adam = use_fused_adam,
+      dnn_mixed_precision = dnn_mixed_precision, dnn_cuda_graphs = dnn_cuda_graphs
+    )
+    fold_predictions <- list()
+    fold_datasets <- list()
+    fold_aucs <- numeric(0)
+    fold_n_test <- integer(0)
+    best_fold_idx <- NA_integer_
+    best_fold_scaler <- full_data_scaler
+    cv <- list(
+      k = 0L, strategy = "disabled", status = "disabled",
+      auc_mean = NA_real_, auc_sd = NA_real_,
+      tss_mean = NA_real_, tss_sd = NA_real_, fold_auc = numeric(0),
+      n_seeds = 0L, fold_n_test = integer(0),
+      predictions = data.frame(observed = integer(), predicted = numeric(), fold = integer())
+    )
+    log_message(log_fun, "External DNN CV unavailable: 0 folds requested; CV metrics are NA")
+  } else {
   set.seed(seed)
   presence_indices <- which(model_data$presence == 1)
   background_indices <- which(model_data$presence == 0)
@@ -884,8 +960,6 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   fold_tss  <- rep(NA_real_, cv_folds)
   fold_n_test <- integer(cv_folds)
   fold_predictions <- list()
-  n_seeds <- as.integer(n_seeds)[1]
-  if (is.na(n_seeds) || n_seeds < 1) n_seeds <- 1L
 
   log_message(log_fun, "Fitting DNN SDM (", dnn_model_type, ") with ", cv_folds,
     " CV folds x ", n_seeds, " seed(s) per fold, ",
@@ -954,6 +1028,7 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       )
       if (is.null(model)) next
       fold_seed_models[[length(fold_seed_models) + 1L]] <- model
+      seed_device <- attr(model, "sdm_tensor_device", exact = TRUE) %||% seed_device
       fold_seed_devices <- c(fold_seed_devices, seed_device)
     }
 
@@ -1039,9 +1114,13 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
       sprintf("%.3f", cv$auc_mean),
       if (is.finite(cv$auc_sd)) paste0(" +/- ", sprintf("%.3f", cv$auc_sd)) else "")
   }
+  }
 
-  # SHAP on the best fold model
-  best_fold_train_x <- {
+  # SHAP on the best fold model; when CV is off, the sole production model
+  # and its scaler were fit on all retained data above.
+  best_fold_train_x <- if (cv_off) {
+    full_data_x
+  } else {
     if (!is.na(best_fold_idx)) {
       fold_train_x_fold <- fold_datasets[[best_fold_idx]]$train
       fold_train_mat <- as.matrix(fold_train_x_fold[, covariates, drop = FALSE])
@@ -1082,13 +1161,19 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
   # best fold's scaler). This is an honest forward path — at projection time
   # we scale the projection raster with the same fold-specific scaler that
   # produced the chosen model.
-  best_fold_scaler <- if (!is.na(best_fold_idx) && !is.null(fold_predictions[[best_fold_idx]])) {
+  best_fold_scaler <- if (cv_off) {
+    full_data_scaler
+  } else if (!is.na(best_fold_idx) && !is.null(fold_predictions[[best_fold_idx]])) {
     fold_predictions[[best_fold_idx]]$fold_scaler
-  } else NULL
+  } else {
+    NULL
+  }
 
   list(
     model = best_model,
-    ensemble_models = lapply(fold_predictions, function(p) if (is.null(p)) NULL else p$best_model),
+    ensemble_models = if (cv_off) list(best_model) else {
+      lapply(fold_predictions, function(p) if (is.null(p)) NULL else p$best_model)
+    },
     formula = NULL,
     coefficients = NULL,
     model_data = model_data,
@@ -1101,9 +1186,9 @@ fit_dnn_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backgr
     cito_importance = cito_importance,
     cito_pdp = cito_pdp,
     scaler = best_fold_scaler,
-    n_seeds = n_seeds,
+    n_seeds = if (cv_off) 1L else n_seeds,
     fold_predictions = fold_predictions,
-    dnn_device = dnn_device,
+    dnn_device = attr(best_model, "sdm_tensor_device", exact = TRUE) %||% dnn_device,
     dnn_model_type = dnn_model_type,
     use_fused_adam = use_fused_adam,
     mc_samples = as.integer(mc_samples),

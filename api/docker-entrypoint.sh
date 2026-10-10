@@ -22,6 +22,7 @@ prepare_shared_dir() {
   chmod g+rwx,g+s "$dir"
 }
 
+node /usr/local/lib/sdm/prepare-examples.cjs
 prepare_shared_dir /app/data/uploads
 prepare_shared_dir /app/outputs
 

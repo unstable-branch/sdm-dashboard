@@ -60,8 +60,8 @@ export function Sidebar({
       <aside
         aria-label="Main navigation"
         className={cn(
-          "flex-col border-r bg-sdm-surface transition-all z-50",
-          "fixed inset-y-0 left-0 md:relative md:flex",
+          "flex h-dvh flex-col border-r bg-sdm-surface transition-all motion-reduce:transition-none z-50",
+          "fixed inset-y-0 left-0 md:sticky md:top-0",
           "w-64 shrink-0",
           !open && "-translate-x-full md:translate-x-0 md:w-0 md:overflow-hidden",
           open && "translate-x-0",

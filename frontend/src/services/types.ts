@@ -272,7 +272,7 @@ export interface UploadFile {
   cleaned_asset_id?: string;
   /** @deprecated Compatibility-only path. Use cleanedAssetId. */
   cleaned_file_id?: string;
-  cleaned_valid_records?: number;
+  cleaned_valid_records?: number | null;
   species?: string;
   format?: string;
 }
