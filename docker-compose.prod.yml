@@ -138,7 +138,8 @@ services:
       resources:
         limits:
           cpus: "4"
-          memory: 8G
+          # 12G: two concurrent model runs (SDM_MAX_CONCURRENT_RUNS=2) including DNN.
+          memory: 12G
     volumes:
       - r-boundaries:/app/data/boundaries
       - r-data:/app/outputs

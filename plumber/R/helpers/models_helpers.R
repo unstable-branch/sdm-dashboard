@@ -133,7 +133,11 @@ handle_model_run <- function(req, app_dir) {
     multiplier <- if (model_id %in% c("brms", "esm_brms")) {
       10.0
     } else if (model_id %in% c("dnn", "dnn_multispecies")) {
-      8.0
+      # Measured Oct 2026 (CUDA image, CPU training, 10K background, 5 folds):
+      # DNN_Large peaks at 1.42 GB RSS including a 0.89 GB R baseline. 5.0 ->
+      # 2.5 GB keeps headroom for full-extent prediction; 8.0 (4 GB) refused a
+      # second concurrent DNN run in an 8 GB container.
+      5.0
     } else {
       3.0
     }
