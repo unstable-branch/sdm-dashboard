@@ -3,7 +3,7 @@ import { toNum, fmtFixed, fmtLocale } from "@/lib/utils";
 
 function fmtArea(v: unknown): string {
   const n = toNum(v);
-  return n !== null ? `${n.toLocaleString()} km²` : "—";
+  return n !== null ? `${Math.round(n).toLocaleString()} km²` : "—";
 }
 
 function fmtElapsed(v: unknown): string {
@@ -97,7 +97,7 @@ export function MetricCards({ metrics, modelId }: MetricCardsProps) {
               ? "border-red-500/30 bg-red-500/5"
               : overfittingLevel === "medium"
                 ? "border-amber-500/30 bg-amber-500/5"
-                : "border-blue-500/30 bg-blue-500/5"
+                : "border-amber-500/20 bg-amber-500/5"
           }`}
         >
           {overfittingLevel === "high" ? (

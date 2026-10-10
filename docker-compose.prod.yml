@@ -8,7 +8,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       frontend:
@@ -51,6 +51,10 @@ services:
           memory: 512M
     environment:
       - NODE_ENV=production
+      # Public browser URL (scheme + host, e.g. https://sdm.example.org). Browser
+      # sign-in, CORS and CSRF only accept requests from this origin.
+      - FRONTEND_URL=${SDM_PUBLIC_URL:?SDM_PUBLIC_URL is required (public https:// URL users open)}
+      - APP_URL=${SDM_PUBLIC_URL}
       - SDM_PROJECT_ROOT=/app
       - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
@@ -185,7 +189,7 @@ services:
       - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET:?GARAGE_RPC_SECRET is required}
       - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN:?GARAGE_ADMIN_TOKEN is required}
     volumes:
-      - ./garage.toml:/etc/garage.toml:ro
+      - ./deploy/garage/garage.toml:/etc/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
     healthcheck:
@@ -222,8 +226,8 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus:/etc/prometheus/rules:ro
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/rules.yml:/etc/prometheus/rules/rules.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -242,7 +246,7 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
     networks:

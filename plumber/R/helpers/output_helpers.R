@@ -365,7 +365,11 @@ handle_tile_serve <- function(req, res, run_id, z, x, y, app_dir, band = NULL) {
   rgba[!is_na, 1L] <- pal_rgb[1, idx[!is_na]]
   rgba[!is_na, 2L] <- pal_rgb[2, idx[!is_na]]
   rgba[!is_na, 3L] <- pal_rgb[3, idx[!is_na]]
-  rgba[!is_na, 4L] <- 255L
+  # Fade the lowest suitability in from transparent so unsuitable land shows the
+  # basemap (coastlines, borders) instead of an opaque navy block. Ramp alpha
+  # over the bottom 30% of the palette; everything above stays fully opaque.
+  ramp <- pmin(1, (idx[!is_na] - 1) / max(1, (n_col - 1) * 0.3))
+  rgba[!is_na, 4L] <- as.integer(round(255 * ramp))
 
   tmp_png <- tempfile(fileext = ".png")
   tile_out <- terra::rast(ncols = 256L, nrows = 256L, xmin = xmin, xmax = xmax,

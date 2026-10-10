@@ -124,7 +124,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
       {!loadingDiagnostics && failedEndpointCount >= 12 && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-600">
           The R computation backend is not available — all diagnostic endpoints failed to load.
-          Start it with <code className="bg-amber-500/10 px-1 rounded">docker compose up plumber</code> or <code className="bg-amber-500/10 px-1 rounded">Rscript launch_app.R</code>.
+          Start it with <code className="bg-amber-500/10 px-1 rounded">docker compose up plumber</code>.
         </div>
       )}
 

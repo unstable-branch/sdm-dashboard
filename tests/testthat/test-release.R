@@ -30,22 +30,8 @@ test_that("source release file list does not include local generated files", {
 
   expect_true("scripts/smoke_test.R" %in% files)
   expect_true("tests/testthat.R" %in% files)
-  expect_true("www/sdm-theme.css" %in% files)
+  expect_false(any(c("app.R", "launch_app.R", "run_app_windows.bat") %in% files))
   expect_false(any(grepl("^Worldclim(/|$)|^worldclim(/|$)|^WorldClim(/|$)|^Worldclim_future(/|$)|^worldclim_future(/|$)|^WorldClim_future(/|$)|^outputs(/|$)|^covariates(/|$)|^logs(/|$)", files)))
   expect_false(any(basename(files) %in% c("presence_data.csv", ".env", ".Renviron")))
   expect_false(any(grepl("(^|/)AGENTS[.]md$|^docs(/|$)|^Main[.]R$|^prepare_windows[.]bat$|\\.zip$|\\.log$", files, ignore.case = TRUE)))
-})
-
-test_that("Windows-ready release file list is end-user focused", {
-  env <- new.env(parent = .GlobalEnv)
-  old_wd <- getwd()
-  setwd(project_root)
-  on.exit(setwd(old_wd), add = TRUE)
-  source(file.path(project_root, "scripts", "make_release_zip.R"), local = env)
-  files <- env$ready_release_paths(include_worldclim = FALSE)
-
-  expect_true("run_app_windows.bat" %in% files)
-  expect_true(file.path("scripts", "windows_setup.R") %in% files)
-  expect_true("www/sdm-theme.css" %in% files)
-  expect_false(any(grepl("^\\.github(/|$)|^tests(/|$)|^Dockerfile$|^docker-compose[.]yml$|^scripts/(audit_release|make_release_zip|smoke_test|download_worldclim)[.]R$", files)))
 })

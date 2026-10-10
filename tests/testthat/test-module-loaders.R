@@ -8,7 +8,7 @@ sdm_set_project_root(project_root)
 # Define resolve function matching engine_load.R
 sdm_resolve_module <- function(m) {
   mod_dir <- file.path(sdm_project_root(), "R")
-  subdirs <- c("core", "data", "covariates", "models", "ecology", "ui", "modules", "xai", "output")
+  subdirs <- c("core", "data", "covariates", "models", "ecology", "xai", "output")
   for (sub in subdirs) {
     p <- file.path(mod_dir, sub, m)
     if (file.exists(p)) return(p)
@@ -21,7 +21,6 @@ sdm_resolve_module <- function(m) {
 # Source the module lists from each loader
 # We source just the module vector definitions without executing the loading loop
 loaders <- list(
-  load =    file.path(project_root, "R", "load.R"),
   engine =  file.path(project_root, "R", "engine_load.R"),
   compute = file.path(project_root, "R", "load_compute.R")
 )

@@ -1,15 +1,10 @@
-# SDM Dashboard Workbench - Current Specification
+# SDM Dashboard - Current Specification
 
 ## Project Shape
 
-SDM Dashboard Workbench is now a beta species distribution modelling platform with two supported surfaces:
+SDM Dashboard is a species distribution modelling platform: Next.js 16 frontend, Hono API, Plumber R computation service, PostgreSQL/PostGIS, Redis/BullMQ, Garage S3-compatible storage, and Docker Compose.
 
-- **Modern platform:** Next.js 16 frontend, Hono API, Plumber R computation service, PostgreSQL/PostGIS, Redis/BullMQ, Garage S3-compatible storage, and Docker Compose.
-- **Legacy desktop app:** root-level R/Shiny app for local single-user workflows.
-
-The modern platform is the primary direction for development and deployment. The Shiny app remains useful as a desktop fallback and as a source of mature modelling code, but it should not drive repo architecture decisions.
-
-The Shiny-first history is preserved on the `legacy-shiny` branch. The current beta keeps legacy desktop entry points in-tree, but new release decisions should be evaluated against the modern platform first.
+The original single-user Shiny app was removed in 3.0. `v1.0.0` is its final release.
 
 ## Architecture
 
@@ -33,9 +28,7 @@ The Hono API authenticates users with JWTs or API keys. Requests from Hono to Pl
 | `api/` | Hono API, auth middleware, Drizzle schema, queues, storage, Plumber proxy |
 | `packages/shared/` | Shared TypeScript schemas and constants |
 | `plumber/` | R/Plumber API wrapper around modelling modules |
-| `R/` | SDM modelling, covariate, ecology, output, and legacy Shiny modules |
-| `app.R` | Legacy Shiny desktop entry point |
-| `pipeline.R` | Legacy non-interactive R pipeline |
+| `R/` | SDM modelling, covariate, ecology and output modules |
 | `docker-compose.yml` | Full local stack |
 | `docker-compose.dev.yml` | Backing services for local development |
 | `docker-compose.prod.yml` | Self-hosted production stack |
@@ -78,15 +71,13 @@ Release candidates should be tagged from `main` using semver prerelease tags suc
 
 See `docs/RELEASE_AND_HOSTING.md` for packaging, release, and self-hosting policy.
 
-The `dev` to `main` release plan is maintained in `docs/DEV_MAIN_RELEASE_PLAN.md`.
+The release flow is described in `CONTRIBUTING.md`.
 
 ## CRAN Track
 
-The current repository is not a CRAN package candidate as-is. A CRAN path should be a later extraction of reusable pure-R modelling/core functions with fast tests, portable dependencies, and no dependency on Docker, Node.js, Postgres, Redis, Garage, or the browser platform. See `docs/LEGACY_AND_CRAN.md`.
+The current repository is not a CRAN package candidate as-is. A CRAN path should be a later extraction of reusable pure-R modelling/core functions with fast tests, portable dependencies, and no dependency on Docker, Node.js, Postgres, Redis, Garage, or the browser platform.
 
 ## Current Limitations
 
-- The modern platform is beta; APIs and UX may change before stable `v2.0.0`.
 - Some R backends are conditional on optional packages and should skip gracefully when unavailable.
 - Production hosting requires operator-managed secrets, backups, TLS, and access controls.
-- The legacy Shiny app has no built-in auth and should remain local/private.

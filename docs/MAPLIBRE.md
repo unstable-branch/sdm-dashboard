@@ -22,7 +22,7 @@ Shortcuts are suppressed when focus is inside an `<input>`, `<textarea>`, or `co
 - **Source**: `/api/v1/results/tiles/{runId}/{z}/{x}/{y}?band=...`
 - **Type**: Raster tile overlay at 256px tile size
 - **Rendering**: `raster-opacity: 0.9999`, `raster-fade-duration: 0`, `raster-resampling: nearest`
-- **Attribution**: `© SDM Platform`
+- **Attribution**: `© SDM Dashboard`
 - **Visibility**: Controlled by `layerVisibility.suitability`
 
 ### Extent of Occurrence (EOO) Polygon

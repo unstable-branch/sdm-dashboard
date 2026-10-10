@@ -54,7 +54,7 @@ test_that("batch CLI denies the Targets default before optional dependencies or 
       "writeLines('loaded', Sys.getenv('SDM_TEST_LOAD_PATH'))",
       "parse_batch_config <- function(path) list(list(config = path))"
     ),
-    file.path(fixture_root, "R", "load.R")
+    file.path(fixture_root, "R", "engine_load.R")
   )
   config_path <- file.path(fixture_root, "config.csv")
   writeLines("fixture config", config_path)
@@ -118,7 +118,7 @@ test_that("exact --no-targets reaches legacy parsing and batch_run_parallel", {
       "  list(TRUE)",
       "}"
     ),
-    file.path(fixture_root, "R", "load.R")
+    file.path(fixture_root, "R", "engine_load.R")
   )
   config_path <- file.path(fixture_root, "config.csv")
   writeLines("fixture config", config_path)

@@ -56,7 +56,7 @@ Worldclim_future/
 renv/library/
 renv/staging/
 renv/python/
-species/
+/species/
 TestSpp/
 
 # Broken symlinks
@@ -91,3 +91,6 @@ frontend/coverage/
 /playwright/.auth/
 chromium/
 frontend/next-env.d.ts
+
+# Local load-test binaries
+/tools/

@@ -149,7 +149,7 @@ export function getHandlers() {
 
     http.get(`${API_BASE}/api/v1/admin/system/settings`, async () => {
       return HttpResponse.json([
-        { id: "s1", key: "site_name", value: "SDM Workbench", description: "Display name", updatedAt: new Date().toISOString() },
+        { id: "s1", key: "site_name", value: "SDM Dashboard", description: "Display name", updatedAt: new Date().toISOString() },
         { id: "s2", key: "maintenance_mode", value: false, description: "Maintenance toggle", updatedAt: new Date().toISOString() },
         { id: "s3", key: "jwt_expiry_seconds", value: "86400", description: "JWT expiry", updatedAt: new Date().toISOString() },
         { id: "s4", key: "default_climate_source", value: "worldclim", description: "Climate source", updatedAt: new Date().toISOString() },

@@ -56,10 +56,10 @@ export function SuitabilityMap({ outputFiles, runId, bandName, initialViewState,
   const safeTheme = resolvedTheme ?? "dark";
   const baseVisibility: Record<string, boolean> = useMemo(() => ({
     [LAYER_IDS.SUITABILITY]: true,
-    [LAYER_IDS.EOO]: !!eooGeoJSON,
+    [LAYER_IDS.EOO]: false,
     [LAYER_IDS.AOO]: !!aooGeoJSON,
     [LAYER_IDS.BOUNDARY]: false,
-    [LAYER_IDS.EXTENT]: true,
+    [LAYER_IDS.EXTENT]: false,
   }), [eooGeoJSON, aooGeoJSON]);
 
   const [userToggles, setUserToggles] = useState<Record<string, boolean>>({});
@@ -98,12 +98,16 @@ export function SuitabilityMap({ outputFiles, runId, bandName, initialViewState,
   return (
     <div className="rounded-lg border border-sdm-border bg-sdm-surface overflow-hidden">
       <div className="relative h-[60vh]">
-        {tilesNotPreGenerated && (
-          <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-md bg-sdm-info/10 px-2.5 py-1.5 text-[11px] text-sdm-info border border-sdm-info/30">
-            <Info className="h-3 w-3" />
-            <span>Tiles not pre-generated — served on-demand</span>
+        <div className="pointer-events-none absolute bottom-10 left-3 z-10 rounded-md border border-sdm-border bg-sdm-surface/90 px-3 py-2 shadow-sm backdrop-blur">
+          <div className="text-[11px] font-medium text-sdm-heading">Habitat suitability</div>
+          <div
+            className="mt-1.5 h-2 w-40 rounded-sm"
+            style={{ background: "linear-gradient(90deg, rgba(21,84,93,0.35), #1F8A70, #59C174, #C6D65B, #F3C45A, #F28A3C, #E34B35, #A51E3B)" }}
+          />
+          <div className="mt-1 flex justify-between text-[10px] text-sdm-muted tabular-nums">
+            <span>Low</span><span>High</span>
           </div>
-        )}
+        </div>
         <DynamicMap
           runId={runId}
           band={bandName || "suitability"}
@@ -123,7 +127,14 @@ export function SuitabilityMap({ outputFiles, runId, bandName, initialViewState,
         />
       </div>
       <div className="px-4 py-2 border-t border-sdm-border flex items-center justify-between text-xs text-sdm-muted">
-        <span>Suitability raster</span>
+        <span className="flex items-center gap-1.5">
+          Suitability raster
+          {tilesNotPreGenerated && (
+            <span className="inline-flex items-center gap-1 text-sdm-muted/80" title="Tiles are rendered on demand from the GeoTIFF">
+              <Info className="h-3 w-3" /> rendered on demand
+            </span>
+          )}
+        </span>
         {outputFiles?.tif && (
           <button
             onClick={() => {

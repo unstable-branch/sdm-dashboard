@@ -1,207 +1,146 @@
-# SDM Dashboard Workbench
+# SDM Dashboard
 
-SDM Dashboard Workbench is a beta species distribution modelling platform.
+[![Release](https://img.shields.io/github/v/release/unstable-branch/sdm-dashboard?include_prereleases&sort=semver&label=release)](https://github.com/unstable-branch/sdm-dashboard/releases)
+[![Platform CI](https://github.com/unstable-branch/sdm-dashboard/actions/workflows/platform-ci.yml/badge.svg?branch=main)](https://github.com/unstable-branch/sdm-dashboard/actions/workflows/platform-ci.yml?query=branch%3Amain)
+[![R Quality](https://github.com/unstable-branch/sdm-dashboard/actions/workflows/r-quality.yml/badge.svg?branch=main)](https://github.com/unstable-branch/sdm-dashboard/actions/workflows/r-quality.yml?query=branch%3Amain)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![R 4.5](https://img.shields.io/badge/R-4.5-276DC3?logo=r&logoColor=white)
+![Node 22](https://img.shields.io/badge/Node-22-339933?logo=nodedotjs&logoColor=white)
+![GPU: CUDA | ROCm](https://img.shields.io/badge/GPU-CUDA%20%7C%20ROCm-76B900)
 
-The current project has two supported surfaces:
+Open-source species distribution modelling (SDM) platform: upload occurrence records, clean them, fit and cross-validate models against climate and environmental layers, and review suitability maps, diagnostics and reproducible outputs from a browser.
 
-- **Modern platform, recommended:** Next.js 16 frontend, Hono API, Plumber R computation service, PostgreSQL/PostGIS, Redis/BullMQ, Garage-compatible object storage, and Docker Compose.
-- **Legacy desktop app:** the original local R/Shiny workflow, kept for single-user desktop use and for continuity with the mature R modelling code.
+**Status: 3.0.0 release candidate.** 3.0 is the first stable line of the modern platform. Validate ecological outputs carefully before operational use; see [Known limitations](#known-limitations).
 
-The modern platform is the primary release direction. The Shiny app remains available, but it is no longer the architecture driver for new platform work.
+<p align="center">
+  <a href="docs/images/demo.gif"><img src="docs/images/demo.gif" width="600" alt="Upload, clean, model and review a koala distribution model"></a>
+  <br>
+  <sub>A real koala workflow using CC0 GBIF records and MaxNet. Playback condensed.</sub>
+</p>
 
-This is beta software. Interfaces, defaults, packaging, API contracts, storage layout, and outputs may still change before stable `v2.0.0`. Validate ecological outputs carefully before operational use.
+<div align="center">
+<table>
+  <tr>
+    <th>Dashboard</th>
+    <th>Results</th>
+    <th>Suitability map</th>
+  </tr>
+  <tr>
+    <td><a href="docs/images/dashboard.png"><img src="docs/images/dashboard.png" width="190" alt="Dashboard overview"></a></td>
+    <td><a href="docs/images/results.png"><img src="docs/images/results.png" width="190" alt="Run metrics and overfitting advice"></a></td>
+    <td><a href="docs/images/suitability-map.png"><img src="docs/images/suitability-map.png" width="190" alt="Habitat suitability map with legend"></a></td>
+  </tr>
+</table>
+</div>
 
-The public repository should contain source code, documentation, templates, and small synthetic examples only. Keep real occurrence data, downloaded rasters, generated outputs, logs, screenshots, API keys, `.env`, `.Renviron`, and release archives out of git.
+## What's in the box
 
-## Quick Start
+- **Web app:** Next.js dashboard for the upload → clean → model → results workflow.
+- **API:** Hono (Node 22). Authentication, projects and membership, input resolution, queueing and authorization. It is the only user-facing authorization boundary.
+- **Modelling engine:** R 4.5 behind Plumber. Occurrence cleaning (CoordinateCleaner), WorldClim/CHELSA covariates, VIF selection, random or spatial-block cross-validation, GLM, GAM, MaxNet, MARS, FDA, CTA, random forest, GBM/XGBoost, DNN and ensembles, plus importance, response curves, area of applicability, MESS, future SSP projections and a reproducible R script for each run.
+- **State:** PostgreSQL/PostGIS, Redis/BullMQ, Garage (S3-compatible) object storage.
+- **Compute:** CPU by default. Optional NVIDIA (CUDA) and AMD (ROCm) Plumber images.
 
-### Prerequisites
+<details>
+<summary>Architecture: platform services and the R modelling core</summary>
 
-- Docker and Docker Compose
-- Node.js 22+ and pnpm for local development
-- R is not required on the host for the modern Docker stack; R runs inside the Plumber container
+![Architecture: platform services and the R modelling core](docs/architecture.png)
 
-### Start The Modern Stack
+</details>
+
+## Install (self-hosted)
+
+You need Docker with Compose v2. R is not needed on the host.
+
+1. Download `release-images.env` from the [release](https://github.com/unstable-branch/sdm-dashboard/releases) you want. It pins the exact image digests.
+2. Clone the repository at that release tag, and create `.env` from `.env.example` with real secrets. Set `SDM_PUBLIC_URL` to the address users open (for example `https://sdm.example.org`); browser sign-in only accepts that origin.
+3. Start it:
 
 ```bash
-git clone https://github.com/unstable-branch/sdm-dashboard.git
-cd sdm-dashboard
+# CPU
+docker compose --env-file release-images.env --env-file .env \
+  -f docker-compose.prod.yml up -d --no-build
 
-cp .env.example .env 2>/dev/null || true
-cp api/.env.example api/.env 2>/dev/null || true
+# NVIDIA: set SDM_PLUMBER_VARIANT=cuda and the cuda digest in release-images.env
+docker compose --env-file release-images.env --env-file .env \
+  -f docker-compose.prod.yml -f deploy/compose.cuda.yml up -d --no-build
 
-docker compose -f docker-compose.yml --profile full up
+# AMD: set SDM_PLUMBER_VARIANT=rocm, the rocm digest, AMD_VIDEO_GID and AMD_RENDER_GID
+docker compose --env-file release-images.env --env-file .env \
+  -f docker-compose.prod.yml -f deploy/compose.rocm.yml up -d --no-build
 ```
 
-Open `http://localhost:3000`.
+Only nginx (ports 80/443) is published. Monitoring (Prometheus, Grafana) is opt-in with `--profile monitoring` and binds to localhost. See [docs/PRODUCTION.md](docs/PRODUCTION.md) for TLS, secrets, backups and sizing. Plumber needs about 12 GB of RAM for two concurrent runs.
 
-First startup can take several minutes while Docker builds the Plumber image and installs R geospatial packages. The API container applies database migrations before the server starts. Local compose starts Garage in single-node mode with development credentials and a development bucket.
+## First workflow
 
-For self-hosting a reviewed release, download its generated `release-images.env` and use it with `docker-compose.prod.yml`; Docker pulls the exact reviewed GHCR images and starts them with `--no-build`. The file defaults to CPU, while CUDA and ROCm alternatives are included as comments. The five modern-platform images live under [`ghcr.io/unstable-branch/sdm-dashboard`](https://github.com/orgs/unstable-branch/packages?repo_name=sdm-dashboard), separate from the smaller legacy source/Windows zip attachments. See [PRODUCTION.md](PRODUCTION.md) and the [release policy](docs/RELEASE_AND_HOSTING.md).
+1. Register, then create a project.
+2. Upload a CSV or a Darwin Core Archive (`.zip`). `data/examples/synthetic_presence_data.csv` works for a smoke test.
+3. Review the detected columns and the cleaning report.
+4. Configure a run: model, climate layers, cross-validation.
+5. Watch progress, then review metrics, maps, diagnostics and downloads.
 
-Stop the stack with:
+Synthetic examples are for smoke testing only, not ecological evidence.
 
-```bash
-docker compose -f docker-compose.yml --profile full down
-```
+## Known limitations
 
-To remove local development volumes as well:
+- **One Plumber replica and one queue worker.** Each Plumber runs two models at a time (one on the GPU). Extra runs queue, and runs that would exceed memory are refused with a reason. Multi-replica execution is planned after 3.0.
+- **DNN is experimental.** DNN_Small is the recommended size. On AMD, use `python_torch_dnn`, which runs on the GPU. The built-in R DNNs are small enough that they train on CPU.
+- **Optional models:** ESM is opt-in (`SDM_ENABLE_ESM=true`). Python elapid and scikit-learn bridges are not in the published images. ENMeval, biomod2, BART, INLA and unmarked need packages the images don't include.
+- **Targets/batch execution** is unavailable until durable execution ownership lands.
 
-```bash
-docker compose -f docker-compose.yml --profile full down -v
-```
+Full details are in [CHANGELOG.md](CHANGELOG.md) and [docs/STATUS.md](docs/STATUS.md).
 
-### First Workflow
-
-1. Register a user in the browser.
-2. Create a project.
-3. Upload a CSV using `data/examples/synthetic_presence_data.csv` or `data/presence_data_template.csv`.
-4. Review detected coordinates/species and cleaned records.
-5. Configure a small model run.
-6. Watch progress from the dashboard or run/results pages.
-7. Review diagnostics, outputs, manifests, and downloads.
-
-Synthetic examples are for smoke testing only. Do not interpret them as real occurrence evidence.
-
-## GPU Acceleration
-
-The DNN backend supports NVIDIA CUDA, AMD ROCm, and Apple MPS. Torch's `cuda_is_available()` probe is authoritative for NVIDIA; AMD ROCm is detected via loaded DLL names (`libamdhip64.so`, `libhsa-runtime64.so`).
-
-### Environment variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `SDM_ROCM` | _(empty)_ | Set to `1` to force ROCm backend on AMD hardware. Triggers a warning if no ROCm runtime is detected. |
-| `SDM_ENABLE_LIBTORCH_KERNEL` | `0` | Set to `1` to also build and load the libtorch `_fused_adam_` CUDA kernel. **Default: disabled** — the kernel produces NaN on Blackwell GPUs (RTX 5060 Ti, compute 12.0). The ATen-op Adam kernel (`train_step_adam.so`) is used by default and works on all GPUs including Blackwell. |
-| `SDM_ENABLE_PINNED_ALLOC` | `0` | Set to `1` to build the experimental `pinned_alloc.so` extension for async H2D transfers. |
-
-### Troubleshooting
-
-See [`inst/TROUBLESHOOTING.md`](inst/TROUBLESHOOTING.md) for:
-- ABI mismatch between torch R package and sdmtorch `.so` files
-- Blackwell GPU NaN issue with the libtorch fused Adam kernel
-- CUDA Graph capture failures (`dl_iterate_phdr` not found)
-- XPtrTorch tensor layout coupling risks after torch R package upgrades
-
-## Local Development
-
-Install workspace dependencies from the repository root:
+## Development
 
 ```bash
 pnpm install --frozen-lockfile
+./scripts/dev-start.sh            # backing services in Docker
+(cd api && pnpm dev)              # API on :4000
+(cd frontend && pnpm dev)         # UI on :3000
 ```
 
-Start backing services in Docker:
+Or run the whole stack locally with `docker compose -f docker-compose.yml --profile full up` (first start builds the Plumber image and takes several minutes).
+
+Checks to run before opening a PR:
 
 ```bash
-# See AGENTS.md "Boot-up process" for profiles and service options
-./scripts/dev-start.sh
-```
-
-Run the API:
-
-```bash
-cd api
-pnpm dev
-```
-
-Run the frontend:
-
-```bash
-cd frontend
-pnpm dev
-```
-
-Useful health checks:
-
-```bash
-curl http://localhost:4000/health
-curl http://localhost:8000/health
-```
-
-## Verification
-
-Run these before a release PR:
-
-```bash
-pnpm install --frozen-lockfile
 pnpm run check:node
 pnpm run check:compose
+pnpm run check:release
 Rscript scripts/smoke_test.R --tags=fast
 Rscript tests/testthat.R
-Rscript scripts/audit_release.R
 git diff --check
 ```
 
-Some local machines will not have the R spatial system dependency set needed for the R smoke/testthat gates. GitHub Actions installs that dependency set and is the release authority for those gates when local R cannot run them.
+CI runs the same gates, plus the locked R suite, Docker integration, a PostgreSQL migration contract and GPU unit tests. See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch and release flow and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for setup detail.
 
-Platform CI also builds the modern service images, boots the stack, checks health, runs a Plumber memory/concurrency smoke, runs Playwright, and verifies the Plumber OpenAPI contract.
-
-## Architecture
-
-```text
-Browser
-  -> Next.js frontend
-  -> Hono API/BFF
-     -> PostgreSQL/PostGIS for users, projects, runs, species, occurrences
-     -> Redis/BullMQ for queueing, rate limits, and cache
-     -> Garage-compatible object storage for rasters and exports
-     -> Plumber R API for SDM computation
-        -> R modelling, covariate, ecology, diagnostics, and output modules
-```
-
-Important entry points:
+## Repository layout
 
 | Path | Purpose |
-| ---- | ------- |
-| `frontend/` | Next.js dashboard UI |
-| `api/` | Hono API, auth, Drizzle schema, queues, storage, Plumber proxy |
-| `packages/shared/` | Shared TypeScript schemas and generated Plumber types |
-| `plumber/` | R/Plumber API wrapper around modelling modules |
-| `R/` | SDM modelling, covariate, ecology, output, and legacy Shiny modules |
-| `app.R` | Legacy Shiny desktop entry point |
-| `docker-compose.yml` | Main local modern stack |
-| `docker-compose.dev.yml` | Development backing services |
-| `docker-compose.prod.yml` | Self-hosted production stack |
+| --- | --- |
+| `frontend/` | Next.js dashboard |
+| `api/` | Hono API, auth, Drizzle schema and migrations, queue worker |
+| `packages/shared/` | Shared TypeScript schemas |
+| `plumber/` | Plumber service and its CPU/CUDA/ROCm Dockerfiles |
+| `R/` | Modelling core: data, covariates, models, ecology, outputs, XAI |
+| `python_models/`, `sdmtorch/` | Python model bridges and Torch extensions |
+| `deploy/` | GPU overlays, image digest template, nginx, Garage, Prometheus and Grafana config |
+| `docs/` | Architecture, methods, interpretation, status, roadmap |
+| `tests/` | R test suite |
 
 ## Documentation
 
-- `docs/DEPLOY.md` - install, setup, compose profiles, production notes, troubleshooting
-- `docs/SPEC.md` - current project shape, architecture, functional scope, limitations
-- `docs/QA_RELEASE_CHECKLIST.md` - beta release-candidate checklist
-- `docs/RELEASE_AND_HOSTING.md` - release channels, versioning, hosting policy
-- `docs/LEGACY_AND_CRAN.md` - Shiny preservation and future CRAN extraction track
-- `docs/METHODS.md` and `docs/INTERPRETATION.md` - modelling and interpretation notes
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): system contracts and trust boundaries
+- [docs/METHODS.md](docs/METHODS.md) and [docs/INTERPRETATION.md](docs/INTERPRETATION.md): modelling methods and reading outputs
+- [docs/PRODUCTION.md](docs/PRODUCTION.md) and [docs/DEPLOY.md](docs/DEPLOY.md): deployment
+- [docs/STATUS.md](docs/STATUS.md) and [docs/ROADMAP.md](docs/ROADMAP.md): current evidence and what's next
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): GPU and Torch troubleshooting
 
-## Legacy R/Shiny Desktop
+## Data and privacy
 
-The legacy Shiny app is still available for local single-user workflows:
+Don't commit real occurrence data (unless it's public and redistributable), downloaded rasters, generated outputs, logs, `.env`/`.Renviron` files, keys or tokens.
 
-```bash
-Rscript launch_app.R
-```
+## Contributing, citation and license
 
-It runs locally, usually at `http://localhost:3838`, and has no built-in multi-user auth or API layer. Treat it as a private desktop tool. Windows users should see `README_WINDOWS.md`.
-
-The historical Shiny-first line is preserved on the remote `legacy-shiny` branch.
-
-## CRAN Status
-
-The current repository is not a CRAN package candidate. It includes a browser frontend, Node API, Docker Compose, PostgreSQL, Redis, Garage object storage, and Plumber service runtime. A CRAN path would be a future extraction of a smaller pure-R modelling/core package with portable dependencies and fast package-shaped tests.
-
-See `docs/LEGACY_AND_CRAN.md`.
-
-## Privacy
-
-Do not commit:
-
-- real occurrence datasets unless they are explicitly public and redistributable
-- downloaded climate/covariate rasters
-- generated GeoTIFFs, model outputs, logs, reports, release zips, or screenshots
-- `.env`, `.Renviron`, SSL keys, API keys, service tokens, or local host details
-
-## Contributing And Citation
-
-See `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, and `CITATION.cff`.
-
-The project is licensed under the MIT License.
+See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [SECURITY.md](SECURITY.md) and [CITATION.cff](CITATION.cff). MIT licensed.

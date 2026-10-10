@@ -54,7 +54,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-2 mb-8">
           <Leaf className="h-8 w-8 text-sdm-accent" />
-          <span className="text-xl font-bold text-sdm-heading">SDM Platform</span>
+          <span className="text-xl font-bold text-sdm-heading">SDM Dashboard</span>
         </div>
 
         <div className="rounded-lg border border-sdm-border bg-sdm-surface p-6 space-y-4">

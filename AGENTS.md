@@ -1,10 +1,10 @@
-# SDM Dashboard Workbench contributor contract
+# SDM Dashboard contributor contract
 
 ## Purpose and boundaries
 
 This repository develops a species-distribution-modelling workbench. Keep the public tree reproducible, secure for sensitive occurrence data, and honest about scientific and operational capability.
 
-The modern platform is the primary deployment direction: Next.js frontend, Hono API, PostgreSQL/PostGIS, Redis/BullMQ, Garage-compatible storage, and Plumber/R computation. The root R/Shiny application is a supported legacy desktop surface for single-user local work. Do not treat Shiny's local trust model as a substitute for modern authentication or project authorization.
+The modern platform is the primary deployment direction: Next.js frontend, Hono API, PostgreSQL/PostGIS, Redis/BullMQ, Garage-compatible storage, and Plumber/R computation.
 
 One contract must have one canonical owner. Shared TypeScript schemas describe API boundaries; Drizzle migrations and schema describe persisted state; Hono owns current-principal and project authorization; Plumber rechecks its boundary; R owns modelling semantics and scientific outputs. Documentation must not advertise a capability that its source and acceptance gate do not support.
 
@@ -96,7 +96,6 @@ Before changing a contract, inspect the relevant schema, migration, runtime boun
 - R/core/run_sdm.R is the shared modelling orchestration layer.
 - R/models/, R/covariates/, R/ecology/, and R/output/ own their corresponding scientific surfaces.
 - _targets.R and _targets_multispecies.R are pipeline entrypoints, not client-controlled filenames.
-- app.R and R/load.R are legacy Shiny entrypoints.
 
 ### Data and artifact handling
 

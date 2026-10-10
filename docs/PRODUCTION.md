@@ -35,6 +35,7 @@ Production compose fails closed when required secrets or application digests are
 | `SDM_API_DIGEST` | Reviewed `sha256:...` digest for `sdm-api` |
 | `SDM_PLUMBER_VARIANT` | `cpu`, `cuda`, or `rocm` |
 | `SDM_PLUMBER_DIGEST` | Digest for the matching Plumber variant |
+| `SDM_PUBLIC_URL` | Public URL users open (e.g. `https://sdm.example.org`). Browser sign-in, CORS and CSRF accept only this origin |
 | `POSTGRES_PASSWORD`, `DATABASE_URL` | Bundled Postgres password and application connection string |
 | `JWT_SECRET`, `CSRF_SECRET` | Browser/API authentication secrets |
 | `DATA_ENCRYPTION_KEY`, `SDM_ENCRYPTION_KEY` | Encryption-at-rest keys |
@@ -90,7 +91,7 @@ Place your certificates in `./ssl/`:
 - `ssl/cert.pem` - Certificate
 - `ssl/key.pem` - Private key
 
-Update nginx.conf to use SSL:
+Update `deploy/nginx.conf` to use SSL:
 ```nginx
 server {
     listen 443 ssl;
@@ -131,7 +132,7 @@ docker compose -f docker-compose.prod.yml -f deploy/compose.rocm.yml up -d --no-
 4. Verify migrations, authentication, historical runs/downloads, and one new real workflow.
 5. To roll back, restore the previous digests. If migrations are not backward-compatible, restore the matching database/object-storage backup before starting old images.
 
-Use `docs/QA_RELEASE_CHECKLIST.md` for the required rehearsal and evidence.
+Use [QA_RELEASE_CHECKLIST.md](QA_RELEASE_CHECKLIST.md) for the required rehearsal and evidence.
 
 ## Monitoring
 

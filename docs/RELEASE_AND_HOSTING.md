@@ -2,7 +2,7 @@
 
 ## Position
 
-SDM Dashboard Workbench should stay open source and self-hostable. The default public artifact is source code plus reproducible release packages. A hosted instance can exist for the project team or demos, but it should not become the only supported way to run the platform.
+SDM Dashboard should stay open source and self-hostable. The default public artifact is source code plus reproducible release packages. A hosted instance can exist for the project team or demos, but it should not become the only supported way to run the platform.
 
 This matters because SDM workflows often involve sensitive occurrence data, unpublished survey records, local paths, API keys, and large generated rasters.
 
@@ -11,19 +11,16 @@ This matters because SDM workflows often involve sensitive occurrence data, unpu
 | Channel | Audience | Artifact |
 |---------|----------|----------|
 | Source release | Developers and reviewers | Git tag plus `sdm-dashboard-<tag>-source.zip` |
-| Windows-ready legacy Shiny | Desktop users | `sdm-dashboard-<tag>-windows-ready.zip`; bundled WorldClim layers are included only when present in the release build tree |
 | Container images | Self-hosted platform users | GHCR images for frontend, API, and separate CPU/CUDA/ROCm Plumber runtimes |
 | Docker Compose | Operators | Digest-pinned production compose plus reviewed release digest manifest |
 
 A strict SemVer `v*` tag on `main` triggers validation, publishes API/frontend plus separate CPU/CUDA/ROCm Plumber images, records their immutable digests, verifies every image is anonymously pullable, and assembles a review-only draft GitHub Release. It publishes no mutable `latest` or `stable` alias.
 
-The five container packages are published under `ghcr.io/unstable-branch/sdm-dashboard/` as `sdm-frontend`, `sdm-api`, `sdm-plumber-cpu`, `sdm-plumber-cuda`, and `sdm-plumber-rocm`. GitHub Container Registry packages are separate from the smaller source/Windows files attached to a GitHub Release. Operators should use the immutable references in the release's `image-digests.txt`; version tags are provided for discovery, not production pinning.
+The five container packages are published under `ghcr.io/unstable-branch/sdm-dashboard/` as `sdm-frontend`, `sdm-api`, `sdm-plumber-cpu`, `sdm-plumber-cuda`, and `sdm-plumber-rocm`. GitHub Container Registry packages are separate from the source zip attached to a GitHub Release. Operators should use the immutable references in the release's `image-digests.txt`; version tags are provided for discovery, not production pinning.
 
 GHCR creates a new package as private even when its source repository is public. A maintainer must change each newly introduced package name to public in GitHub's package settings after its first push. The release workflow deliberately fails before assembling a draft if an anonymous registry client cannot resolve every recorded digest. Once a package is public, later versions retain that visibility.
 
-The normal platform CI gate and release workflow build the modern self-hosting images only: frontend, API, and the three Plumber hardware variants. The legacy Shiny app remains available through source, Windows-ready zip artifacts, and the `legacy-shiny` branch; it is not a blocking container-image gate for modern platform tags.
-
-The historical Shiny-first code line is preserved on the `legacy-shiny` branch. Modern platform releases should still keep the desktop artifacts usable during beta, but the branch exists as the stable reference point for anyone who wants the old Shiny-only shape.
+The release workflow builds the self-hosting images: frontend, API, and the three Plumber hardware variants. The legacy Shiny desktop app and its Windows-ready zip were removed in 3.0; `v1.0.0` remains the final Shiny release for anyone who needs it.
 
 ## Versioning
 
@@ -36,15 +33,15 @@ Use semver with prerelease tags until the modern platform is stable:
 - `v2.0.0-beta.5` is the current public-version baseline recorded by `VERSION`; later candidates must update all validated metadata together.
 - Reserve stable `v2.0.0` for a stable API/storage contract, migration policy, documented backups, and a tested self-host install path.
 
-The canonical public version is `VERSION`. The release workflow rejects a tag unless it matches `VERSION`, public Node package metadata, `CITATION.cff`, and a release heading in `CHANGELOG.md`. `DESCRIPTION` retains the independent legacy R/Shiny component version.
+The canonical public version is `VERSION`. The release workflow rejects a tag unless it matches `VERSION`, public Node package metadata, `CITATION.cff`, and a release heading in `CHANGELOG.md`. `DESCRIPTION` versions the R modelling engine manifest independently.
 
 Tag releases from `main` only after `dev -> main` CI, including the pre-tag publication-validation job, and the release-candidate checklist are green. Image publication and draft release assembly remain tag-only. After tagging, merge `main` back into `dev` by PR so release ancestry is retained.
 
-The detailed `dev -> main` release-candidate plan is in `docs/DEV_MAIN_RELEASE_PLAN.md`.
+Releases follow the flow in `CONTRIBUTING.md` (feature branches -> `dev` -> release PR -> `main` -> `vX.Y.Z-rc.N` tag -> `vX.Y.Z`).
 
 ## CRAN
 
-Do not advertise the current platform as CRAN-ready. The full repository includes web, Docker, database, queue, and object-storage runtime surfaces. A CRAN submission should be treated as a future extraction of a smaller pure-R modelling/core package. See `docs/LEGACY_AND_CRAN.md`.
+Do not advertise the current platform as CRAN-ready. The full repository includes web, Docker, database, queue, and object-storage runtime surfaces. A CRAN submission should be treated as a future extraction of a smaller pure-R modelling/core package.
 
 ## Main Branch Readiness
 

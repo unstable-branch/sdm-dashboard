@@ -25,20 +25,10 @@ check_sdm_versions <- function() {
 }
 
 sdm_required_packages <- c("terra")
-sdm_app_packages <- c(
-  "shiny", "bslib", "terra",
-  "gbm", "maxnet", "nnet",
-  "mgcv", "earth", "rpart", "mda", "xgboost", "ranger",
-  "jsonlite",
-  "future", "future.apply",
-  "ggplot2", "CAST", "blockCV"
-)
-sdm_setup_packages <- c("shiny", "bslib", "terra", "geodata", "leaflet", "mapview", "sf", "DT", "marginaleffects", "shinyjs", "future", "future.apply", "ggplot2", "matrixStats", "htmltools", "data.table")
 
 sdm_optional_packages <- list(
   maxnet = c("maxnet", "glmnet"),
   biomod2 = c("biomod2", "PresenceAbsence", "pROC"),
-  leaflet = c("leaflet", "mapview", "sf"),
   rgee = c("rgee", "reticulate"),
   inla = c("INLA", "inlabru"),
   bart = c("dbarts"),
