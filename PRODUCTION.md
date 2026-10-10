@@ -165,7 +165,7 @@ plumber:
     resources:
       limits:
         cpus: "4"
-        memory: 8G
+        memory: 12G
 ```
 
 ## Troubleshooting
