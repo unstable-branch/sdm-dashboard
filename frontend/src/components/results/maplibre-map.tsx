@@ -554,7 +554,7 @@ export default function MaplibreMap({
           minzoom={tileZoomMin && tileZoomMin > 0 ? tileZoomMin : 0}
           maxzoom={tileZoomMax && tileZoomMax > 0 ? tileZoomMax : 18}
           bounds={tileBounds}
-          attribution="© SDM Platform"
+          attribution="© SDM Dashboard"
         >
           <Layer
             id="suitability-overlay"

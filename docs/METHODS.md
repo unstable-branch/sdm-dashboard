@@ -1,6 +1,6 @@
 # Methods
 
-This document describes the statistical and ecological methods implemented in the SDM Dashboard Workbench, with citations to the primary literature.
+This document describes the statistical and ecological methods implemented in SDM Dashboard, with citations to the primary literature.
 
 ---
 

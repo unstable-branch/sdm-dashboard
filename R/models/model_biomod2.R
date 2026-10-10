@@ -1,7 +1,7 @@
 ## Biomod2 modelling wrapper ---------------------------------------------------
 ## Centralizes all calls to the biomod2 package. Registers via model_registry
 ## only when options(sdm.enable_biomod2 = TRUE) and biomod2 is installed.
-## See BIOMOD2_ADAPTER_NOTES.md for gating strategy details.
+## See docs/BIOMOD2_ADAPTER_NOTES.md for gating strategy details.
 
 ## biomod2 is mapped to random k-fold only. The app's "random" strategy and the
 ## internal "kfold" name are equivalent; spatial blocks are rejected rather than

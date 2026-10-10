@@ -162,13 +162,11 @@ predict_bart_suitability <- function(fit, env_project_scaled, output_tif, n_core
 
   log_message(log_fun, "Predicting BART suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
-  suit <- terra::app(env_subset, fun = function(vals) {
-    sdm_apply_predict(vals, fit$covariates, function(df) {
+  suit <- sdm_app_predict(env_subset, fit$covariates, function(df) {
       x <- as.matrix(df[, fit$covariates, drop = FALSE])
       pred_list <- predict(fit$model, newdata = x)
       pmin(pmax(as.numeric(pnorm(colMeans(pred_list$yhat.test))), 0), 1)
-    })
-  }, cores = normalize_core_count(n_cores))
+  }, n_cores = n_cores, packages = "dbarts")
 
   names(suit) <- "suitability"
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)

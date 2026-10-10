@@ -38,7 +38,7 @@ export default function DashboardPage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-sdm-accent">Workbench overview</p>
+          <p className="text-sm font-medium text-sdm-accent">Dashboard overview</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-sdm-heading">Dashboard</h1>
           <p className="mt-2 text-sm leading-6 text-sdm-muted">Prepare data, follow your runs and return to the science.</p>
         </div>

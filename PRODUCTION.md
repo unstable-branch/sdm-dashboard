@@ -35,6 +35,7 @@ Production compose fails closed when required secrets or application digests are
 | `SDM_API_DIGEST` | Reviewed `sha256:...` digest for `sdm-api` |
 | `SDM_PLUMBER_VARIANT` | `cpu`, `cuda`, or `rocm` |
 | `SDM_PLUMBER_DIGEST` | Digest for the matching Plumber variant |
+| `SDM_PUBLIC_URL` | Public URL users open (e.g. `https://sdm.example.org`). Browser sign-in, CORS and CSRF accept only this origin |
 | `POSTGRES_PASSWORD`, `DATABASE_URL` | Bundled Postgres password and application connection string |
 | `JWT_SECRET`, `CSRF_SECRET` | Browser/API authentication secrets |
 | `DATA_ENCRYPTION_KEY`, `SDM_ENCRYPTION_KEY` | Encryption-at-rest keys |

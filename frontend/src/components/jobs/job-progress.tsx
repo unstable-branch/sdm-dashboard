@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useJobSSE } from "@/hooks/use-job-sse";
-import { useSDMStore } from "@/stores/sdm-store";
 import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock, X, Ban } from "lucide-react";
 import { apiPost, apiGet } from "@/services/api";
@@ -37,6 +36,14 @@ function formatElapsed(ms: number): string {
   if (h > 0) return `${h}h ${m}m ${s}s`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
+}
+
+/** Prefer whichever progress snapshot has more stages (the fresher one). */
+function freshestStages(a: unknown, b: unknown): unknown {
+  const la = Array.isArray(a) ? a.length : -1;
+  const lb = Array.isArray(b) ? b.length : -1;
+  if (la < 0 && lb < 0) return a ?? b ?? undefined;
+  return lb > la ? b : a;
 }
 
 export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime, completedActions }: JobProgressProps) {
@@ -90,9 +97,15 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
         const plumberStatus = (status.status as string) || "unknown";
         const logs = Array.isArray(status.progress_log) ? status.progress_log : [];
         let progress = 0;
-        for (let i = logs.length - 1; i >= 0; i--) {
-          const p = extractProgressPercent(logs[i]);
-          if (p !== undefined) { progress = p; break; }
+        const stages = (status as { progress_json?: unknown }).progress_json;
+        const lastStage = Array.isArray(stages) ? (stages[stages.length - 1] as { percent?: unknown } | undefined) : undefined;
+        if (lastStage && typeof lastStage.percent === "number") {
+          progress = Math.round(lastStage.percent * 100);
+        } else {
+          for (let i = logs.length - 1; i >= 0; i--) {
+            const p = extractProgressPercent(logs[i]);
+            if (p !== undefined) { progress = p; break; }
+          }
         }
         setPolledJob({
           state: plumberStatus,
@@ -126,15 +139,19 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
   // Ensure progress never regresses (handles R backend emitting backward progress values)
   const effectiveJob = useMemo(() => {
     const rawJob = (job && !isSyntheticPlaceholder)
-      ? { ...job, progressJson: job.progressJson ?? (polledJob?.progressJson ?? undefined) }
+      ? { ...job, progressJson: freshestStages(job.progressJson, polledJob?.progressJson) }
       : polledJob;
     if (!rawJob) return null;
+    if (rawJob.state === "completed" || polledJob?.state === "completed") {
+      // A finished run is 100% even when the terminal event carries no percent.
+      return { ...rawJob, ...(polledJob?.state === "completed" ? { state: "completed" as const } : {}), progress: 100 };
+    }
     if (polledJob) {
       return {
         ...rawJob,
         progress: Math.max(rawJob.progress ?? 0, polledJob.progress ?? 0),
         currentStage: rawJob.currentStage ?? polledJob.currentStage,
-        progressJson: rawJob.progressJson ?? polledJob.progressJson,
+        progressJson: freshestStages(rawJob.progressJson, polledJob.progressJson),
         logs: rawJob.logs?.length ? rawJob.logs : polledJob.logs,
       };
     }
@@ -157,18 +174,23 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
     };
   }, [startTime, effectiveJob?.state]);
 
+  // The finished panel stays mounted (with its results link) until dismissed or
+  // replaced by a new run. onComplete only fires when this mount watched the run
+  // go from active to completed, so revisiting the page never re-triggers it.
   const completedRef = useRef(false);
+  const sawActiveRef = useRef(false);
   const prevJobIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (jobId !== prevJobIdRef.current) {
       completedRef.current = false;
+      sawActiveRef.current = false;
       prevJobIdRef.current = jobId;
     }
     const terminalStates = ["completed", "failed", "cancelled"];
+    if (effectiveJob && !terminalStates.includes(effectiveJob.state)) sawActiveRef.current = true;
     if (effectiveJob && terminalStates.includes(effectiveJob.state) && !completedRef.current) {
       completedRef.current = true;
-      useSDMStore.getState().clearModelJob();
-      if (effectiveJob.state === "completed") {
+      if (effectiveJob.state === "completed" && sawActiveRef.current) {
         onComplete?.(effectiveJob.result ?? {});
       }
     }
@@ -213,6 +235,9 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
   const lastLog = effectiveJob.logs && effectiveJob.logs.length > 0 ? effectiveJob.logs[effectiveJob.logs.length - 1] : null;
   // Use backend-provided currentStage when available (more accurate), fall back to log-derived
   const currentStage = effectiveJob.currentStage ?? extractStage(lastLog || "");
+  const stageList = (effectiveJob as { progressJson?: unknown }).progressJson;
+  const latestEntry = Array.isArray(stageList) ? (stageList[stageList.length - 1] as { detail?: unknown } | undefined) : undefined;
+  const currentStep = typeof latestEntry?.detail === "string" ? latestEntry.detail : null;
 
   return (
     <div className={cn(
@@ -262,19 +287,8 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
         </div>
       )}
 
-      {(effectiveJob as any).progressJson && Array.isArray((effectiveJob as any).progressJson) && (
-        <div className="flex flex-wrap gap-1.5">
-          {(effectiveJob as any).progressJson.map((entry: any, i: number) => (
-            <span key={i} className={`text-xs rounded px-1.5 py-0.5 ${
-              entry.stage === "unknown" ? "bg-sdm-surface text-sdm-muted" :
-              i === ((effectiveJob as any).progressJson?.length ?? 0) - 1
-                ? "bg-sdm-accent/15 text-sdm-accent animate-pulse"
-                : "bg-sdm-accent/10 text-sdm-accent"
-            }`}>
-              {entry.stage}: {Math.round((entry.percent || 0) * 100)}%
-            </span>
-          ))}
-        </div>
+      {!isTerminal && currentStep && (
+        <p className="text-xs text-sdm-muted truncate" title={currentStep}>{currentStep}</p>
       )}
 
       {showCancelConfirm && (

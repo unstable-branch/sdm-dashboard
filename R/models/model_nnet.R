@@ -147,12 +147,10 @@ predict_ann_suitability <- function(fit, env_project_scaled, output_tif, n_cores
 
   log_message(log_fun, "Predicting ANN suitability over ", terra::ncol(env_subset), "x", terra::nrow(env_subset), " raster")
 
-  suit <- terra::app(env_subset, fun = function(vals) {
-    sdm_apply_predict(vals, fit$covariates, function(df) {
+  suit <- sdm_app_predict(env_subset, fit$covariates, function(df) {
       pred <- stats::predict(fit$model, newdata = df, type = "raw")
       pmin(pmax(as.numeric(pred), 0), 1)
-    })
-  }, cores = normalize_core_count(n_cores))
+  }, n_cores = n_cores, packages = "nnet")
 
   names(suit) <- "suitability"
   dir.create(dirname(output_tif), recursive = TRUE, showWarnings = FALSE)
