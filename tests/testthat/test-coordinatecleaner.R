@@ -36,11 +36,16 @@ test_that("clean_occurrences with use_cc = TRUE adds cc columns when CoordinateC
 
   expect_true("cc_flag" %in% colnames(cleaned$occ))
   expect_true("cc_test_zero" %in% colnames(cleaned$occ))
-  expect_true("cc_test_sea" %in% colnames(cleaned$occ))
   expect_true("cc_test_capitals" %in% colnames(cleaned$occ))
   expect_true("cc_test_institutions" %in% colnames(cleaned$occ))
   expect_true("cc_test_centroids" %in% colnames(cleaned$occ))
-  expect_true("cc_test_urban" %in% colnames(cleaned$occ))
+  # Sea and urban need downloadable Natural Earth layers: either they ran and
+  # produced a column, or they are reported as skipped (offline host).
+  for (ref in c(seas = "cc_test_sea", urban = "cc_test_urban")) {
+    test <- names(which(c(seas = "cc_test_sea", urban = "cc_test_urban") == ref))
+    expect_true(ref %in% colnames(cleaned$occ) || test %in% cleaned$cc_skipped_tests,
+      info = paste(ref, "neither produced nor reported skipped"))
+  }
 })
 
 test_that("clean_occurrences with use_cc = TRUE flags (0,0) and known museum coordinate", {
@@ -106,4 +111,35 @@ test_that("clean_occurrences with use_cc = TRUE warns if CoordinateCleaner not i
 
   expect_warning(cleaned <- clean_occurrences(path, min_source_records = 1, merge_small_sources = TRUE, use_cc = TRUE))
   expect_false("cc_flag" %in% colnames(cleaned$occ))
+})
+
+test_that("cc_resolve_tests maps app test names to CoordinateCleaner names", {
+  expect_identical(cc_resolve_tests("all"), cc_default_tests)
+  expect_identical(cc_resolve_tests(NULL), cc_default_tests)
+  expect_true(all(c("seas", "zeros") %in% cc_default_tests))
+  expect_identical(cc_resolve_tests("sea,zero,country"), c("seas", "zeros", "countries"))
+  expect_identical(cc_resolve_tests("urban, equal ,gbif"), c("urban", "equal", "gbif"))
+  logs <- character()
+  out <- cc_resolve_tests("sea,bogus", log_fun = function(...) logs <<- c(logs, paste0(...)))
+  expect_identical(out, "seas")
+  expect_true(any(grepl("bogus", logs)))
+})
+
+test_that("cc_run_tests skips a reference-layer test that errors instead of failing the clean", {
+  skip_if_not(requireNamespace("CoordinateCleaner", quietly = TRUE))
+  skip_if_not_installed("mockery")
+  occ <- data.frame(species = "A", longitude = c(150, 0, 151), latitude = c(-30, 0, -31))
+  real <- CoordinateCleaner::clean_coordinates
+  fake <- function(x, lon, lat, species, tests, value) {
+    if (any(tests %in% c("seas", "urban"))) stop("unused argument (full_url = TRUE)")
+    real(x, lon = lon, lat = lat, species = species, tests = tests, value = value)
+  }
+  mockery::stub(cc_run_tests, "CoordinateCleaner::clean_coordinates", fake)
+  logs <- character()
+  run <- cc_run_tests(occ, "species", c("zeros", "seas", "urban"),
+    log_fun = function(...) logs <<- c(logs, paste0(...)))
+  expect_setequal(run$skipped, c("seas", "urban"))
+  expect_true(".zer" %in% names(run$result))
+  expect_false(run$result$.summary[2])
+  expect_true(any(grepl("seas", logs)) && any(grepl("urban", logs)))
 })
