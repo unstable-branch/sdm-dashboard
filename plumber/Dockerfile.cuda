@@ -97,6 +97,7 @@ RUN dpkg -i /tmp/cuda-keyring.deb \
     libcurl4-openssl-dev \
     libsodium-dev \
     libhiredis-dev \
+    libnode109 \
     cmake \
     build-essential \
     curl \

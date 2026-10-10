@@ -23,7 +23,7 @@ RUN apt-get update \
     libcurl4-openssl-dev libssl-dev libxml2-dev libsodium-dev libhiredis-dev \
     libgdal-dev libgeos-dev libproj-dev libsqlite3-dev libudunits2-dev libjq-dev \
     libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev \
-    libpng-dev libtiff-dev libjpeg-dev libuv1-dev \
+    libpng-dev libtiff-dev libjpeg-dev libuv1-dev libnode109 \
   && rm -rf /var/lib/apt/lists/*
 
 COPY plumber/install-runtime-packages.R /tmp/install-runtime-packages.R
