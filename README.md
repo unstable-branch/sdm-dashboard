@@ -12,13 +12,26 @@ Open-source species distribution modelling (SDM) platform: upload occurrence rec
 
 **Status: 3.0.0 release candidate.** 3.0 is the first stable line of the modern platform. Validate ecological outputs carefully before operational use; see [Known limitations](#known-limitations).
 
-![SDM Dashboard: upload, clean, model and review a koala distribution model end to end](docs/images/demo.gif)
+<p align="center">
+  <a href="docs/images/demo.gif"><img src="docs/images/demo.gif" width="600" alt="Upload, clean, model and review a koala distribution model"></a>
+  <br>
+  <sub>A real koala workflow using CC0 GBIF records and MaxNet. Playback condensed.</sub>
+</p>
 
-<sub>A real run from a clean start: 359 CC0 koala records from GBIF, cleaned to 346, MaxNet with 5-fold spatial-block cross-validation over eastern Australia (CV AUC 0.923), about 25 seconds end to end.</sub>
-
-| Dashboard | Results | Suitability map |
-| --- | --- | --- |
-| [![Dashboard](docs/images/dashboard.png)](docs/images/dashboard.png) | [![Run results with metrics and overfitting advice](docs/images/results.png)](docs/images/results.png) | [![Habitat suitability map with legend](docs/images/suitability-map.png)](docs/images/suitability-map.png) |
+<div align="center">
+<table>
+  <tr>
+    <th>Dashboard</th>
+    <th>Results</th>
+    <th>Suitability map</th>
+  </tr>
+  <tr>
+    <td><a href="docs/images/dashboard.png"><img src="docs/images/dashboard.png" width="190" alt="Dashboard overview"></a></td>
+    <td><a href="docs/images/results.png"><img src="docs/images/results.png" width="190" alt="Run metrics and overfitting advice"></a></td>
+    <td><a href="docs/images/suitability-map.png"><img src="docs/images/suitability-map.png" width="190" alt="Habitat suitability map with legend"></a></td>
+  </tr>
+</table>
+</div>
 
 ## What's in the box
 
@@ -28,7 +41,12 @@ Open-source species distribution modelling (SDM) platform: upload occurrence rec
 - **State:** PostgreSQL/PostGIS, Redis/BullMQ, Garage (S3-compatible) object storage.
 - **Compute:** CPU by default. Optional NVIDIA (CUDA) and AMD (ROCm) Plumber images.
 
+<details>
+<summary>Architecture: platform services and the R modelling core</summary>
+
 ![Architecture: platform services and the R modelling core](docs/architecture.png)
+
+</details>
 
 ## Install (self-hosted)
 
