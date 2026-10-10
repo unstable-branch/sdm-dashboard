@@ -149,3 +149,11 @@ test_that("python model availability reflects importable requirements", {
   withr::local_envvar(SDM_PYTHON = "definitely-not-a-python-binary-sdm")
   expect_false(python_model_runnable(manifest, module_ok = function(m) TRUE, use_cache = FALSE))
 })
+
+test_that("check_python_module runs real imports through the shell (F15)", {
+  py <- Sys.which("python3")
+  skip_if(!nzchar(py), "python3 unavailable")
+  withr::local_envvar(SDM_PYTHON = py)
+  expect_true(check_python_module("json"))
+  expect_false(check_python_module("definitely_not_a_module_sdm"))
+})
