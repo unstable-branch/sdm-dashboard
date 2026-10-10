@@ -68,6 +68,17 @@ if (length(missing_after)) {
   )
 }
 
+# Installed is not the same as loadable: binary packages can miss a system
+# library (V8 needs libnode, which DwC-A uploads reach via finch). Load-check
+# the packages whose shared objects have bitten us before.
+load_checked <- intersect(c("V8", "finch", "terra", "sf", "redux", "arrow"), rownames(installed))
+for (pkg in load_checked) {
+  ok <- tryCatch({ loadNamespace(pkg); TRUE }, error = function(e) {
+    message("Cannot load ", pkg, ": ", conditionMessage(e)); FALSE
+  })
+  if (!ok) stop("Runtime package ", pkg, " is installed but cannot be loaded.", call. = FALSE)
+}
+
 manifest <- installed[, c("Package", "Version", "Built"), drop = FALSE]
 dir.create("/opt/sdm", recursive = TRUE, showWarnings = FALSE)
 write.table(
