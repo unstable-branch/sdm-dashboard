@@ -28,10 +28,6 @@ services:
     image: ghcr.io/unstable-branch/sdm-dashboard/sdm-frontend@${SDM_FRONTEND_DIGEST:?SDM_FRONTEND_DIGEST is required}
     environment:
       - NODE_ENV=production
-      # Public browser URL (scheme + host, e.g. https://sdm.example.org). Browser
-      # sign-in, CORS and CSRF only accept requests from this origin.
-      - FRONTEND_URL=${SDM_PUBLIC_URL:?SDM_PUBLIC_URL is required (public https:// URL users open)}
-      - APP_URL=${SDM_PUBLIC_URL}
       - API_URL=http://api:4000
     deploy:
       resources:
@@ -55,6 +51,10 @@ services:
           memory: 512M
     environment:
       - NODE_ENV=production
+      # Public browser URL (scheme + host, e.g. https://sdm.example.org). Browser
+      # sign-in, CORS and CSRF only accept requests from this origin.
+      - FRONTEND_URL=${SDM_PUBLIC_URL:?SDM_PUBLIC_URL is required (public https:// URL users open)}
+      - APP_URL=${SDM_PUBLIC_URL}
       - SDM_PROJECT_ROOT=/app
       - SDM_INPUT_ASSET_BOUNDARY_ROOT=/app/data/boundaries
       - SDM_INPUT_ASSET_WORLDCLIM_ROOT=/app/Worldclim
