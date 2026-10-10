@@ -44,7 +44,6 @@ export function AppShellHeader() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="hidden rounded-md border border-sdm-border px-2 py-1 text-xs text-sdm-muted lg:inline">Modern platform beta</span>
           <Button
             variant="ghost"
             size="icon"
