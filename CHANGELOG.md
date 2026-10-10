@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0-rc.2] - 2026-10-11
+
+Second release candidate for 3.0.0. `v3.0.0-rc.1` was tagged on 2026-10-10 but its release run was cancelled before any image or release was published; the tag was withdrawn and this candidate supersedes it. Single Plumber replica and single queue worker remain the supported topology; multi-replica execution is planned for 3.1.
+
+### Fixed (first-time-user walkthrough)
+
+- **Browser sign-in on real hosts:** production Compose now requires `SDM_PUBLIC_URL` and passes it to the API. Without it every sign-up and login behind nginx failed with "Invalid browser session request".
+- **Raster prediction for 8 models:** MaxNet, MARS, CTA, FDA, ANN, BRT, BART and XGBoost failed at the map step whenever `n_cores > 1` (the UI default). Prediction now runs in-process.
+- **Live run progress:** the Model page sat at 0% then "waiting for progress" even after completion. Progress now updates live, shows the current step, and the finished panel keeps its results link. nginx serves the job event stream unbuffered.
+- Clean uploads no longer show an "[object Object]" warning.
+
+### Changed
+
+- Results map: lowest suitability is transparent so the basemap stays readable; colour legend; extent and range outlines off by default.
+- README: walkthrough GIF and screenshots of a real koala run.
+
 ### Removed
 
 - **Legacy Shiny desktop app.** `app.R`, `launch_app.R`, `install_packages.R`, `pipeline.R`, `run_app_windows.bat`, `README_WINDOWS.md`, `www/`, the Shiny UI and modules (`R/ui/`, `R/modules/`, `R/load.R`), the Shiny container `Dockerfile`, the Windows setup scripts and the Windows-ready release zip. `v1.0.0` remains the final Shiny release. The modelling code in `R/` is unchanged and still powers Plumber; the project root is now located by `R/engine_load.R`.
