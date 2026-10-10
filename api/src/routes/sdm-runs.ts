@@ -306,16 +306,19 @@ sdmRunRoutes.get("/status/:jobId", async (c) => {
     const shouldLivePoll = lastSyncAge > SYNC_STALENESS_MS || getLastSyncError() !== null;
 
     if (run.status === "running" && run.jobId) {
-      if (shouldLivePoll) {
-        isSyncing = true;
+      // Always read live progress for a running run: the stored row carries no
+      // progress until the run ends, so returning it left the UI at 0% (FR-4).
+      // Terminal-state reconciliation below stays limited to a stale sync loop.
+      isSyncing = shouldLivePoll;
+      {
         try {
-          const plumberStatus = await plumberClient.withUser(user.id).withRole(user.role).getModelStatus(run.jobId, 8000);
+          const plumberStatus = await plumberClient.withUser(user.id).withRole(user.role).getModelStatus(run.jobId, shouldLivePoll ? 8000 : 3000);
           const ps = plumberStatus as unknown as PlumberModelStatus;
           plumberProgressJson = ps.progress_json ?? null;
           plumberProgressLog = Array.isArray(ps.progress_log) ? ps.progress_log : [];
 
           const validStatuses = ["completed", "failed", "cancelled"];
-          if (ps.status && validStatuses.includes(ps.status)) {
+          if (shouldLivePoll && ps.status && validStatuses.includes(ps.status)) {
             const status = ps.status as "completed" | "failed" | "cancelled";
             await db.update(runs).set({
               status,
