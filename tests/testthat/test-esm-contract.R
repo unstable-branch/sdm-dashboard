@@ -1,4 +1,5 @@
 test_that("fit_esm returns standard contract", {
+  skip_if_not(sdm_esm_enabled(), "ESM disabled (SDM_ENABLE_ESM); ecospat/biomod2 ensemble incompatibility")
   skip_if_not_installed("ecospat")
   skip_if_not_installed("biomod2")
 
@@ -40,6 +41,7 @@ test_that("fit_esm returns standard contract", {
 })
 
 test_that("fit_esm fails gracefully with < 5 presences", {
+  skip_if_not(sdm_esm_enabled(), "ESM disabled (SDM_ENABLE_ESM); ecospat/biomod2 ensemble incompatibility")
   skip_if_not_installed("ecospat")
   set.seed(42)
   env_data <- data.frame(presence = c(1,1,1,0,0,0,0,0,0,0),
@@ -53,6 +55,7 @@ test_that("fit_esm fails gracefully with < 5 presences", {
 })
 
 test_that("fit_esm fails when only 1 covariate", {
+  skip_if_not(sdm_esm_enabled(), "ESM disabled (SDM_ENABLE_ESM); ecospat/biomod2 ensemble incompatibility")
   skip_if_not_installed("ecospat")
   set.seed(42)
   env_data <- data.frame(presence = c(rep(1, 10), rep(0, 50)),
@@ -76,6 +79,7 @@ test_that("extract_esm_importance returns one row per variable", {
 })
 
 test_that("esm_config is populated correctly", {
+  skip_if_not(sdm_esm_enabled(), "ESM disabled (SDM_ENABLE_ESM); ecospat/biomod2 ensemble incompatibility")
   skip_if_not_installed("ecospat")
   skip_if_not_installed("biomod2")
 
@@ -110,6 +114,7 @@ test_that("esm_config is populated correctly", {
 })
 
 test_that("esm_glm registered in model registry", {
+  skip_if_not(sdm_esm_enabled(), "ESM disabled (SDM_ENABLE_ESM); ecospat/biomod2 ensemble incompatibility")
   skip_if_not_installed("ecospat")
   skip_if_not_installed("biomod2")
   ids <- sdm_model_ids()
@@ -121,6 +126,7 @@ test_that("esm_glm registered in model registry", {
 })
 
 test_that("esm_maxnet registered when maxnet available", {
+  skip_if_not(sdm_esm_enabled(), "ESM disabled (SDM_ENABLE_ESM); ecospat/biomod2 ensemble incompatibility")
   skip_if_not_installed("ecospat")
   skip_if_not_installed("biomod2")
   if (!requireNamespace("maxnet", quietly = TRUE)) {
@@ -134,6 +140,7 @@ test_that("esm_maxnet registered when maxnet available", {
 })
 
 test_that("plot_esm_pair_heatmap returns ggplot or NULL", {
+  skip_if_not(sdm_esm_enabled(), "ESM disabled (SDM_ENABLE_ESM); ecospat/biomod2 ensemble incompatibility")
   skip_if_not_installed("ecospat")
   skip_if_not_installed("biomod2")
 
@@ -153,4 +160,12 @@ test_that("plot_esm_pair_heatmap returns ggplot or NULL", {
   if (!is.null(p)) {
     expect_true(inherits(p, "ggplot"))
   }
+})
+test_that("ESM models are not registered unless explicitly enabled", {
+  withr::local_options(sdm.enable_esm = NULL)
+  withr::local_envvar(SDM_ENABLE_ESM = "")
+  expect_false(sdm_esm_enabled())
+  expect_false("esm_glm" %in% sdm_model_ids())
+  withr::local_envvar(SDM_ENABLE_ESM = "true")
+  expect_true(sdm_esm_enabled())
 })
