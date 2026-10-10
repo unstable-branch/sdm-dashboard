@@ -112,7 +112,7 @@ fit_mars_sdm <- function(occ, env_train_scaled, background_n = sdm_default_backg
 
   importance_raw <- tryCatch({
     ev <- earth::evimp(model)
-    if (is.null(ev) || nrow(ev) == 0) return(NULL)
+    if (is.null(ev) || nrow(ev) == 0) stop("no importance")
     imp_df <- data.frame(
       variable = rownames(ev),
       importance = ev[, ncol(ev), drop = TRUE],
