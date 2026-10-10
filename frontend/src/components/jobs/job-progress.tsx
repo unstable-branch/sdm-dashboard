@@ -142,6 +142,10 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
       ? { ...job, progressJson: freshestStages(job.progressJson, polledJob?.progressJson) }
       : polledJob;
     if (!rawJob) return null;
+    if (rawJob.state === "completed" || polledJob?.state === "completed") {
+      // A finished run is 100% even when the terminal event carries no percent.
+      return { ...rawJob, ...(polledJob?.state === "completed" ? { state: "completed" as const } : {}), progress: 100 };
+    }
     if (polledJob) {
       return {
         ...rawJob,
