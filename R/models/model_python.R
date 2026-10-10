@@ -168,7 +168,7 @@ fit_python_sdm <- function(occ, env_train_scaled, background_n = sdm_default_bac
   python_bin <- sdm_python_path()
   log_message(log_fun, "  Running: ", python_bin, " ", script_path)
 
-  result <- system2(python_bin, c(normalizePath(script_path), normalizePath(config_path)),
+  result <- system2(python_bin, shQuote(c(normalizePath(script_path), normalizePath(config_path))),
     stdout = TRUE, stderr = TRUE)
   log_python_metadata(log_fun, result)
   runtime_metadata <- parse_python_metadata(result)
@@ -290,7 +290,7 @@ predict_python_suitability <- function(fit, env_project_scaled, output_tif, n_co
   script_path <- file.path(model_dir, fit$model$manifest$predict_script)
 
   python_bin <- sdm_python_path()
-  result <- system2(python_bin, c(normalizePath(script_path), normalizePath(config_path)),
+  result <- system2(python_bin, shQuote(c(normalizePath(script_path), normalizePath(config_path))),
     stdout = TRUE, stderr = TRUE)
   log_python_metadata(log_fun, result)
 
