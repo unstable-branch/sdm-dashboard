@@ -123,6 +123,17 @@ find_optimal_threshold <- function(obs, pred) {
 # matrix chunk. Rows with any non-finite covariate get NA_real_ instead of
 # poisoning the whole chunk. `covariates` are the original cov names to assign
 # to the rows data.frame passed to predict_fn (so `fit$covariates` lookups work).
+# Predict a raster with terra::app() in-process. With cores > 1 terra switches to
+# parallel::parRapply(), which calls `fun` once per cell (a vector, not a chunk
+# matrix) in fresh PSOCK workers without the project helpers or model packages:
+# every model's prediction failed whenever n_cores > 1 (the UI default is 8).
+# Model predict methods are vectorised, so chunked single-process prediction is
+# also faster than per-cell parallel calls. n_cores is accepted for API
+# compatibility and intentionally not forwarded.
+sdm_app_predict <- function(env, covariates, predict_fn, n_cores = 1L, packages = character()) {
+  terra::app(env, fun = function(vals) sdm_apply_predict(vals, covariates, predict_fn))
+}
+
 sdm_apply_predict <- function(vals, covariates, predict_fn) {
   out <- rep(NA_real_, nrow(vals))
   if (nrow(vals) == 0L) return(out)

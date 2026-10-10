@@ -138,3 +138,16 @@ test_that("normalize_cv_block_size_km returns numeric or NA", {
   expect_true(is.na(normalize_cv_block_size_km(-5)))
   expect_true(is.na(normalize_cv_block_size_km("invalid")))
 })
+
+test_that("raster prediction works in parallel terra workers", {
+  skip_if_not_installed("terra")
+  skip_on_cran()
+  r <- terra::rast(nrows = 40, ncols = 40, nlyrs = 2, vals = stats::runif(3200))
+  names(r) <- c("bio1", "bio12")
+  fit <- stats::glm(y ~ bio1 + bio12, family = stats::binomial(),
+                    data = data.frame(y = rep(0:1, 50), bio1 = stats::runif(100), bio12 = stats::runif(100)))
+  one <- sdm_app_predict(r, c("bio1", "bio12"), function(df) stats::predict(fit, df, type = "response"), n_cores = 1)
+  two <- sdm_app_predict(r, c("bio1", "bio12"), function(df) stats::predict(fit, df, type = "response"), n_cores = 8)
+  expect_equal(sum(is.na(terra::values(two))), 0)
+  expect_equal(as.numeric(terra::values(one)), as.numeric(terra::values(two)), tolerance = 1e-12)
+})
