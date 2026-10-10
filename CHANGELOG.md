@@ -7,13 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.2.0-rc.1] - 2026-10-10
+## [3.0.0-rc.1] - 2026-10-10
 
-Release candidate for external testing. Single Plumber replica and single queue worker only; multi-replica execution is planned after 2.2.0.
+Release candidate for external testing of 3.0.0, the first stable release of the modern platform (Next.js, Hono, PostgreSQL, Redis, Plumber/R). Single Plumber replica and single queue worker only; multi-replica execution is planned after 3.0.0.
 
-### Network defaults
+Versioning note: `v2.1.0` was tagged on a `2.0.0-beta.7` commit but never released (its release workflow failed and no version files were bumped). No stable 2.x exists. 3.0.0 is a major release because it changes deployment and behaviour for anyone running the 2.0 betas.
 
-- Production Compose publishes only nginx (80/443). Garage is internal; Prometheus, Grafana and exporters move behind the `monitoring` profile and bind to loopback.
+### Breaking changes
+
+- Production Compose publishes only nginx (80/443). Garage is internal; Prometheus, Grafana and exporters require `--profile monitoring` and bind to loopback.
+- Plumber memory limit raised from 8G to 12G.
+- Browser authentication uses cookie browser sessions; new database migrations (0043, 0044) must run on upgrade.
+- ESM models are opt-in (`SDM_ENABLE_ESM=true`).
+- Models the deployed image cannot run (for example Python bridges without Python) are reported unavailable and refused.
+- Targets/batch execution remains unavailable until durable execution ownership lands.
 
 ### Prerelease candidate fixes (2026-10-10)
 
