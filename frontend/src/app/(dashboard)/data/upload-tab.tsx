@@ -540,7 +540,9 @@ export function UploadTab({
   const uploadPreview = uploadResult?.preview as Array<Record<string, unknown>> | undefined;
   const cols = uploadResult?.columns_detected as Record<string, string | null> | undefined;
   const warningsRaw = uploadResult?.coord_warnings;
-  const warnings = Array.isArray(warningsRaw) ? warningsRaw : (warningsRaw ? [String(warningsRaw)] : []);
+  // Plumber serialises "no warnings" (R NULL) as an empty object, so accept only strings.
+  const warnings = (Array.isArray(warningsRaw) ? warningsRaw : [warningsRaw])
+    .filter((w): w is string => typeof w === "string" && w.trim().length > 0);
   const hasWarnings = warnings.length > 0;
 
   // ── Render ──────────────────────────────────────────────────
