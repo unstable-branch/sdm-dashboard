@@ -12,7 +12,7 @@ IMAGE='sha256:79bd7c99e923138f136f8009d6bffa66e21e9d4fda5c0c561b00fc9c90cfe537'
 LABEL="sdm-execution-proof=$(cat /proc/sys/kernel/random/uuid)"
 NAME="sdm-exec-proof-${LABEL##*=}"
 CID=''
-LOG_DIR="${SDM_EXECUTION_PROOF_LOG_DIR:-/root/spookys-workspace/reports/sdm}"
+LOG_DIR="${SDM_EXECUTION_PROOF_LOG_DIR:-${TMPDIR:-/tmp}/sdm-execution-proof}"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/execution-reservation-postgres-$(date -u +%Y%m%dT%H%M%SZ).log"
 

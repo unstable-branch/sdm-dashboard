@@ -150,7 +150,7 @@ test_that("python model availability reflects importable requirements", {
   expect_false(python_model_runnable(manifest, module_ok = function(m) TRUE, use_cache = FALSE))
 })
 
-test_that("check_python_module runs real imports through the shell (F15)", {
+test_that("check_python_module runs real imports through the shell", {
   py <- Sys.which("python3")
   skip_if(!nzchar(py), "python3 unavailable")
   withr::local_envvar(SDM_PYTHON = py)

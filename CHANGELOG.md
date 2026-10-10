@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Prerelease candidate fixes (2026-10-10)
+
+End-to-end testing of the integrated stack (API, Plumber, PostgreSQL, Redis) on CPU, CUDA (RTX 3080) and ROCm (RX 6900 XT) found and fixed:
+
+- **Occurrence cleaning:** CoordinateCleaner test names were not mapped to the package's names, so the sea test never ran; urban flags were written to the wrong column; an unavailable reference layer failed the whole clean job instead of skipping that test.
+- **Darwin Core Archive uploads:** CPU/CUDA images lacked `libnode`, so V8/finch could not load; the upload handler lost the original filename and parsed archives as CSV. Images now load-check key R packages at build time.
+- **Models that always failed:** MARS (`nk = NULL`, non-exported `earth` predict), FDA (degenerate folds), CTA (trees without splits), MaxNet explanations, and all Python bridge models (lost model id on registry rebind; unquoted shell arguments made every Python module look missing).
+- **DNN constant prediction:** unbalanced presence/background training collapsed to a constant predictor (CV AUC 0.5) on real data. Presences are now replicated to class parity during training only; held-out folds are untouched.
+- **Run status honesty:** capacity/memory refusals were recorded as `completed` with no results; failed runs lost Plumber's reason when the failure was observed during polling.
+- **Script export** returned 500 for every run; user climate downloads were refused; Redis-backed features were disabled in GPU images; production Compose lacked the shared uploads volume.
+- Models that cannot run in the deployed image are reported `available: false` with a reason and refused up front. ESM models are opt-in (`SDM_ENABLE_ESM=true`) pending an ecospat/biomod2 incompatibility.
+- One GPU model run at a time (`SDM_MAX_GPU_CONCURRENT_RUNS=1`); extra GPU runs are refused visibly.
+- Plumber memory limit raised to 12G; the DNN memory estimate now uses measured peaks.
+- The anonymous model catalog returns only an allowlist of static fields.
+
+Known limitations: DNN is experimental (DNN_Small CV AUC about 0.80 vs GLM 0.87 on the reference data; larger architectures score lower); DNN CBI is not computed; built-in DNN architectures train on CPU even with a GPU attached; Python bridge models are unavailable in the CUDA image, and only the PyTorch DNN bridge is available in the ROCm image.
+
 ### Boundary/target-group producer status typing and fresh-volume boundary root
 
 - `plumber/docker-entrypoint.sh` now normalizes `/app/data/boundaries` with the same shared-permission pass as `/app/data/uploads` and `/app/outputs`. A fresh named boundary volume is root-owned, so the unprivileged Plumber process could not create `custom/` and the first custom-boundary upload on a clean deployment failed closed (previously surfaced as a 502).

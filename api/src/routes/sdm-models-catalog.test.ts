@@ -7,7 +7,7 @@ vi.mock("../services/audit.js", () => ({ logAction: vi.fn(), extractClientInfo: 
 
 import { toPublicModelCatalog } from "./sdm-batch.js";
 
-describe("public model catalog (F6)", () => {
+describe("public model catalog", () => {
   it("keeps only static catalog fields", () => {
     const out = toPublicModelCatalog([
       {
