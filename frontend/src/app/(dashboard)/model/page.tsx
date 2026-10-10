@@ -136,12 +136,16 @@ export default function ModelPage() {
   useEffect(() => {
     if (!autoRedirect || !jobId) return;
     if (redirectCountdown <= 0) {
-      router.push(`/results/${jobId}`);
+      const target = `/results/${jobId}`;
+      setAutoRedirect(false);
+      setJobId(null);
+      setJobStartTime(null);
+      router.push(target);
       return;
     }
     const timer = setTimeout(() => setRedirectCountdown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
-  }, [autoRedirect, redirectCountdown, jobId, router]);
+  }, [autoRedirect, redirectCountdown, jobId, router, setJobId, setJobStartTime]);
 
   const handleCancelRedirect = () => {
     setAutoRedirect(false);
@@ -254,12 +258,14 @@ export default function ModelPage() {
               onComplete={handleJobComplete}
               onDismiss={handleDismissJob}
               completedActions={
-                autoRedirect && (
+                (
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-sdm-muted">
-                      Auto-navigating to results in {redirectCountdown}s
-                      <button onClick={handleCancelRedirect} className="ml-2 underline hover:text-sdm-text">Cancel</button>
-                    </span>
+                    {autoRedirect && (
+                      <span className="text-xs text-sdm-muted">
+                        Opening results in {redirectCountdown}s
+                        <button onClick={handleCancelRedirect} className="ml-2 underline hover:text-sdm-text">Stay</button>
+                      </span>
+                    )}
                     <Link
                       href={`/results/${jobId}`}
                       className="inline-flex items-center gap-1 rounded bg-sdm-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-sdm-accent/90"
