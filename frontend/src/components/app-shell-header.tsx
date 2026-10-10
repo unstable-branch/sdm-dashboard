@@ -39,7 +39,7 @@ export function AppShellHeader() {
           <div aria-label="Current page" className="flex min-w-0 items-center gap-2 text-sm">
             <span className="hidden text-sdm-muted sm:inline">{section}</span>
             <ChevronRight className="hidden h-3.5 w-3.5 shrink-0 text-sdm-muted sm:block" aria-hidden="true" />
-            <span className="truncate font-semibold text-sdm-heading">{currentPage?.title || "SDM Platform"}</span>
+            <span className="truncate font-semibold text-sdm-heading">{currentPage?.title || "SDM Dashboard"}</span>
           </div>
         </div>
 

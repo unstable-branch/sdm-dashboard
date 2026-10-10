@@ -5,7 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-K6_BIN="${K6_BIN:-$PROJECT_ROOT/tools/k6}"
+K6_BIN="${K6_BIN:-$(command -v k6 || true)}"
+[ -n "$K6_BIN" ] || { echo "k6 not found: install it (https://grafana.com/docs/k6/latest/set-up/install-k6/) or set K6_BIN" >&2; exit 1; }
 SCENARIO="${1:-smoke}"
 SCRIPT="$PROJECT_ROOT/tests/k6/load-test.js"
 RESULTS_DIR="$PROJECT_ROOT/tests/k6/results"

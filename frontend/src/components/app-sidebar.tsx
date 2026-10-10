@@ -112,7 +112,7 @@ export function AppSidebar() {
             <Leaf className="h-5 w-5 text-sdm-accent" aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <span className="block text-base font-semibold tracking-tight text-sdm-heading">SDM Platform</span>
+            <span className="block text-base font-semibold tracking-tight text-sdm-heading">SDM Dashboard</span>
             <span className="block text-xs text-sdm-muted">Species distribution modelling</span>
           </div>
           <button
@@ -155,7 +155,7 @@ export function AppSidebar() {
         {isAdmin && <AdminSidebarGroup />}
       </SidebarContent>
       <SidebarFooter>
-        <p className="px-3 py-2 text-xs leading-relaxed text-sdm-muted">SDM Dashboard Workbench</p>
+        <p className="px-3 py-2 text-xs leading-relaxed text-sdm-muted">SDM Dashboard</p>
       </SidebarFooter>
     </Sidebar>
   );

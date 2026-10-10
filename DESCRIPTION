@@ -1,11 +1,11 @@
-Package: SDMDashboardWorkbench
+Package: SDMDashboard
 Type: Shiny
-Title: Local Species Distribution Modelling Dashboard Workbench
+Title: Local Species Distribution Modelling Dashboard
 Version: 0.5.0
 Authors@R: c(
-    person("SDM Dashboard Workbench contributors", role = c("aut", "cre"))
+    person("SDM Dashboard contributors", role = c("aut", "cre"))
   )
-Description: R modelling and legacy Shiny desktop components for SDM Dashboard Workbench, a beta species distribution modelling platform with occurrence cleaning, environmental covariates, model fitting, evaluation, future projection, and ecology tooling.
+Description: R modelling and legacy Shiny desktop components for SDM Dashboard, a beta species distribution modelling platform with occurrence cleaning, environmental covariates, model fitting, evaluation, future projection, and ecology tooling.
 License: MIT
 Encoding: UTF-8
 Depends: R (>= 4.3)

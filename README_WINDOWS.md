@@ -1,4 +1,4 @@
-# Running The SDM Dashboard Workbench On Windows
+# Running The SDM Dashboard On Windows
 
 `Rscript.exe` is included when you install normal R for Windows. It is not downloaded separately.
 

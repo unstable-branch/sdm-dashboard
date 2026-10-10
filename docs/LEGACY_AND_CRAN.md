@@ -15,7 +15,7 @@ The Shiny app has no built-in multi-user auth, API layer, queue isolation, or pr
 
 ## Why CRAN Is Not The Current Platform
 
-The full SDM Dashboard Workbench is not a CRAN-shaped package today. The modern platform includes:
+The full SDM Dashboard is not a CRAN-shaped package today. The modern platform includes:
 
 - Next.js frontend
 - Hono API

@@ -2,7 +2,7 @@
 
 ## Position
 
-SDM Dashboard Workbench should stay open source and self-hostable. The default public artifact is source code plus reproducible release packages. A hosted instance can exist for the project team or demos, but it should not become the only supported way to run the platform.
+SDM Dashboard should stay open source and self-hostable. The default public artifact is source code plus reproducible release packages. A hosted instance can exist for the project team or demos, but it should not become the only supported way to run the platform.
 
 This matters because SDM workflows often involve sensitive occurrence data, unpublished survey records, local paths, API keys, and large generated rasters.
 
@@ -40,7 +40,7 @@ The canonical public version is `VERSION`. The release workflow rejects a tag un
 
 Tag releases from `main` only after `dev -> main` CI, including the pre-tag publication-validation job, and the release-candidate checklist are green. Image publication and draft release assembly remain tag-only. After tagging, merge `main` back into `dev` by PR so release ancestry is retained.
 
-The detailed `dev -> main` release-candidate plan is in `docs/DEV_MAIN_RELEASE_PLAN.md`.
+Releases follow the flow in `CONTRIBUTING.md` (feature branches -> `dev` -> release PR -> `main` -> `vX.Y.Z-rc.N` tag -> `vX.Y.Z`).
 
 ## CRAN
 

@@ -9,7 +9,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], display: "optional" });
 
 export const metadata: Metadata = {
-  title: "SDM Platform",
+  title: "SDM Dashboard",
   description: "Species Distribution Modelling Platform",
 };
 
