@@ -61,3 +61,16 @@ test_that("sdm_read_progress_lines returns default for missing file", {
   )
   expect_equal(lines2, c("fallback-line"))
 })
+
+test_that("upload filename is recovered from plumber's multipart shapes (F13)", {
+  if (!exists("sdm_upload_filename", mode = "function")) {
+    source(file.path(project_root, "plumber", "R", "helpers", "occurrences_helpers.R"))
+  }
+  raw_field <- list(acacia_dwca.zip = as.raw(1:3))
+  # plumber 1.2+: req$args$file is list(<filename> = raw); req$body$file has $filename
+  expect_identical(sdm_upload_filename(list(body = list(file = list(filename = "acacia_dwca.zip"))), raw_field), "acacia_dwca.zip")
+  expect_identical(sdm_upload_filename(list(body = NULL), raw_field), "acacia_dwca.zip")
+  expect_identical(sdm_upload_filename(list(), list(datapath = "/tmp/x", filename = "a.csv")), "a.csv")
+  expect_identical(sdm_upload_filename(list(), list(datapath = "/tmp/x")), "upload")
+  expect_identical(sdm_upload_filename(list(body = list(file = list(filename = "../../etc/x.zip"))), raw_field), "x.zip")
+})
