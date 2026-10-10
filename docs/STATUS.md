@@ -82,6 +82,16 @@ This supersedes the preceding same-day statement that the complete R suite remai
 - Focused `test-batch-cli-unavailable.R` passed in the R 4.5.0 base test environment with `testthat` 3.3.2 and no `optparse`; the legacy route reports explicit optional-package guidance. It also passed in a separate scratch optional profile with `optparse` 1.8.2, where a real Rscript subprocess and controlled loader stubs proved exact `--no-targets` reaches `batch_run_parallel`, while an unknown option does not dispatch. Help and R parse smoke checks passed.
 - No lock/settings or Targets-helper changes were made. The full locked R suite and CI were not rerun for this new candidate; run full CI against its new commit SHA before integration. Detailed execution logs are retained separately from the public repository.
 
+## Update: 2026-10-10 AEST — integrated prerelease candidate
+
+Branch `prerelease/candidate-20261010` integrates the source-convergence, execution-reservation primitive and target-group lines on top of `release/candidate-20261002` (`8fbe289`), plus fixes found by end-to-end testing (see CHANGELOG). It contains the commits of PR #107 and PR #108.
+
+- Node: typecheck clean; API 611 tests passed, 0 failed (38 skipped are opt-in real-PostgreSQL suites, run separately through their disposable-database harnesses).
+- R: full suite in the CUDA Plumber image, 124 files, 2552 passed, 0 failed, 0 errors, 65 skipped (optional packages, opt-in backends, hardware gates).
+- Integrated stack, 18/18 end-to-end checks on each of CUDA + RTX 3080 and ROCm + RX 6900 XT: CSV and Darwin Core Archive upload, CoordinateCleaner, GLM/MARS/FDA/CTA/DNN runs with an AUC floor of 0.6, refusal handling, GPU slot limit, concurrent DNN, script export, public catalog allowlist.
+- GPU qualification: GPU vs CPU predictions agree to 1.19e-07 (tolerance 1e-4) on both vendors, including reloaded artifacts.
+- Not yet run: the literal `docker-compose.prod.yml` with published image digests; Garage object storage; ENMeval, biomod2, BART, INLA and unmarked (absent from images). Durable execution ownership remains incomplete: keep a single Plumber replica and single worker.
+
 ## Release posture
 
 **Not release-ready.** The primary authenticated upload-to-clean-to-model-to-result workflow, durable lifecycle, scientific reference-oracle acceptance, immutable provenance, and complete environment gates are not jointly accepted. Do not advertise a validated production or research release from this snapshot.

@@ -53,7 +53,7 @@ check_python_module <- function(module_name) {
   if (!nzchar(safe_name)) return(FALSE)
   # system2() hands args to a shell unquoted: quote the program text, or
   # "import x; print('ok')" is split by the shell and every module looks
-  # missing (F15). safe_name is restricted to [A-Za-z0-9._-] above.
+  # missing. safe_name is restricted to [A-Za-z0-9._-] above.
   result <- suppressWarnings(system2(sdm_python_path(),
     c("-c", shQuote(sprintf("import %s; print('ok')", safe_name))),
     stdout = TRUE, stderr = FALSE))
