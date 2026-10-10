@@ -314,7 +314,7 @@ prepare_dnn_data <- function(occ_df, pred_stack, background_n = 1000, seed = 42L
 
 # Presence/background training data is heavily imbalanced (often 1-10%
 # presences). Unweighted binomial training then collapses to the majority
-# class: constant predictions and CV AUC 0.5 (F14, measured Oct 2026 on real
+# class: constant predictions and CV AUC 0.5 (measured Oct 2026 on real
 # data: 0.49 -> 0.84 with balancing; GLM reference 0.83). cito::dnn takes no
 # case weights, so replicate presence rows up to parity, mirroring the GLM
 # path's class-balance weights. Evaluation stays honest: CV scores held-out

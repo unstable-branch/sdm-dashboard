@@ -62,7 +62,7 @@ test_that("sdm_read_progress_lines returns default for missing file", {
   expect_equal(lines2, c("fallback-line"))
 })
 
-test_that("upload filename is recovered from plumber's multipart shapes (F13)", {
+test_that("upload filename is recovered from plumber's multipart shapes", {
   if (!exists("sdm_upload_filename", mode = "function")) {
     source(file.path(project_root, "plumber", "R", "helpers", "occurrences_helpers.R"))
   }

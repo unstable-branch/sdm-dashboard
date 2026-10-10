@@ -23,7 +23,7 @@ sdmBatchRoutes.use("/runs", authMiddleware);
 sdmBatchRoutes.use("/runs/delete/*", authMiddleware);
 sdmBatchRoutes.use("/runs/clear-all", authMiddleware);
 
-// Public by design (owner decision F6, Oct 2026): the model catalog is static
+// Public by design (owner decision, Oct 2026): the model catalog is static
 // metadata with no user, run or occurrence data. Project to an allowlist so a
 // future Plumber field cannot widen what anonymous callers see.
 const PUBLIC_MODEL_FIELDS = [

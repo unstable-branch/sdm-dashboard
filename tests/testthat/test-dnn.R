@@ -139,7 +139,7 @@ test_that("DNN CPU vs GPU predictions are numerically equivalent", {
   expect_equal(cpu_vals, gpu_vals, tolerance = 1e-4)
 })
 
-test_that("DNN training balances presence/background classes (F14)", {
+test_that("DNN training balances presence/background classes", {
   df <- data.frame(y = c(rep(1, 10), rep(0, 200)), a = seq_len(210))
   out <- sdm_dnn_balance_classes(df)
   expect_equal(sum(out$y == 0), 200)
@@ -150,7 +150,7 @@ test_that("DNN training balances presence/background classes (F14)", {
   expect_identical(nrow(sdm_dnn_balance_classes(data.frame(y = rep(0, 5), a = 1:5))), 5L)
 })
 
-test_that("imbalanced DNN fit learns signal instead of a constant (F14)", {
+test_that("imbalanced DNN fit learns signal instead of a constant", {
   skip_if_not_installed("cito")
   skip_if_not(isTRUE(tryCatch(torch::torch_is_installed(), error = function(e) FALSE)))
   set.seed(11)
