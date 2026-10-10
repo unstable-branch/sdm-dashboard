@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef, useReducer } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { CleaningTable } from "@/components/data/cleaning-table";
 import { SourceCounts } from "@/components/data/source-counts";
 import { X, Download, RotateCcw, Filter, AlertTriangle } from "lucide-react";
@@ -8,9 +9,25 @@ import type { OccurrencePoint } from "@/app/(dashboard)/data/types";
 
 type SourceFilter = "all" | "upload" | "gbif" | "gbif_download" | "ala";
 
-interface UndoEntry {
-  action: "flag" | "unflag" | "bulk_remove";
-  indices: number[];
+interface PreviewSelection {
+  flags: ReadonlySet<number>;
+  history: ReadonlySet<number>[];
+}
+
+type SelectionAction = { type: "toggle"; index: number } | { type: "clear" } | { type: "undo" } | { type: "reset" };
+
+function selectionReducer(state: PreviewSelection, action: SelectionAction): PreviewSelection {
+  if (action.type === "reset") return { flags: new Set(), history: [] };
+  if (action.type === "undo") {
+    const [previous, ...history] = state.history;
+    return previous ? { flags: previous, history } : state;
+  }
+  if (action.type === "clear" && state.flags.size === 0) return state;
+  const flags = new Set(state.flags);
+  if (action.type === "clear") flags.clear();
+  else if (flags.has(action.index)) flags.delete(action.index);
+  else flags.add(action.index);
+  return { flags, history: [state.flags, ...state.history].slice(0, 10) };
 }
 
 interface ReviewRecordsModalProps {
@@ -19,7 +36,7 @@ interface ReviewRecordsModalProps {
   records: OccurrencePoint[];
   sourceCounts: Record<string, number>;
   ccLog: string[];
-  validRecords: number;
+  validRecords: number | null;
   originalRows: number;
 }
 
@@ -33,7 +50,7 @@ function csvExport(records: OccurrencePoint[], indices: number[], filename: stri
       const v = r[k];
       if (v === null || v === undefined) return "";
       const s = String(v);
-      return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+      return /[,"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     }).join(",")
   );
   const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv" });
@@ -49,74 +66,30 @@ export function ReviewRecordsModal({
   open, onClose, records, sourceCounts, ccLog, validRecords, originalRows,
 }: ReviewRecordsModalProps) {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
-  const [flaggedSet, setFlaggedSet] = useState<Set<number>>(new Set());
-  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [{ flags: flaggedSet, history: undoStack }, dispatchSelection] = useReducer(selectionReducer, { flags: new Set<number>(), history: [] });
   const [showOnlyFlagged, setShowOnlyFlagged] = useState(false);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
 
-  const pushUndo = useCallback((entry: UndoEntry) => {
-    setUndoStack((prev) => [entry, ...prev].slice(0, 10));
-  }, []);
+  const toggleFlag = (index: number) => dispatchSelection({ type: "toggle", index });
+  const clearFlags = () => dispatchSelection({ type: "clear" });
 
-  const toggleFlag = useCallback(
-    (idx: number) => {
-      setFlaggedSet((prev) => {
-        const next = new Set(prev);
-        const wasFlagged = next.has(idx);
-        if (wasFlagged) next.delete(idx);
-        else next.add(idx);
-        pushUndo({ action: wasFlagged ? "unflag" : "flag", indices: [idx] });
-        return next;
-      });
-    },
-    [pushUndo]
-  );
-
-  const removeFlagged = useCallback(() => {
-    const indices = Array.from(flaggedSet);
-    if (indices.length === 0) return;
-    pushUndo({ action: "bulk_remove", indices });
-    setFlaggedSet(new Set());
-  }, [flaggedSet, pushUndo]);
-
-  const clearFlags = useCallback(() => {
-    const indices = Array.from(flaggedSet);
-    if (indices.length === 0) return;
-    pushUndo({ action: "bulk_remove", indices });
-    setFlaggedSet(new Set());
-  }, [flaggedSet, pushUndo]);
-
-  const undo = useCallback(() => {
-    setUndoStack((prev) => {
-      if (prev.length === 0) return prev;
-      const [last, ...rest] = prev;
-      setFlaggedSet((current) => {
-        const next = new Set(current);
-        if (last.action === "flag" || last.action === "bulk_remove") {
-          last.indices.forEach((i) => next.delete(i));
-        } else if (last.action === "unflag") {
-          last.indices.forEach((i) => next.add(i));
-        }
-        return next;
-      });
-      return rest;
-    });
-  }, []);
+  const undo = () => dispatchSelection({ type: "undo" });
 
   const exportFlagged = useCallback(() => {
     const indices = Array.from(flaggedSet);
     csvExport(records, indices, "flagged_records.csv");
   }, [flaggedSet, records]);
 
-  const filteredRecords = useMemo(() => {
-    let result = records;
-    if (sourceFilter !== "all") {
-      result = result.filter((r) => r.source === sourceFilter);
-    }
-    if (showOnlyFlagged && flaggedSet.size > 0) {
-      result = result.filter((_, i) => flaggedSet.has(i));
-    }
-    return result;
+  const visibleIndices = useMemo(() => {
+    return records.flatMap((record, index) => {
+      if (sourceFilter !== "all" && record.source !== sourceFilter) return [];
+      if (showOnlyFlagged && !flaggedSet.has(index)) return [];
+      return [index];
+    });
   }, [records, sourceFilter, showOnlyFlagged, flaggedSet]);
+  const filteredRecords = useMemo(() => visibleIndices.map((index) => records[index]), [records, visibleIndices]);
+  const visibleFlags = useMemo(() => new Set(visibleIndices.flatMap((index, position) => flaggedSet.has(index) ? [position] : [])), [visibleIndices, flaggedSet]);
 
   const sourceFilterOptions = useMemo(() => {
     const sources = new Set(records.map((r) => r.source).filter(Boolean));
@@ -125,40 +98,53 @@ export function ReviewRecordsModal({
 
   useEffect(() => {
     if (open) {
-      setFlaggedSet(new Set());
-      setUndoStack([]);
+      dispatchSelection({ type: "reset" });
       setSourceFilter("all");
       setShowOnlyFlagged(false);
     }
-  }, [open]);
+  }, [open, records]);
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-8 pb-8">
-      <div className="fixed inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-5xl rounded-lg border border-sdm-border bg-sdm-bg shadow-xl max-h-[calc(100vh-4rem)] flex flex-col">
+    <Dialog.Root open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+      <Dialog.Portal>
+      <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60" />
+      <Dialog.Content
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          closeRef.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          openerRef.current?.focus();
+        }}
+        className="fixed left-1/2 top-4 z-50 w-[calc(100%-2rem)] max-w-5xl -translate-x-1/2 rounded-lg border border-sdm-border bg-sdm-bg shadow-xl max-h-[calc(100dvh-2rem)] flex flex-col sm:top-8 sm:max-h-[calc(100dvh-4rem)]"
+      >
         <div className="flex items-center justify-between border-b border-sdm-border px-6 py-4">
-          <h2 className="text-lg font-semibold text-sdm-heading">
+          <Dialog.Title className="text-lg font-semibold text-sdm-heading">
             Review Records
-          </h2>
-          <button onClick={onClose} className="rounded p-1 text-sdm-muted hover:text-sdm-text">
+          </Dialog.Title>
+          <Dialog.Close asChild>
+          <button ref={closeRef} type="button" aria-label="Close record review" className="rounded p-2 text-sdm-muted hover:text-sdm-text focus-visible:outline-2 focus-visible:outline-sdm-accent">
             <X className="h-5 w-5" />
           </button>
+          </Dialog.Close>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="grid grid-cols-4 gap-3 text-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             <div className="rounded-md border border-sdm-border bg-sdm-surface p-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Original</p>
               <p className="mt-1 text-xl font-bold text-sdm-heading">{originalRows.toLocaleString()}</p>
             </div>
             <div className="rounded-md border border-sdm-border bg-sdm-surface p-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Valid</p>
-              <p className="mt-1 text-xl font-bold text-sdm-accent">{validRecords.toLocaleString()}</p>
+              <p className="mt-1 text-xl font-bold text-sdm-accent">{validRecords == null ? "Unavailable" : validRecords.toLocaleString()}</p>
             </div>
             <div className="rounded-md border border-sdm-border bg-sdm-surface p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Flagged</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-sdm-muted">Manual flags</p>
               <p className="mt-1 text-xl font-bold text-sdm-warning">{flaggedSet.size}</p>
             </div>
             <div className="rounded-md border border-sdm-border bg-sdm-surface p-3">
@@ -167,7 +153,12 @@ export function ReviewRecordsModal({
             </div>
           </div>
 
-          <SourceCounts counts={sourceCounts} total={validRecords} />
+          <Dialog.Description className="text-sm text-sdm-muted">
+            Loaded {records.length.toLocaleString()} preview rows; {validRecords == null ? "the cleaned record count is unavailable" : `the cleaned dataset contains ${validRecords.toLocaleString()} valid records`}.
+            {" "}Manual flags apply to this preview only and are not saved to the dataset. CoordinateCleaner findings are recorded separately in the cleaning log.
+          </Dialog.Description>
+
+          {validRecords != null && <SourceCounts counts={sourceCounts} total={validRecords} />}
 
           {ccLog.length > 0 && (
             <details className="rounded-lg border border-sdm-border bg-sdm-surface">
@@ -186,6 +177,7 @@ export function ReviewRecordsModal({
             <div className="flex items-center gap-1.5">
               <Filter className="h-3.5 w-3.5 text-sdm-muted" />
               <select
+                aria-label="Filter preview by source"
                 value={sourceFilter}
                 onChange={(e) => setSourceFilter(e.target.value as SourceFilter)}
                 className="rounded border border-sdm-border bg-sdm-surface-soft px-2 py-1 text-xs text-sdm-text"
@@ -207,10 +199,7 @@ export function ReviewRecordsModal({
             </label>
             <div className="flex-1" />
             <div className="flex items-center gap-1">
-              <button onClick={removeFlagged} disabled={flaggedSet.size === 0}
-                className="flex items-center gap-1 rounded border border-sdm-danger/30 bg-sdm-danger/5 px-2.5 py-1 text-xs font-medium text-sdm-danger hover:bg-sdm-danger/10 disabled:opacity-50">
-                Remove flagged
-              </button>
+
               <button onClick={clearFlags} disabled={flaggedSet.size === 0}
                 className="flex items-center gap-1 rounded border border-sdm-border px-2.5 py-1 text-xs font-medium text-sdm-text hover:bg-sdm-surface-soft disabled:opacity-50">
                 Clear flags
@@ -232,10 +221,11 @@ export function ReviewRecordsModal({
               <span>{records.length === 0 ? "No detailed record data available. Summary counts shown above." : "No records match the current filter."}</span>
             </div>
           ) : (
-            <CleaningTable data={filteredRecords} onFlagToggle={toggleFlag} title={`Records (${filteredRecords.length} of ${records.length})`} />
+            <CleaningTable data={filteredRecords} flaggedRows={visibleFlags} onFlagToggle={(position) => toggleFlag(visibleIndices[position])} title={`Preview rows (${filteredRecords.length.toLocaleString()} shown / ${records.length.toLocaleString()} loaded)`} />
           )}
         </div>
-      </div>
-    </div>
+      </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

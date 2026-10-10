@@ -349,7 +349,7 @@ test_that("build_config_from_row handles nullable fields", {
 test_that("build_crew_controller returns NULL when crew not available", {
   ctrl <- build_crew_controller("local", workers = 2)
   if (requireNamespace("crew", quietly = TRUE)) {
-    expect_true(inherits(ctrl, "crew_controller"))
+    expect_true(inherits(ctrl, "crew_class_controller"))
   } else {
     expect_null(ctrl)
   }
@@ -358,7 +358,7 @@ test_that("build_crew_controller returns NULL when crew not available", {
 test_that("build_crew_controller handles unknown backend gracefully", {
   ctrl <- build_crew_controller("nonexistent_backend", workers = 2)
   if (requireNamespace("crew", quietly = TRUE)) {
-    expect_true(inherits(ctrl, "crew_controller"))
+    expect_true(inherits(ctrl, "crew_class_controller"))
   } else {
     expect_null(ctrl)
   }

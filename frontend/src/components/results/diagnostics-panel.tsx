@@ -136,7 +136,7 @@ export function DiagnosticsPanel({ run }: DiagnosticsPanelProps) {
 
       <ErrorBoundary>
       <Tabs defaultValue="cv" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex overflow-x-auto gap-1 pb-px scrollbar-thin">
+        <TabsList aria-label="Run diagnostics" className="flex overflow-x-auto gap-1 pb-px scrollbar-thin">
           <TabsTrigger value="cv" className="text-xs shrink-0">CV Folds</TabsTrigger>
           <TabsTrigger value="importance" className="text-xs shrink-0">Importance</TabsTrigger>
           <TabsTrigger value="curves" className="text-xs shrink-0">Response Curves</TabsTrigger>

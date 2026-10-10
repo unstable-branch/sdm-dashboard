@@ -512,8 +512,11 @@ run_fast_sdm <- function(...) {
     list(
       selected_models = multi_ensemble_models, ensemble_weighting = multi_ensemble_weighting,
       ensemble_power = multi_ensemble_power, min_auc = multi_ensemble_min_auc,
-      min_tss = multi_ensemble_min_tss, biomod2_models = biomod2_models
+      min_tss = multi_ensemble_min_tss, biomod2_models = biomod2_models,
+      cancel_fun = check_cancelled
     )
+  } else if (identical(model_id, "biomod2")) {
+    list(models = biomod2_models, cancel_fun = check_cancelled)
   } else if (identical(model_id, "esm_glm") || identical(model_id, "esm_maxnet")) {
     list(
       biovars = esm_biovars, min_auc = esm_min_auc, weighting_metric = esm_weighting_metric, power = esm_power,

@@ -91,11 +91,14 @@ test_that("Python manifest parameters propagate through config and fit paths", {
   expect_identical(target_config$python_device, "cpu")
   batch_args <- build_run_args(target_config)
   expect_identical(batch_args$hidden_layers, c(256L, 128L))
-  expect_identical(batch_args$epochs, 9L)
+  # `epochs` and `dropout` are not part of the API execution contract
+  # (packages/shared/src/schemas.ts, api execution-config.ts), so the
+  # canonical-input projection drops them and the manifest defaults apply.
+  expect_null(batch_args$epochs)
   expect_identical(batch_args$batch_size, 32L)
   expect_identical(batch_args$predict_batch_size, 4096L)
   expect_identical(batch_args$learning_rate, 0.003)
-  expect_identical(batch_args$dropout, 0.2)
+  expect_null(batch_args$dropout)
   expect_identical(batch_args$early_stopping_patience, 6L)
   expect_identical(batch_args$validation_fraction, 0.3)
   expect_identical(batch_args$python_device, "cpu")
@@ -119,8 +122,38 @@ test_that("Python registry binds each manifest id instead of the final loop valu
   assign("fit_python_sdm", function(..., python_model_id) python_model_id, envir = .GlobalEnv)
   on.exit(assign("fit_python_sdm", original_fit, envir = .GlobalEnv), add = TRUE)
 
+  # Availability is tested separately; stub it so this test exercises only
+  # closure binding, independent of the Python modules in this image.
+  original_missing <- get("python_model_missing", envir = .GlobalEnv)
+  assign("python_model_missing", function(manifest, ...) character(), envir = .GlobalEnv)
+  on.exit(assign("python_model_missing", original_missing, envir = .GlobalEnv), add = TRUE)
   register_python_sdm_models(manifest_paths)
   expect_identical(get_sdm_model("python_elapid")$fit_fun(), "elapid")
   expect_identical(get_sdm_model("python_sklearn_rf")$fit_fun(), "sklearn_rf")
   expect_identical(get_sdm_model("python_torch_dnn")$fit_fun(), "torch_dnn")
+  # The production path goes through fit_sdm_model(), which rebinds fit_fun's
+  # environment; the captured manifest id must survive that rebinding.
+  assign("fit_python_sdm", function(..., python_model_id) list(id = python_model_id), envir = .GlobalEnv)
+  expect_identical(fit_sdm_model("python_sklearn_rf")$id, "sklearn_rf")
+  expect_identical(fit_sdm_model("python_torch_dnn")$id, "torch_dnn")
+})
+
+test_that("python model availability reflects importable requirements", {
+  expect_identical(python_requirement_module("scikit-learn>=1.2"), "sklearn")
+  expect_identical(python_requirement_module("torch>=2.2"), "torch")
+  expect_identical(python_requirement_module(" elapid >= 0.4"), "elapid")
+  manifest <- list(id = "fake", requirements = list("torch>=2.2", "scikit-learn>=1.2"))
+  withr::local_envvar(SDM_PYTHON = "sh")
+  expect_true(python_model_runnable(manifest, module_ok = function(m) TRUE, use_cache = FALSE))
+  expect_identical(python_model_missing(manifest, module_ok = function(m) m != "sklearn", use_cache = FALSE), "sklearn")
+  withr::local_envvar(SDM_PYTHON = "definitely-not-a-python-binary-sdm")
+  expect_false(python_model_runnable(manifest, module_ok = function(m) TRUE, use_cache = FALSE))
+})
+
+test_that("check_python_module runs real imports through the shell", {
+  py <- Sys.which("python3")
+  skip_if(!nzchar(py), "python3 unavailable")
+  withr::local_envvar(SDM_PYTHON = py)
+  expect_true(check_python_module("json"))
+  expect_false(check_python_module("definitely_not_a_module_sdm"))
 })

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Leaf, Loader2, Eye, EyeOff } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
-import { apiPost } from "@/services/api";
+import { registerBrowserSession } from "@/services/api";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -34,26 +34,12 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      // Use apiPost for consistency. The /register endpoint is open (no
-      // token), so apiPost's retry/backoff/timeout machinery applies the
-      // same way as for authenticated calls.
-      const data = await apiPost<{ token: string; user?: Parameters<typeof setAuth>[0] }>(
+      const data = await registerBrowserSession<{ user: Parameters<typeof setAuth>[0] }>(
         "/api/v1/auth/register",
-        { name, email, password },
+        { name, email, password, remember_me: true },
       );
-
-      if (!data.token) throw new Error("Server did not return a token");
-      // Single source of truth: setAuth writes both the zustand store and
-      // the localStorage/cookie token via writeStorageToken. The previous
-      // version called setAuthToken then setAuth, which briefly cleared
-      // storage in between and could trip AuthGuard into bouncing a fresh
-      // user to /login.
-      if (data.user) {
-        setAuth(data.user, data.token, true);
-      } else {
-        // Defensive: store the token even if user payload is missing.
-        setAuth({ id: "", email, name, role: "user", avatarUrl: null, bio: null, organization: null, lastLoginAt: null, createdAt: null } as never, data.token, true);
-      }
+      if (!data.user?.id) throw new Error("Server did not return a valid user profile");
+      setAuth(data.user);
       router.push("/");
       router.refresh();
     } catch (err) {

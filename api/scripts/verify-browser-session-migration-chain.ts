@@ -1,0 +1,67 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import { browserSessions } from "../src/db/schema.js";
+
+const name = "sdm-session-history-pg-20261002";
+const image = "docker.io/postgis/postgis:16-3.4@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5";
+const imageId = "sha256:06287eb8e12c43f425773085c48d6ad02d73f8b442ac209810c1b211eb0a643b";
+const rawUrl = process.env.SDM_SESSION_HISTORY_DATABASE_URL;
+const id = process.env.SDM_SESSION_HISTORY_CONTAINER_ID;
+assert(rawUrl && id, "explicit owned disposable target is required");
+const url = new URL(rawUrl);
+assert(url.protocol === "postgresql:" && url.hostname === "127.0.0.1" && url.username === "postgres" && !url.password && url.pathname === "/sdm_session_history_test" && url.port && !url.search && !url.hash, "unsafe history target");
+const inspected = JSON.parse(execFileSync("docker", ["inspect", name], { encoding: "utf8", timeout: 10_000 }))[0];
+assert.equal(inspected.Id, id);
+assert.equal(inspected.Name, `/${name}`);
+assert.equal(inspected.Config.Image, image);
+assert.equal(inspected.Image, imageId);
+assert.equal(inspected.HostConfig.NanoCpus, 2_000_000_000);
+assert.equal(inspected.HostConfig.Memory, 536_870_912);
+assert.deepEqual(inspected.Mounts, []);
+assert(inspected.HostConfig.Tmpfs["/var/lib/postgresql/data"]);
+const bindings = [{ HostIp: "127.0.0.1", HostPort: url.port }];
+assert.deepEqual(inspected.NetworkSettings.Ports["5432/tcp"], bindings);
+assert.deepEqual(inspected.HostConfig.PortBindings["5432/tcp"], [{ HostIp: "127.0.0.1", HostPort: "" }]);
+
+const folder = path.resolve("drizzle");
+const expected = readMigrationFiles({ migrationsFolder: folder });
+const journal = JSON.parse(readFileSync(path.join(folder, "meta/_journal.json"), "utf8"));
+assert.equal(expected.length, journal.entries.length);
+assert.equal(journal.entries.at(-1).tag, "0044_browser_session_lifecycle");
+const pool = new Pool({ connectionString: rawUrl, max: 2, connectionTimeoutMillis: 5_000, statement_timeout: 30_000 });
+try {
+  const identity = (await pool.query("SELECT current_database() AS db, current_user AS role, version() AS version")).rows[0];
+  assert.equal(identity.db, "sdm_session_history_test");
+  assert.equal(identity.role, "postgres");
+  console.log(`DATABASE_VERSION=${identity.version}`);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM pg_tables WHERE schemaname IN ('public','drizzle')")).rows[0].n, 0, "history target must be fresh, not an upgrade fixture");
+  const db = drizzle(pool);
+  console.log(`FULL_HISTORY_BEGIN=${expected.length} registered migrations`);
+  await migrate(db, { migrationsFolder: folder });
+  const ledger = (await pool.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows;
+  assert.deepEqual(ledger.map(row => [row.hash, String(row.created_at)]), expected.map(entry => [entry.hash, String(entry.folderMillis)]), "ledger must contain every actual registered SQL hash and timestamp in order");
+  console.log(`FULL_HISTORY_LEDGER=PASS; ${ledger.length} registered migrations`);
+  await migrate(db, { migrationsFolder: folder });
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations")).rows[0].n, ledger.length);
+  console.log("FULL_HISTORY_REPLAY=PASS");
+  const actualColumns = (await pool.query("SELECT attname AS name, format_type(atttypid,atttypmod) AS type, attnotnull AS not_null FROM pg_attribute WHERE attrelid='public.browser_sessions'::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum")).rows;
+  const expectedColumns = getTableConfig(browserSessions).columns.map(column => ({ name: column.name, type: column.getSQLType(), not_null: column.notNull }));
+  assert.deepEqual(actualColumns, expectedColumns, "browser-session column schema parity");
+  const link = (await pool.query("SELECT data_type,is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='refresh_tokens' AND column_name='session_id'")).rows;
+  assert.deepEqual(link, [{ data_type: "uuid", is_nullable: "YES" }]);
+  const fks = (await pool.query("SELECT conrelid::regclass::text AS source, confrelid::regclass::text AS target, confdeltype, convalidated FROM pg_constraint WHERE contype='f' AND ((conrelid='public.browser_sessions'::regclass AND confrelid='public.users'::regclass) OR (conrelid='public.refresh_tokens'::regclass AND confrelid='public.browser_sessions'::regclass)) ORDER BY source")).rows;
+  assert.deepEqual(fks, [{ source: "browser_sessions", target: "users", confdeltype: "c", convalidated: true }, { source: "refresh_tokens", target: "browser_sessions", confdeltype: "c", convalidated: true }]);
+  const indexes = (await pool.query("SELECT indexname,indexdef FROM pg_indexes WHERE schemaname='public' AND indexname IN ('browser_sessions_user_id_idx','browser_sessions_active_idx','refresh_tokens_session_id_idx') ORDER BY indexname")).rows;
+  assert.equal(indexes.length, 3);
+  assert.match(indexes.find(row => row.indexname === "browser_sessions_active_idx").indexdef, /WHERE \(revoked_at IS NULL\)/);
+  console.log("BROWSER_SESSION_SCHEMA_PARITY=PASS; columns, nullable link, validated cascade FKs, indexes");
+} finally {
+  await pool.end();
+}

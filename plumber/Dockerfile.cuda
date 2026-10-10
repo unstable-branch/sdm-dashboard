@@ -97,6 +97,7 @@ RUN dpkg -i /tmp/cuda-keyring.deb \
     libcurl4-openssl-dev \
     libsodium-dev \
     libhiredis-dev \
+    libnode109 \
     cmake \
     build-essential \
     curl \
@@ -116,7 +117,7 @@ COPY plumber/install-runtime-packages.R /tmp/install-runtime-packages.R
 RUN Rscript --vanilla /tmp/install-runtime-packages.R \
   && rm -f /tmp/install-runtime-packages.R \
   && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
-RUN R -e "options(timeout = 900, repos = c(CRAN = Sys.getenv('R_CRAN_REPO')), HTTPUserAgent = paste0('R/', getRversion(), ' ', getOption('HTTPUserAgent'))); install.packages(c('cito', 'torch'), Ncpus=4); stopifnot(as.character(packageVersion('torch')) == '0.17.0'); stopifnot(as.character(packageVersion('cito')) == '1.1')" \
+RUN R -e "options(timeout = 900, repos = c(CRAN = Sys.getenv('R_CRAN_REPO')), HTTPUserAgent = paste0('R/', getRversion(), ' ', getOption('HTTPUserAgent'))); install.packages(c('cito', 'torch'), Ncpus=8); stopifnot(as.character(packageVersion('torch')) == '0.17.0'); stopifnot(as.character(packageVersion('cito')) == '1.1')" \
   && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
 
 # Retain the pinned CUDA headers only for the verified native-extension build.
@@ -129,6 +130,13 @@ RUN cd /tmp/sdmtorch-build \
   && Rscript build_sdmtorch.R \
   && install -m 0755 sdmtorch/*.so /usr/local/lib/ \
   && rm -rf /tmp/sdmtorch-build
+
+# Packages added since the base package layer: kept in a late layer so a new
+# package reinstalls only itself (see plumber/install-runtime-packages.R).
+COPY plumber/install-runtime-packages.R plumber/runtime-packages-added.txt /tmp/
+RUN Rscript --vanilla /tmp/install-runtime-packages.R /tmp/runtime-packages-added.txt \
+  && rm -f /tmp/install-runtime-packages.R /tmp/runtime-packages-added.txt \
+  && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
 
 WORKDIR /app
 

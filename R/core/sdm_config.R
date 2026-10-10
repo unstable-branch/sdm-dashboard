@@ -143,7 +143,9 @@ sdm_config <- function(...) {
     stop("sdm_config: occurrence_file is required", call. = FALSE)
   }
 
-  if (is.null(cfg$cv_folds) || is.na(cfg$cv_folds) || cfg$cv_folds < 2) {
+  # Zero explicitly disables cross-validation; retain invalid-low defaults.
+  if (is.null(cfg$cv_folds) || is.na(cfg$cv_folds) ||
+      (cfg$cv_folds < 2 && cfg$cv_folds != 0)) {
     cfg$cv_folds <- 5L
   }
 

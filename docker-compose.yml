@@ -170,6 +170,7 @@ services:
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
     volumes:
       - upload-data:/app/data/uploads
+      - examples-data:/app/data/examples
       - boundary-data:/app/data/boundaries:ro
       - plumber-outputs:/app/outputs
       # Read-only verification of the same climate roots Plumber publishes.
@@ -242,6 +243,7 @@ volumes:
   plumber-chelsa:
   plumber-future:
   upload-data:
+  examples-data:
   boundary-data:
 
 networks:

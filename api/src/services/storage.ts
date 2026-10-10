@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import {
   S3Client,
   CreateBucketCommand,
@@ -7,7 +8,7 @@ import {
   DeleteObjectCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
-import { readdirSync, statSync } from "fs";
+import { readdirSync, statSync, openSync, writeFileSync, closeSync, renameSync, unlinkSync } from "fs";
 import { stat, readFile } from "fs/promises";
 import { join, isAbsolute, normalize, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -255,15 +256,44 @@ async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
 }
 
 export async function writeAtomic(path: string, data: Buffer | string): Promise<void> {
-  const { writeFile, rename } = await import("fs/promises");
-  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
-  await writeFile(tmp, data);
-  await rename(tmp, path);
+  const { open, rename, unlink } = await import("fs/promises");
+  const tmp = `${path}.tmp.${process.pid}.${randomUUID()}`;
+  let ownsTemp = false;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(tmp, "wx");
+    ownsTemp = true;
+    await handle.writeFile(data);
+    await handle.close();
+    handle = undefined;
+    await rename(tmp, path);
+    ownsTemp = false;
+  } catch (error) {
+    if (handle) await handle.close().catch(() => undefined);
+    if (ownsTemp) await unlink(tmp).catch(() => undefined);
+    throw error;
+  }
 }
 
 export function writeAtomicSync(path: string, data: Buffer | string): void {
-  const { writeFileSync, renameSync } = require("fs");
-  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
-  writeFileSync(tmp, data);
-  renameSync(tmp, path);
+  const tmp = `${path}.tmp.${process.pid}.${randomUUID()}`;
+  let ownsTemp = false;
+  let fd: number | undefined;
+  try {
+    fd = openSync(tmp, "wx");
+    ownsTemp = true;
+    writeFileSync(fd, data);
+    closeSync(fd);
+    fd = undefined;
+    renameSync(tmp, path);
+    ownsTemp = false;
+  } catch (error) {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch { /* preserve the write/rename error */ }
+    }
+    if (ownsTemp) {
+      try { unlinkSync(tmp); } catch { /* preserve the write/rename error */ }
+    }
+    throw error;
+  }
 }

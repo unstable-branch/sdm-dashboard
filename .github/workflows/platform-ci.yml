@@ -153,12 +153,56 @@ jobs:
           path: api/dist
           retention-days: 5
 
+  execution-migration:
+    name: PostgreSQL execution migration contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgis/postgis@sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
+        env:
+          POSTGRES_USER: sdm
+          POSTGRES_PASSWORD: sdm_ci_only
+          POSTGRES_DB: sdm_migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sdm -d sdm_migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.30.3
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run required execution migration test against disposable PostgreSQL
+        env:
+          SDM_MIGRATION_TEST_DATABASE_URL: postgresql://sdm:sdm_ci_only@127.0.0.1:5432/sdm_migration_test
+          SDM_MIGRATION_TEST_REQUIRED: "1"
+          SDM_EXECUTION_PG_PROOF_OPT_IN: RUN_DISPOSABLE_CI_SERVICE_POSTGRES
+        run: pnpm --filter api exec vitest run src/db/execution-migration.test.ts --reporter=verbose
+
   docker:
     name: Docker build + integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: shared
     env:
+      FRONTEND_URL: https://127.0.0.1:3443
+      E2E_BASE_URL: https://127.0.0.1:3443
+      SDM_CI_LOOPBACK_HTTPS: "1"
       DATABASE_URL: postgresql://sdm:dummy@postgres:5432/sdm_platform
       JWT_SECRET: dummy-jwt-secret-at-least-32-characters
       CSRF_SECRET: dummy-csrf-secret-at-least-32-characters
@@ -228,6 +272,9 @@ jobs:
       - name: Verify loaded images
         run: docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^sdm-(dashboard-)?(plumber|api|frontend)'
 
+      - name: Test CI-only loopback HTTPS transport
+        run: SDM_CI_TRANSPORT_ONLY=1 node --test scripts/test-ci-loopback-https-proxy.cjs
+
       - name: Start services and verify health
         run: |
           cat > /tmp/ci-openapi.compose.yml <<'YAML'
@@ -275,6 +322,22 @@ jobs:
           wait_for Plumber http://localhost:8000/health 120 5
           wait_for API http://localhost:4000/health
           wait_for Frontend http://localhost:3000/
+
+      - name: Start disposable CI loopback HTTPS terminator
+        run: |
+          set -eu
+          dir="${RUNNER_TEMP}/sdm-ci-loopback-https"
+          rm -rf "$dir"
+          mkdir -p "$dir"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "$dir/key.pem" -out "$dir/cert.pem" -days 1 -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1 >/dev/null 2>&1
+          SDM_CI_TLS_KEY="$dir/key.pem" SDM_CI_TLS_CERT="$dir/cert.pem" SDM_CI_TLS_LISTEN=127.0.0.1:3443 SDM_CI_TLS_UPSTREAM=http://127.0.0.1:3000 node scripts/ci-loopback-https-proxy.cjs >"$dir/proxy.log" 2>&1 &
+          echo $! > "$dir/proxy.pid"
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl -kfsS https://127.0.0.1:3443/ >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then cat "$dir/proxy.log"; exit 1; fi
 
       - name: Fresh-volume boundary upload/resolve regression
         run: |
@@ -325,6 +388,23 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps
           pnpm run test:e2e
+
+      - name: Stop disposable CI loopback HTTPS terminator
+        if: always()
+        run: |
+          dir="${RUNNER_TEMP}/sdm-ci-loopback-https"
+          if [ -f "$dir/proxy.pid" ]; then
+            pid="$(cat "$dir/proxy.pid")"
+            if kill -0 "$pid" 2>/dev/null; then
+              kill -TERM "$pid" 2>/dev/null || true
+              for attempt in $(seq 1 20); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 0.25
+              done
+              if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+            fi
+          fi
+          rm -rf "$dir"
 
       - name: Type contract check (Plumber OpenAPI → TS types)
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4

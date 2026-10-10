@@ -23,7 +23,7 @@ RUN apt-get update \
     libcurl4-openssl-dev libssl-dev libxml2-dev libsodium-dev libhiredis-dev \
     libgdal-dev libgeos-dev libproj-dev libsqlite3-dev libudunits2-dev libjq-dev \
     libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev \
-    libpng-dev libtiff-dev libjpeg-dev libuv1-dev \
+    libpng-dev libtiff-dev libjpeg-dev libuv1-dev libnode109 \
   && rm -rf /var/lib/apt/lists/*
 
 COPY plumber/install-runtime-packages.R /tmp/install-runtime-packages.R
@@ -57,6 +57,13 @@ RUN cd /tmp/sdmtorch-build \
   && mkdir -p /opt/sdm/sdmtorch \
   && find sdmtorch -maxdepth 1 -type f -name "*.so" -exec cp {} /opt/sdm/sdmtorch/ \; \
   && rm -rf /tmp/sdmtorch-build /opt/torch/include /opt/torch/share
+
+# Packages added since the base package layer: kept in a late layer so a new
+# package reinstalls only itself (see plumber/install-runtime-packages.R).
+COPY plumber/install-runtime-packages.R plumber/runtime-packages-added.txt /tmp/
+RUN Rscript --vanilla /tmp/install-runtime-packages.R /tmp/runtime-packages-added.txt \
+  && rm -f /tmp/install-runtime-packages.R /tmp/runtime-packages-added.txt \
+  && rm -rf /tmp/downloaded_packages /tmp/Rtmp*
 
 WORKDIR /app
 

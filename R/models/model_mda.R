@@ -34,7 +34,21 @@ cross_validate_fda <- function(model_data, covariates, degree, nprune,
     }
 
     test_sub <- test_data[, covariates, drop = FALSE]
-    pred <- stats::predict(model, newdata = test_sub, type = "posterior")[, "1"]
+    # A fold where earth selects no terms ("degenerate problem; no
+    # discrimination") cannot predict; score that fold as failed, not the run.
+    pred <- tryCatch(
+      stats::predict(model, newdata = test_sub, type = "posterior")[, "1"],
+      error = function(e) {
+        log_message(log_fun, "  FDA CV fold ", i, " could not predict: ", conditionMessage(e))
+        NULL
+      }
+    )
+    if (is.null(pred)) {
+      return(metrics_list_to_row(list(
+        auc = NA_real_, tss = NA_real_, sensitivity = NA_real_, specificity = NA_real_,
+        threshold = threshold, tp = NA_integer_, fp = NA_integer_, tn = NA_integer_, fn = NA_integer_, n = 0L
+      ), fold = i))
+    }
     pred <- pmin(pmax(as.numeric(pred), 0), 1)
     metrics_list_to_row(compute_binary_metrics(test_data$presence, pred, threshold = threshold), fold = i)
   }

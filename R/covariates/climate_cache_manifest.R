@@ -58,6 +58,8 @@ write_cache_manifest <- function(dir, source, res, files, urls = NULL, log_fun =
         NA_character_
       }
     }, error = function(e) NA_character_)
+    if (!is.character(sha) || length(sha) != 1L || is.na(sha) ||
+        !grepl("^[[:xdigit:]]{64}$", sha)) next
     entries$files[[basename(f)]] <- list(
       path   = f,
       size   = sz,
@@ -66,6 +68,32 @@ write_cache_manifest <- function(dir, source, res, files, urls = NULL, log_fun =
       valid  = valid,
       url    = urls[[basename(f)]] %||% NA_character_
     )
+  }
+
+  # Downloads may be written one biovar at a time. Retain only compatible old
+  # records whose recorded path, size and digest still match the current bytes.
+  existing <- read_cache_manifest(dir)
+  if (is.list(existing) && identical(existing$version, 1L) &&
+      identical(existing$source, source) && identical(as.character(existing$res), as.character(res)) &&
+      is.list(existing$files)) {
+    root <- tryCatch(normalizePath(dir, winslash = "/", mustWork = TRUE), error = function(e) NULL)
+    if (!is.null(root)) for (name in setdiff(names(existing$files), names(entries$files))) {
+      entry <- existing$files[[name]]
+      if (!is.list(entry) || !isTRUE(entry$valid) || is.null(entry$path) ||
+          length(entry$path) != 1L || !is.character(entry$path) || !nzchar(entry$path) ||
+          is.null(entry$size) || length(entry$size) != 1L || !is.numeric(entry$size) ||
+          !is.finite(entry$size) || is.null(entry$sha256) || length(entry$sha256) != 1L ||
+          !is.character(entry$sha256) || !grepl("^[[:xdigit:]]{64}$", entry$sha256)) next
+      recorded <- tryCatch(normalizePath(entry$path, winslash = "/", mustWork = TRUE), error = function(e) NULL)
+      if (is.null(recorded) || !startsWith(recorded, paste0(root, "/")) ||
+          !identical(basename(recorded), name) || dir.exists(recorded)) next
+      sz <- tryCatch(as.numeric(file.info(recorded)$size), error = function(e) NA_real_)
+      sha <- tryCatch(digest::digest(file = recorded, algo = "sha256"), error = function(e) NA_character_)
+      if (!is.na(sz) && isTRUE(all.equal(sz, as.numeric(entry$size))) &&
+          !is.na(sha) && identical(tolower(sha), tolower(entry$sha256))) {
+        entries$files[[name]] <- entry
+      }
+    }
   }
   if (length(entries$files) == 0) return(invisible(NULL))
 
@@ -107,18 +135,22 @@ read_cache_manifest <- function(dir) {
   )
 }
 
-# Returns TRUE if every requested biovar has a manifest entry that still
-# describes a valid, on-disk file at the expected size.
-# Returns NULL when the manifest is missing or cannot be consulted, so the
-# caller can fall back to filename matching.
+# Returns TRUE for requested biovars whose manifest identity and on-disk content
+# both verify. Returns NULL only when no manifest exists (legacy filename-only
+# compatibility); a present but unreadable or malformed manifest fails closed.
 check_manifest_for_biovars <- function(dir, source, requested_biovars,
-                                       names_fn = NULL) {
+                                       names_fn = NULL, actual_files = NULL, expected_res = NULL) {
   if (is.null(requested_biovars) || length(requested_biovars) == 0) {
     return(integer(0))
   }
+  if (is.null(dir) || !nzchar(dir) || !dir.exists(dir)) return(NULL)
+  manifest_path <- file.path(dir, SDM_CLIMATE_MANIFEST_NAME)
+  if (!file.exists(manifest_path)) return(NULL)
   m <- read_cache_manifest(dir)
-  if (is.null(m) || is.null(m$files)) return(NULL)
-  if (!identical(m$source, source)) return(NULL)
+  if (is.null(m) || !is.list(m$files) || !identical(m$version, 1L) ||
+      !identical(m$source, source)) return(integer(0))
+  if (!is.null(expected_res) &&
+      !identical(m$res, as.character(expected_res))) return(integer(0))
 
   names_for <- if (is.function(names_fn)) {
     names_fn
@@ -126,14 +158,35 @@ check_manifest_for_biovars <- function(dir, source, requested_biovars,
 
   ok <- integer(0)
   for (bv in requested_biovars) {
-    fname <- tryCatch(names_for(bv), error = function(e) NA_character_)
-    if (is.na(fname)) next
-    entry <- m$files[[fname]]
-    if (is.null(entry) || !isTRUE(entry$valid)) next
-    if (!file.exists(entry$path)) next
-    sz_now <- tryCatch(as.numeric(file.info(entry$path)$size), error = function(e) NA_real_)
-    if (is.na(sz_now) || !isTRUE(all.equal(sz_now, entry$size))) next
-    ok <- c(ok, bv)
+    matched_paths <- if (!is.null(actual_files)) {
+      if (is.null(names(actual_files))) character(0) else {
+        keys <- names(actual_files)
+        unname(actual_files[keys %in% c(as.character(bv), paste0("bio", bv))])
+      }
+    } else {
+      fname <- tryCatch(names_for(bv), error = function(e) NA_character_)
+      if (length(fname) != 1L || is.na(fname)) character(0) else file.path(dir, fname)
+    }
+    if (length(matched_paths) == 0L || anyNA(matched_paths) || any(!nzchar(matched_paths))) next
+    root <- tryCatch(normalizePath(dir, winslash = "/", mustWork = TRUE), error = function(e) NULL)
+    verified <- vapply(matched_paths, function(matched_path) {
+      selected <- tryCatch(normalizePath(matched_path, winslash = "/", mustWork = TRUE), error = function(e) NULL)
+      if (is.null(root) || is.null(selected) || !startsWith(selected, paste0(root, "/"))) return(FALSE)
+      fname <- basename(matched_path)
+      entry <- m$files[[fname]]
+      if (!is.list(entry) || !isTRUE(entry$valid)) return(FALSE)
+      if (is.null(entry$path) || length(entry$path) != 1L || !nzchar(entry$path) ||
+          is.null(entry$size) || length(entry$size) != 1L || !is.finite(entry$size) ||
+          is.null(entry$sha256) || length(entry$sha256) != 1L ||
+          !is.character(entry$sha256) || !grepl("^[[:xdigit:]]{64}$", entry$sha256)) return(FALSE)
+      recorded <- tryCatch(normalizePath(entry$path, winslash = "/", mustWork = TRUE), error = function(e) NULL)
+      if (is.null(recorded) || !identical(recorded, selected) || !file.exists(selected) || dir.exists(selected)) return(FALSE)
+      sz_now <- tryCatch(as.numeric(file.info(selected)$size), error = function(e) NA_real_)
+      if (is.na(sz_now) || !isTRUE(all.equal(sz_now, as.numeric(entry$size)))) return(FALSE)
+      sha_now <- tryCatch(digest::digest(file = selected, algo = "sha256"), error = function(e) NA_character_)
+      !is.na(sha_now) && identical(tolower(sha_now), tolower(entry$sha256))
+    }, logical(1))
+    if (length(verified) == 1L && isTRUE(verified)) ok <- c(ok, bv)
   }
   ok
 }
