@@ -46,4 +46,4 @@ source(find_bootstrap(), local = FALSE)
 if (!exists(".__sdm_project_root", envir = .GlobalEnv, inherits = FALSE)) {
   sdm_set_project_root(NULL)
 }
-source(file.path(sdm_project_root(), "R", "load.R"), local = FALSE)
+source(file.path(sdm_project_root(), "R", "engine_load.R"), local = FALSE)

@@ -70,7 +70,7 @@ docker compose --env-file release-images.env --env-file .env \
   -f docker-compose.prod.yml -f deploy/compose.rocm.yml up -d --no-build
 ```
 
-Only nginx (ports 80/443) is published. Monitoring (Prometheus, Grafana) is opt-in with `--profile monitoring` and binds to localhost. See [PRODUCTION.md](PRODUCTION.md) for TLS, secrets, backups and sizing. Plumber needs about 12 GB of RAM for two concurrent runs.
+Only nginx (ports 80/443) is published. Monitoring (Prometheus, Grafana) is opt-in with `--profile monitoring` and binds to localhost. See [docs/PRODUCTION.md](docs/PRODUCTION.md) for TLS, secrets, backups and sizing. Plumber needs about 12 GB of RAM for two concurrent runs.
 
 ## First workflow
 
@@ -125,7 +125,7 @@ CI runs the same gates, plus the locked R suite, Docker integration, a PostgreSQ
 | `plumber/` | Plumber service and its CPU/CUDA/ROCm Dockerfiles |
 | `R/` | Modelling core: data, covariates, models, ecology, outputs, XAI |
 | `python_models/`, `sdmtorch/` | Python model bridges and Torch extensions |
-| `deploy/` | Production GPU overlays and the image digest template |
+| `deploy/` | GPU overlays, image digest template, nginx, Garage, Prometheus and Grafana config |
 | `docs/` | Architecture, methods, interpretation, status, roadmap |
 | `tests/` | R test suite |
 
@@ -133,13 +133,9 @@ CI runs the same gates, plus the locked R suite, Docker integration, a PostgreSQ
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): system contracts and trust boundaries
 - [docs/METHODS.md](docs/METHODS.md) and [docs/INTERPRETATION.md](docs/INTERPRETATION.md): modelling methods and reading outputs
-- [PRODUCTION.md](PRODUCTION.md) and [docs/DEPLOY.md](docs/DEPLOY.md): deployment
+- [docs/PRODUCTION.md](docs/PRODUCTION.md) and [docs/DEPLOY.md](docs/DEPLOY.md): deployment
 - [docs/STATUS.md](docs/STATUS.md) and [docs/ROADMAP.md](docs/ROADMAP.md): current evidence and what's next
-- [inst/TROUBLESHOOTING.md](inst/TROUBLESHOOTING.md): GPU and Torch troubleshooting
-
-## Legacy R/Shiny desktop app
-
-The original single-user Shiny app is still included for local desktop use (`Rscript launch_app.R`, or `run_app_windows.bat` on Windows; see [README_WINDOWS.md](README_WINDOWS.md)). It has no multi-user authentication, so keep it private. New work targets the platform above. See [docs/LEGACY_AND_CRAN.md](docs/LEGACY_AND_CRAN.md).
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): GPU and Torch troubleshooting
 
 ## Data and privacy
 

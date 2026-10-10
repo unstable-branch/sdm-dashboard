@@ -227,12 +227,9 @@ jobs:
       - name: Build and checksum release artifacts
         run: |
           Rscript scripts/make_release_zip.R source --version="${RELEASE_TAG}"
-          Rscript scripts/make_release_zip.R windows-ready --version="${RELEASE_TAG}"
           mv "../sdm-dashboard-${RELEASE_TAG}-source.zip" .
-          mv "../sdm-dashboard-${RELEASE_TAG}-windows-ready.zip" .
           sha256sum \
             "sdm-dashboard-${RELEASE_TAG}-source.zip" \
-            "sdm-dashboard-${RELEASE_TAG}-windows-ready.zip" \
             > SHA256SUMS
 
       - name: Create review-only draft release
@@ -243,7 +240,6 @@ jobs:
           prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           files: |
             sdm-dashboard-${{ env.RELEASE_TAG }}-source.zip
-            sdm-dashboard-${{ env.RELEASE_TAG }}-windows-ready.zip
             SHA256SUMS
             image-digests.txt
             release-images.env

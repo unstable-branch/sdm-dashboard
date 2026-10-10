@@ -26,7 +26,7 @@ root <- if (exists("find_sdm_root", mode = "function")) {
     candidate <- normalizePath(start, winslash = "/", mustWork = FALSE)
     if (!dir.exists(candidate)) candidate <- dirname(candidate)
     repeat {
-      if (file.exists(file.path(candidate, "app.R")) &&
+      if (file.exists(file.path(candidate, "R", "engine_load.R")) &&
           file.exists(file.path(candidate, "R", "core", "bootstrap.R"))) {
         resolved <- candidate
         break

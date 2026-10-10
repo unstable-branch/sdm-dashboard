@@ -5,6 +5,6 @@ This directory keeps historical implementation plans and review notes that are u
 Use the current top-level docs for release work:
 
 - `../DEPLOY.md` for install and hosting
-- `../QA_RELEASE_CHECKLIST.md` for beta release QA
+- `../QA_RELEASE_CHECKLIST.md` for release QA
 - `../SPEC.md` for current product and architecture scope
 - `../RELEASE_AND_HOSTING.md` for release policy

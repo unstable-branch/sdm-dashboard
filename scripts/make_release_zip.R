@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# Build source-only or Windows-ready release zips from a clean project tree.
+# Build the source release zip from a clean project tree.
 
 cmd_args <- commandArgs(FALSE)
 file_arg <- grep("^--file=", cmd_args, value = TRUE)
@@ -23,10 +23,11 @@ source(file.path(project_root, "R", "core", "optimized_sdm.R"))
 args <- commandArgs(trailingOnly = TRUE)
 flags <- args[grepl("^--", args)]
 positional <- args[!grepl("^--", args)]
-mode <- if (length(positional) >= 1) tolower(positional[[1]]) else "ready"
-include_worldclim <- mode %in% c("ready", "windows-ready", "with-worldclim")
-require_worldclim <- mode %in% c("with-worldclim")
-mode_label <- if (include_worldclim) "windows-ready" else "source"
+mode <- if (length(positional) >= 1) tolower(positional[[1]]) else "source"
+if (!identical(mode, "source")) stop("Only the source release zip is built (the Windows-ready Shiny bundle was removed in 3.0).", call. = FALSE)
+include_worldclim <- FALSE
+require_worldclim <- FALSE
+mode_label <- "source"
 dry_run <- any(flags %in% c("--dry-run", "--list"))
 version_arg <- grep("^--version=", flags, value = TRUE)
 
@@ -76,33 +77,14 @@ expand_release_paths <- function(include_paths, include_worldclim = FALSE) {
 
 source_release_paths <- function() {
   expand_release_paths(c(
-    "app.R", "launch_app.R", "run_app_windows.bat",
-    "README.md", "README_WINDOWS.md", "install_packages.R", "pipeline.R",
-    "optimized_sdm.R", "SDM.Rproj", ".gitignore", ".dockerignore",
+    "README.md", "SDM.Rproj", ".gitignore", ".dockerignore",
     "DESCRIPTION", "VERSION", "LICENSE", "CITATION.cff", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
-    "Dockerfile", "docker-compose.yml", ".github", "R", "scripts", "data", "tests", "www"
+    "docker-compose.yml", ".github", "R", "scripts", "data", "tests"
   ), include_worldclim = FALSE)
 }
 
-ready_release_paths <- function(include_worldclim = TRUE) {
-  files <- expand_release_paths(c(
-    "app.R", "launch_app.R", "run_app_windows.bat",
-    "README.md", "README_WINDOWS.md", "install_packages.R", "pipeline.R",
-    "optimized_sdm.R", "DESCRIPTION", "VERSION", "LICENSE", "CITATION.cff", "SECURITY.md",
-    "R", "data", "www", file.path("scripts", "windows_setup.R")
-  ), include_worldclim = include_worldclim)
-
-  if (include_worldclim) {
-    wc_files <- unname(find_worldclim_files(sdm_default_worldclim_dir, sdm_default_biovars))
-    wc_files <- gsub("^\\./", "", gsub("\\\\", "/", wc_files[!is.na(wc_files)]))
-    files <- c(files, wc_files)
-  }
-
-  unique(files[!release_should_exclude(files, include_worldclim)])
-}
-
 release_included_paths <- function(include_worldclim = FALSE) {
-  if (include_worldclim) ready_release_paths(include_worldclim = TRUE) else source_release_paths()
+  source_release_paths()
 }
 
 if (direct_execution) {

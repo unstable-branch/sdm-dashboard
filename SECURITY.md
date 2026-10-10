@@ -18,7 +18,7 @@ OpenTopography elevation access may require `OPENTOPOGRAPHY_API_KEY`. Prefer env
 
 For public or shared deployments, assume uploaded files are sensitive. Use HTTPS, restrict access when appropriate, define retention/deletion policies for uploads and outputs, and avoid persistent shared storage unless users understand the risk.
 
-Static file hosts cannot run the Shiny app. Live deployments should use Shiny Server, Posit Connect, shinyapps.io, or a container platform configured with appropriate secrets and storage controls.
+Live deployments should use the digest-pinned production Compose stack (see docs/PRODUCTION.md) with operator-managed secrets, TLS, backups and access controls.
 
 ## Responsible Disclosure
 

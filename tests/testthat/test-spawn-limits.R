@@ -24,7 +24,7 @@ if (!exists("sdm_vsize_to_bytes")) {
   root_candidates <- c(".", "..", file.path("..", ".."), file.path("..", "..", ".."))
   for (cand in root_candidates) {
     cand <- normalizePath(cand, winslash = "/", mustWork = FALSE)
-    if (file.exists(file.path(cand, "app.R"))) {
+    if (file.exists(file.path(cand, "R", "engine_load.R"))) {
       source(file.path(cand, "plumber", "R", "helpers", "vsize.R"))
       break
     }
@@ -86,7 +86,7 @@ test_that("sdm_process_pid returns NA instead of crashing on bad objects", {
 
 test_that("load_compute.R registers the shared climate modules", {
   # run_model_background.R loads the child via R/load_compute.R, which does not
-  # include engine_load.R/load.R. covariates_climate.R calls
+  # include engine_load.R. covariates_climate.R calls
   # match_worldclim_biovars() and write_cache_manifest() directly, so omitting
   # the shared modules fails every model run at the covariate-loading stage
   # with 'could not find function "match_worldclim_biovars"'.

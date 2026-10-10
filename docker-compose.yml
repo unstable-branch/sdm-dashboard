@@ -61,7 +61,7 @@ services:
       - GARAGE_DEFAULT_BUCKET=${GARAGE_BUCKET:-sdm-artifacts}
     volumes:
       - garage-data:/var/lib/garage
-      - ./garage/config.toml:/etc/garage.toml:ro
+      - ./deploy/garage/garage.local.toml:/etc/garage.toml:ro
     deploy:
       resources:
         limits:

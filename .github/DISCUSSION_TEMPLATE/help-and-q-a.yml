@@ -26,7 +26,6 @@ body:
         - Future projection
         - Output interpretation
         - Docker/modern stack
-        - Legacy Shiny app
         - API usage
         - Other
     validations:

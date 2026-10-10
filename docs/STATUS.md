@@ -9,7 +9,6 @@ This is a dated status snapshot. SHAs, CI results, dependency availability, and 
 ## Supported today
 
 - Modern authenticated platform architecture: Next.js, Hono, PostgreSQL/PostGIS, Redis/BullMQ, Garage-compatible storage, and Plumber/R.
-- Legacy R/Shiny desktop workflow for private, single-user local use.
 - Current-principal session handling and authenticated Hono-to-Plumber forwarding, with focused contract coverage.
 - Canonical occurrence, boundary/mask, target-group, and current/future climate collection IDs on the direct and queued model paths. Inputs are re-resolved at dispatch with kind, project, lifecycle, lineage, content-identity, and containment checks.
 - Authenticated climate discovery publishes immutable manifests, registers system-scoped collection IDs, and exposes only allowlisted metadata. Climate deletion is an administrator-only soft lifecycle transition by opaque collection ID; physical shared-file reclamation remains deferred.
@@ -96,4 +95,4 @@ Branch `prerelease/candidate-20261010` integrates the source-convergence, execut
 
 **Not release-ready.** The primary authenticated upload-to-clean-to-model-to-result workflow, durable lifecycle, scientific reference-oracle acceptance, immutable provenance, and complete environment gates are not jointly accepted. Do not advertise a validated production or research release from this snapshot.
 
-See ARCHITECTURE.md, DEVELOPMENT.md, ROADMAP.md, REVIEW_LEDGER.md, and the dated recovery history in RECOVERY_STATUS.md.
+See ARCHITECTURE.md, DEVELOPMENT.md and ROADMAP.md. Review and recovery history is in archive/reviews/REVIEW_LEDGER.md and archive/RECOVERY_STATUS.md.

@@ -15,7 +15,7 @@ pnpm install --frozen-lockfile
 (cd frontend && pnpm dev)
 ~~~
 
-Run API and frontend development servers from their package directories when needed. For the legacy desktop surface, install the documented R packages and run Rscript launch_app.R. The legacy app is launched separately and is not a substitute for the authenticated modern stack.
+Run API and frontend development servers from their package directories when needed.
 
 ## Focused checks
 

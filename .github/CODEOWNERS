@@ -1,9 +1,8 @@
 # Default owners for all files
 * @5p00kyy
 
-# R/Shiny development
+# R modelling core
 R/ @5p00kyy
-app.R @5p00kyy
 
 # Plumber R API
 plumber/ @5p00kyy

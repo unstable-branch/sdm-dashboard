@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers the modern SDM Dashboard platform. The legacy Shiny desktop app remains available through `app.R` and `README_WINDOWS.md`, but the modern Docker stack is the recommended beta deployment path.
+This guide covers deploying SDM Dashboard with Docker Compose.
 
 ## Prerequisites
 
