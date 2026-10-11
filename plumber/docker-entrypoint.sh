@@ -26,7 +26,9 @@ prepare_runtime_dir() {
   dir="$1"
   mkdir -p "$dir"
   marker="$dir/.sdm-runtime-permissions-v1"
-  if [ ! -e "$marker" ]; then
+  # The service UID/GID can differ between CPU/CUDA and ROCm base images.
+  # A marker from another variant must not suppress ownership repair.
+  if [ ! -e "$marker" ] || [ "$(stat -c '%u:%g' "$marker")" != "$(id -u sdm):$(id -g sdm)" ]; then
     chown -R sdm:sdm "$dir"
     chmod -R u+rwX "$dir"
     : > "$marker"
@@ -43,5 +45,16 @@ prepare_runtime_dir /app/covariates
 prepare_runtime_dir /app/Worldclim
 prepare_runtime_dir /app/chelsa
 prepare_runtime_dir /app/Worldclim_future
+
+# Replay protection is private to Plumber, not part of the shared output
+# permission contract. Preserve nonce entries across image switches, repairing
+# ownership before dropping privileges. Never follow a redirected nonce root.
+nonce_dir="${SDM_EXECUTION_NONCE_DIR:-/app/outputs/.execution-nonces}"
+if [ -L "$nonce_dir" ]; then
+  echo "Refusing symlink execution nonce directory" >&2
+  exit 1
+fi
+prepare_runtime_dir "$nonce_dir"
+find "$nonce_dir" -xdev -type d -exec chmod u=rwx,go=,u-s,g-s {} +
 
 exec gosu sdm "$@"
