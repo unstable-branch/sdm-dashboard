@@ -10,7 +10,7 @@
 
 Open-source species distribution modelling (SDM) platform: upload occurrence records, clean them, fit and cross-validate models against climate and environmental layers, and review suitability maps, diagnostics and reproducible outputs from a browser.
 
-**Status: 3.0.0 release candidate.** 3.0 is the first stable line of the modern platform. Validate ecological outputs carefully before operational use; see [Known limitations](#known-limitations).
+**3.0 release line.** See [GitHub Releases](https://github.com/unstable-branch/sdm-dashboard/releases) for published versions and [project status](docs/STATUS.md) for acceptance evidence. Validate ecological outputs carefully before operational use; see [Known limitations](#known-limitations).
 
 <p align="center">
   <a href="docs/images/demo.gif"><img src="docs/images/demo.gif" width="600" alt="Upload, clean, model and review a koala distribution model"></a>

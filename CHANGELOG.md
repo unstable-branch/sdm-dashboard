@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-11
+
+First stable release line of the authenticated web platform. Includes the fixes documented in rc.2 through rc.4: production configuration, browser workflow, climate registration, map security policy and image-variant ownership repair.
+
+### Fixed
+
+- Completed, failed and cancelled run durations use recorded start/end timestamps, including when reopened hours later. Missing timing is shown explicitly rather than counting time since an already finished run began.
+
+### Deployment scope
+
+- One Plumber replica and one queue worker; multi-replica execution is not supported in 3.0.
+- CPU default, optional CUDA, experimental ROCm Python PyTorch bridge. DNN and advanced backends retain their documented limitations.
+- Use the tagged repository checkout and release image-digest environment file. Production browser sessions require HTTPS except on localhost.
+- See [project status](docs/STATUS.md) for acceptance evidence and its limits, and [production deployment](docs/PRODUCTION.md) for backups and upgrade rehearsal requirements.
+
 ## [3.0.0-rc.4] - 2026-10-11
 
 Repairs startup ownership when changing Plumber image variants on existing volumes.
