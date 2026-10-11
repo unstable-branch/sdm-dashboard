@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0-rc.3] - 2026-10-11
+
+Third release candidate. A clean install of the published `v3.0.0-rc.2` images, following only the README, found six problems that CI could not see because it never ran the production nginx or `.env.example`. All are fixed here.
+
+### Fixed
+
+- **`.env.example` lacked `CSRF_SECRET`**, so the first `docker compose up` failed. Added it, plus commented `AMD_VIDEO_GID`/`AMD_RENDER_GID`.
+- **nginx refused to start:** `limit_req_zone` was declared inside `server {}`.
+- **nginx rate limit returned 503 to normal use:** 30 requests/minute could not cover the dashboard's status polling. Now a coarse 10 r/s guard returning 429.
+- **Results map never rendered:** the production Content-Security-Policy blocked MapLibre's `blob:` workers and the CARTO basemap.
+- **A fresh climate download was invisible to the Model page** for up to an hour, because the scenario list (where downloads are registered) was cached. Runs were refused with "Current climate collection is unavailable".
+- **GBIF/ALA "Add to workspace" reported a timeout** although the save succeeded (15 s client deadline, server-side search takes longer).
+
+### Added
+
+- CI checks that `.env.example` defines every variable production Compose requires, and that `deploy/nginx.conf` loads in the pinned nginx image.
+
+### Changed
+
+- `docs/PRODUCTION.md`: production sessions require HTTPS (or `http://localhost`) because session cookies are `Secure`.
+- CI: non-locked R jobs install cached binary packages instead of compiling from source (about 28 to 8 minutes).
+
 ## [3.0.0-rc.2] - 2026-10-11
 
 Second release candidate for 3.0.0. `v3.0.0-rc.1` was tagged on 2026-10-10 but its release run was cancelled before any image or release was published; the tag was withdrawn and this candidate supersedes it. Single Plumber replica and single queue worker remain the supported topology; multi-replica execution is planned for 3.1.

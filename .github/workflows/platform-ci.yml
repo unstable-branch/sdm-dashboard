@@ -243,6 +243,13 @@ jobs:
           docker compose -f docker-compose.yml config
           docker compose -f docker-compose.dev.yml config
           docker compose -f docker-compose.prod.yml config
+          # .env.example must define every variable production Compose
+          # requires, and the production nginx config must load: neither is
+          # exercised by the dev-compose integration run below.
+          python3 scripts/check_env_example.py
+          img=$(grep -m1 -o 'docker.io/library/nginx:[^ ]*' docker-compose.prod.yml)
+          docker run --rm -v "$PWD/deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+            --add-host frontend:127.0.0.1 --add-host api:127.0.0.1 "$img" nginx -t
 
       # Shared dist must be present before the bake step: the API and
       # frontend Dockerfiles consume it and skip the shared-package rebuild.

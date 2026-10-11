@@ -37,9 +37,12 @@ vi.mock("../middleware/rate-limit.js", () => ({
   climateRateLimit: vi.fn(async (_c: any, next: any) => await next()),
   longCache: vi.fn(async (_c: any, next: any) => await next()),
 }));
-vi.mock("../middleware/cache.js", () => ({
-  longCache: vi.fn(async (_c: any, next: any) => await next()),
-}));
+// A cache that always serves a stale empty list, so any route that applies it
+// visibly returns stale data. /scenarios must not be cached.
+vi.mock("../middleware/cache.js", () => {
+  const stale = vi.fn(async (c: any) => { c.header("X-Cache", "HIT"); return c.json({ scenarios: [] }); });
+  return { longCache: stale, cacheResponse: vi.fn(() => stale), invalidateCache: vi.fn() };
+});
 vi.mock("../middleware/auth.js", () => ({
   authMiddleware: vi.fn(async (c: any, next: any) => {
     c.set("user", { id: "11111111-1111-4111-8111-111111111111", email: "test@example.com", role: mocks.role });
@@ -121,6 +124,26 @@ describe("climate routes — Plumber unavailability propagation", () => {
 
       expect(res.status).toBe(200);
       await expect(res.json()).resolves.toEqual({ scenarios: [] });
+    });
+
+    it("reflects a newly downloaded collection immediately (not served from cache)", async () => {
+      // A first visit sees no climate data; after a download completes the very
+      // next request must register and return it, or the Model page reports
+      // "Current climate collection is unavailable" until a cache expires.
+      mocks.getClimateScenarios.mockResolvedValueOnce({ scenarios: [] });
+      const before = await testApp().request("/climate/scenarios");
+      await expect(before.json()).resolves.toEqual({ scenarios: [] });
+
+      mocks.getClimateScenarios.mockResolvedValueOnce({ scenarios: [{
+        id: "wc_current", type: "current", source: "worldclim", resolution: 10,
+        manifest_path: "/safe/climate.json", status: "completed",
+      }] });
+      const after = await testApp().request("/climate/scenarios");
+
+      expect(after.headers.get("X-Cache")).toBeNull();
+      const body = await after.json();
+      expect(body.scenarios).toHaveLength(1);
+      expect(body.scenarios[0].climateCollectionId).toBe("22222222-2222-4222-8222-222222222222");
     });
 
     it("returns 502 with PLUMBER_UNAVAILABLE code on Plumber error", async () => {
