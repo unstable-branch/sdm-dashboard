@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Loader2, CheckCircle2, XCircle, Clock, X, Ban } from "lucide-react";
 import { apiPost, apiGet } from "@/services/api";
 import { extractStage, extractProgressPercent } from "@sdm/shared";
+import { jobDurationMs } from "./job-duration";
 
 interface JobProgressProps {
   jobId: string | null;
@@ -28,7 +29,8 @@ const stateIcons: Record<string, React.ReactNode> = {
   cancelled: <Ban className="h-4 w-4 text-sdm-warning" />,
 };
 
-function formatElapsed(ms: number): string {
+function formatElapsed(ms: number | null): string {
+  if (ms === null) return "Duration unavailable";
   const totalSec = Math.floor(ms / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
@@ -51,7 +53,8 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
   const [dismissed, setDismissed] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const [elapsed, setElapsed] = useState<number | null>(null);
+  const [timing, setTiming] = useState<{ jobId: string; startedAt?: string; completedAt?: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Polling fallback — fetches status directly when SSE has no matching job
@@ -76,11 +79,12 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
   const lastPollErrorRef = useRef(0);
   const pollErrorThreshold = 6;
 
+  const terminalTimingReady = timing?.jobId === jobId && !!timing?.completedAt;
   useEffect(() => {
     if (!jobId) return;
     // Skip polling when SSE is connected and job is tracked by SSE
     if (connected && job && !isSyntheticPlaceholder) {
-      if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") {
+      if (terminalTimingReady && (job.state === "completed" || job.state === "failed" || job.state === "cancelled")) {
         setPolledJob(null); // SSE is authoritative for terminal states — clear polling
         return;
       }
@@ -93,6 +97,7 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
       try {
         const status = await apiGet<Record<string, unknown>>(`/api/v1/sdm/status/${jobId}`);
         if (cancelled) return;
+        setTiming({ jobId, startedAt: typeof status.started_at === "string" ? status.started_at : undefined, completedAt: typeof status.completed_at === "string" ? status.completed_at : undefined });
         lastPollErrorRef.current = 0;
         const plumberStatus = (status.status as string) || "unknown";
         const logs = Array.isArray(status.progress_log) ? status.progress_log : [];
@@ -131,7 +136,7 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
     const initialTimer = setTimeout(poll, initialDelay);
     const interval = setInterval(poll, 5000);
     return () => { cancelled = true; clearTimeout(initialTimer); clearInterval(interval); };
-  }, [jobId, job, isSyntheticPlaceholder]);
+  }, [jobId, job, isSyntheticPlaceholder, connected, terminalTimingReady]);
 
   // Use SSE job when it has real data, otherwise fall back to polling
   // Merge progressJson, currentStage, logs from polling when SSE lacks them
@@ -158,21 +163,17 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
     return rawJob;
   }, [job, polledJob, isSyntheticPlaceholder]);
 
+  const recordedStart = timing?.jobId === jobId ? timing.startedAt : undefined;
+  const recordedEnd = timing?.jobId === jobId ? timing.completedAt : undefined;
   useEffect(() => {
-    if (!startTime && !effectiveJob) return;
-    if (effectiveJob && (effectiveJob.state === "completed" || effectiveJob.state === "failed" || effectiveJob.state === "cancelled")) {
-      const startMs = startTime ? new Date(startTime).getTime() : Date.now();
-      setElapsed(Date.now() - startMs);
-      return;
-    }
-    const startMs = startTime ? new Date(startTime).getTime() : Date.now();
-    const tick = () => setElapsed(Date.now() - startMs);
+    const tick = () => setElapsed(jobDurationMs(effectiveJob?.state, recordedStart ?? startTime, recordedEnd, Date.now()));
     tick();
+    if (["completed", "failed", "cancelled"].includes(effectiveJob?.state ?? "")) return;
     timerRef.current = setInterval(tick, 1000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [startTime, effectiveJob?.state]);
+  }, [jobId, startTime, recordedStart, recordedEnd, effectiveJob?.state]);
 
   // The finished panel stays mounted (with its results link) until dismissed or
   // replaced by a new run. onComplete only fires when this mount watched the run
@@ -357,7 +358,7 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
       {effectiveJob.state === "completed" && (
         <div className="flex items-center justify-between">
           <span className="text-sm text-green-500">
-            Job completed in {formatElapsed(elapsed)}.
+            {elapsed === null ? "Job completed. Duration unavailable." : `Job completed in ${formatElapsed(elapsed)}.`}
           </span>
           {completedActions}
         </div>
@@ -365,7 +366,7 @@ export function JobProgress({ jobId, onComplete, onDismiss, onCancel, startTime,
 
       {effectiveJob.state === "cancelled" && (
         <div className="text-sm text-sdm-warning">
-          Run cancelled after {formatElapsed(elapsed)}.
+          {elapsed === null ? "Run cancelled. Duration unavailable." : `Run cancelled after ${formatElapsed(elapsed)}.`}
         </div>
       )}
     </div>
