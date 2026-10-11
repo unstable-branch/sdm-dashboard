@@ -9,7 +9,7 @@ license: MIT
 repository-code: "https://github.com/unstable-branch/sdm-dashboard"
 url: "https://github.com/unstable-branch/sdm-dashboard"
 date-released: "2026-10-11"
-version: "3.0.0-rc.3"
+version: "3.0.0-rc.4"
 keywords:
   - species distribution modelling
   - presence-only
