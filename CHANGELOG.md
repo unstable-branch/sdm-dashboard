@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0-rc.4] - 2026-10-11
+
+Repairs startup ownership when changing Plumber image variants on existing volumes.
+
 ### Fixed
 
 - Plumber now repairs private execution-nonce and runtime-directory ownership when switching image variants with different service UIDs. Existing nonce entries are retained and the nonce directory remains owner-only; signature and replay validation are unchanged.
