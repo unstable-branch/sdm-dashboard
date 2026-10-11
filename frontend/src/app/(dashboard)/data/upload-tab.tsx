@@ -20,6 +20,10 @@ import type { UploadFile } from "@/services/types";
 import type { WorkspaceFile, OccurrencePoint } from "./types";
 import { readCleanedCount } from "./cleaned-counts";
 
+// GBIF/ALA save re-runs the search on the server (API polls Plumber for up to
+// 120 s), so allow longer than the default 15 s request deadline.
+const SOURCE_SAVE_TIMEOUT_MS = 150_000;
+
 const CC_TESTS_OPTIONS = [
   { value: "sea", label: "Sea" },
   { value: "capitals", label: "Capitals" },
@@ -98,9 +102,10 @@ export function UploadTab({
     setGbifSaving(true);
     try {
       const nRecords = Number(gbifResult.n_records || 0);
+      // The API re-runs the search server-side (up to 120 s) before saving.
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/gbif/save", {
         taxon: gbifResult.taxon, country: gbifResult.country, max_records: gbifResult.max_records,
-      });
+      }, { timeout: SOURCE_SAVE_TIMEOUT_MS });
       const rawAssetId = (result.rawAssetId || result.raw_asset_id) as string | undefined;
       if (!rawAssetId) throw new Error("GBIF save completed without a canonical rawAssetId");
       const fakeFile: UploadFile = {
@@ -168,9 +173,10 @@ export function UploadTab({
     setAlaSaving(true);
     try {
       const nRecords = Number(alaResult.n_records || 0);
+      // The API re-runs the search server-side (up to 120 s) before saving.
       const result = await apiPost<Record<string, unknown>>("/api/v1/data/occurrences/ala/save", {
         taxon: alaResult.taxon, country: alaResult.country, max_records: alaResult.max_records,
-      });
+      }, { timeout: SOURCE_SAVE_TIMEOUT_MS });
       const rawAssetId = (result.rawAssetId || result.raw_asset_id) as string | undefined;
       if (!rawAssetId) throw new Error("ALA save completed without a canonical rawAssetId");
       const fakeFile: UploadFile = {

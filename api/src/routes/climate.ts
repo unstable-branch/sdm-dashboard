@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { plumberClient } from "../services/plumber.js";
 import { climateRateLimit } from "../middleware/rate-limit.js";
-import { longCache } from "../middleware/cache.js";
 import { authMiddleware, optionalAuth } from "../middleware/auth.js";
 import type { AppEnv } from "../middleware/auth.js";
 import { logAction, extractClientInfo } from "../services/audit.js";
@@ -105,7 +104,10 @@ climateRoutes.use("/delete/*", authMiddleware);
 climateRoutes.use("/status/*", authMiddleware);
 climateRoutes.use("*", optionalAuth);
 
-climateRoutes.get("/scenarios", authMiddleware, longCache, async (c) => {
+// Not cached: this handler is where completed downloads are registered as
+// climate collections, and a cached (often empty) list would hide a fresh
+// download from the Model page until the cache expired.
+climateRoutes.get("/scenarios", authMiddleware, async (c) => {
   try {
     const user = c.get("user");
     const response = await plumberClient.withUser(user.id).withRole(user.role).getClimateScenarios();

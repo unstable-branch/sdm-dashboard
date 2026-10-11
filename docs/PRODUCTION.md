@@ -102,6 +102,8 @@ server {
 
 For a public hostname, put this stack behind normal HTTPS termination and restrict admin surfaces. Do not expose Postgres, Redis, Garage admin APIs, Prometheus, or Grafana to the public internet without authentication and firewall rules.
 
+Serve users over HTTPS. In production the API issues `Secure` session cookies, which browsers only keep over HTTPS (or on `http://localhost`). Over plain HTTP on a LAN address or hostname, registration succeeds but users are not kept signed in. `SDM_PUBLIC_URL` must match the exact origin users open, including `https://`.
+
 ## Release Images
 
 A validated SemVer tag publishes five GHCR repositories:
